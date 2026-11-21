@@ -21,23 +21,25 @@ struct CloseCircleButton: View {
 }
 
 extension View {
-    /// The frosted glass every panel of the map screen is drawn on.
+    /// The frosted glass every panel of the map screen is drawn on — the range bubble, the
+    /// explorer's result card and the screen's three menus, all of which are drawn **in the map
+    /// screen itself**.
     ///
     /// **Liquid Glass** (`glassEffect`) rather than a `Material`: over a dark map a material —
     /// even `.ultraThin` — is a grey plate with a blur on it, while the glass keeps its lit edge
-    /// and lets the streets read through it. The shape is the panel's own, so the bottom corners
-    /// stay square where the sheet meets the screen edge.
+    /// and lets the streets read through it. The 16 pt corner is the one the result card carries.
     ///
-    /// `presentationBackgroundInteraction(.enabled)` because the system otherwise dims whatever is
-    /// behind the sheet, and glass over something dimmed has nothing left to be glass over.
-    func glassPanel(cornerRadius: CGFloat = 12) -> some View {
-        glassEffect(.regular, in: UnevenRoundedRectangle(topLeadingRadius: cornerRadius,
-                                                         bottomLeadingRadius: 0,
-                                                         bottomTrailingRadius: 0,
-                                                         topTrailingRadius: cornerRadius,
-                                                         style: .continuous))
-            .presentationBackground(.clear)
-            .presentationBackgroundInteraction(.enabled)
+    /// A menu is drawn here rather than presented as a sheet on purpose. A half-height sheet is
+    /// given a glass panel **by the system** — Apple's own note on adopting Liquid Glass: "half
+    /// sheets are inset from the edge of the display", with the glass the design gives them — and
+    /// no value of `presentationBackground` removes it (measured on iOS 27: the card keeps its
+    /// blurred panel whatever that modifier is told, and only an opaque colour painted over it
+    /// hides it). The card is also the full width of the window, so on the Duo it lies over the
+    /// screen's rail — the toolbar and the tab registers — and no panel drawn inside it can stop
+    /// short of that. Drawn in the map screen, a menu keeps the insets the range bubble and the
+    /// card keep (`MapTabView.menuPanel`) and never touches the screen's chrome.
+    func glassPanel() -> some View {
+        glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

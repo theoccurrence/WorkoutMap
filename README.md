@@ -16,7 +16,7 @@ desaturated Apple map and lets you filter them by week / month / year.
 | **Workouts** | Chronological list of every walk / run / ride with distance, date and a small map thumbnail of the route. Tapping a row opens the detail screen. |
 | **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as circle buttons on the opposite side. The map can be panned, pinched and turned with two fingers. The share button exports the current map as an image card. The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`); tapping the map itself brings the range's label back. |
 | **Map styles** | Apple Maps' own *Map Modes* panel: **Explore**, **Driving** (live traffic), **Transit** (stations only), **Satellite** (imagery) and **Legacy** — the grey map the app shipped with, which is also what it opens with. Each tile is Maps' own artwork for the style (the grey Explore tile for **Legacy**), so the panel is complete the moment it opens. The choice is kept in the settings, and the detail screen and the export card draw the map in it as well. The map itself — and every preview of it — is drawn in the system's own light or dark style, or in the one pinned under *Map Appearance*; **Legacy** is the grey map the app shipped with and stays dark either way. |
-| **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a sheet: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map. Tapping one of the alternates on the map picks it, the same as tapping its pill on the card. Once Go is tapped the map shows that one route alone and the Go and the cross give way to a red **Stop**; the card can be swiped up out of the way without ending anything, and the binoculars bring it back — or open the sheet again to plan another one. The route stays until Stop, a new plan, or a relaunch. The pin carries an info bubble with the name the geocoder resolved, the address, **how far away it is** (live, as the user walks) and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
+| **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a panel: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map. Tapping one of the alternates on the map picks it, the same as tapping its pill on the card. Once Go is tapped the map shows that one route alone and the Go and the cross give way to a red **Stop**; the card can be swiped up out of the way without ending anything, and the binoculars bring it back — or open the panel again to plan another one. The route stays until Stop, a new plan, or a relaunch. The pin carries an info bubble with the name the geocoder resolved, the address, **how far away it is** (live, as the user walks) and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
 | **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered — feedback, share app, about, contact. |
 
 Detail screen: map with the route, workout type, date, weather (temperature and
@@ -84,10 +84,10 @@ variables (Debug builds only):
 | `WM_FAKE_LOCATION="lat,lon"` | Publishes a fixed position (checks the dot) |
 | `WM_FAKE_HEADING=<degrees\|cycle>` | Stands in for the compass (checks the cone, and that it turns while the dot stands still) |
 | `WM_FAKE_DEVICE_ORIENTATION=portrait\|upsideDown\|landscapeLeft\|landscapeRight` | Stands in for the pose the compass correction is computed from |
-| `WM_START_PLANNER=1` | Opens the explorer's sheet |
+| `WM_START_PLANNER=1` | Opens the explorer's panel |
 | `WM_PLAN_MODE=loop\|destination` | Pre-selects the explorer's mode |
 | `WM_PLAN_KM=5` | Pre-fills the explorer's distance |
-| `WM_PLAN_AUTORUN=1` | Plans a route straight after launch (checks the whole path without the sheet) |
+| `WM_PLAN_AUTORUN=1` | Plans a route straight after launch (checks the whole path without the panel) |
 | `WM_PLAN_GO=1` | Taps Go as soon as a route has been planned |
 | `WM_PLAN_SHAPE=0\|0.5\|1` | Pre-sets the explorer's route shape (checks the wide/tight setting) |
 | `WM_PLAN_ROUTES=1..5` | Pre-sets how many routes are offered |
@@ -95,6 +95,7 @@ variables (Debug builds only):
 | `WM_TAP_DELAY=<seconds>` | Moves the `WM_TAP_AT` tap back, so it can land after a plan has arrived |
 | `WM_HIDE_CARD=1` | Swipes the explorer's result card away a few seconds after it appears |
 | `WM_SELECT_PIN=1` | Opens the dropped pin's info bubble (the simulator cannot tap the map from the command line) |
+| `WM_FOCUS_SEARCH=1` | Focuses the explorer's search field at launch, so the room the keyboard leaves the panel can be seen |
 | `WM_PIN_DELETE=1` | Fires that bubble's bin a moment later, through the delegate method the bin calls |
 | `WM_FAKE_PLAN=1` | Replaces `MKDirections` with a fixture, so the explorer runs without a network |
 | `WM_FAKE_PIN="lat,lon"` | Drops the destination pin at launch |
@@ -117,8 +118,8 @@ WorkoutMap/
   Theme/       Palette (measured colours), Metrics (measured geometry), Formatters,
                SystemAppearance (the phone's own light/dark style), ControlAppearance
   Views/       RootView (TabView), WorkoutsListView, WorkoutCardView, WorkoutDetailView,
-               MapTabView, RouteMapView, RangePickerSheet, MapModeSheet, ExportPreviewView,
-               SettingsView, RoutePlannerSheet, PlannedRouteBar
+               MapTabView, RouteMapView, RangePickerPanel, MapModePanel, ExportPreviewView,
+               SettingsView, RoutePlannerPanel, PlannedRouteBar
 ```
 
 Notes on the map rendering, all measured from the original app:
@@ -151,13 +152,12 @@ Notes on the map rendering, all measured from the original app:
   image per style and appearance: five `MKMapSnapshotter` runs per opening, arriving one by
   one while the panel sat half empty, was what the panel used to be, and the artwork is what
   Maps itself shows. `MapImageRenderer.modeThumbnail` and `MapMode.previewTone` went with it.
-  The tiles are square and take everything the sheet
+  The tiles are square and take everything the panel
   has to give up to 96 pt (a 12 pt inset and an 8 pt gap between them, so the row fills the
-  card instead of leaving wide margins). On the folded panel the sheet's *content* is laid
-  out beside the rail — measured: a 374 pt content area in a 466 pt card, 76 pt narrower —
-  and a row centred in there sits visibly off to one side (which side depending on where the
-  rail is), so the panel ignores the container's horizontal safe area: the card covers that
-  strip anyway.
+  card instead of leaving wide margins). The row is centred on the panel itself: on the folded
+  panel the window's rail takes 84 pt of the card's width (measured: a 374 pt content area in a
+  466 pt window), and a row centred in the content area beside it would sit visibly off to one
+  side — which side depending on where the rail is.
 * The **map's light/dark style** is `MapAppearance` (Setting ▸ *Map Appearance*): `system`,
   `light` or `dark`, resolved against the phone's own setting. The app itself is pinned to dark
   (`WorkoutMapApp`'s `.preferredColorScheme(.dark)`; the plist's `UIUserInterfaceStyle` was
@@ -364,7 +364,7 @@ Notes on the map rendering, all measured from the original app:
   * `CoverageStore` builds that index over **every** workout, not the range the map is filtered
     to: "where have I never been" is not a question about the current filter. The routes already
     on disk are read first, so the first plan is instant; the rest are pulled from Health four
-    at a time and folded in, and the sheet says so while that is still running.
+    at a time and folded in, and the panel says so while that is still running.
   * `MKDirections` knows no waypoints, so a route is a handful of point-to-point legs stitched
     into one polyline — and both shapes are a **zigzag sized so its straight-line length is the
     distance asked for**. That is what the *Route Shape* setting steers: how many legs the zigzag
@@ -428,17 +428,25 @@ Notes on the map rendering, all measured from the original app:
     nothing below the resting place at all, the offset is a **rubber band** (`UIScrollView`'s own
     `(x·d·c)/(d + c·x)`) rather than a clamp: the pull still moves the card, by less and less, so
     the edge gives instead of stopping dead. The explorer's button brings it back down, or opens
-    the sheet again when it is already up. The card clears the top of the screen by its own
+    the panel again when it is already up. The card clears the top of the screen by its own
     height plus the gap it sits below, so nothing has to be clipped to hide it — clipping the
     overlay column is what used to cut the top off the range bubble.
   * **Every panel of the map screen is glass**, through one modifier (`View.glassPanel()`): the
-    explorer's sheet, its result card, the range bubble, the calendar picker and the map-style
-    picker. **Liquid Glass** (`glassEffect`) rather than a `Material`, because over a dark map a
-    material — even `.ultraThin` — is a grey plate with a blur on it: it neither lights its own
-    edge nor reads as glass, while the glass does both and still keeps the text readable. The
-    sheets ask for `presentationBackgroundInteraction(.enabled)` too, since the system otherwise
-    dims the map behind them and glass over something dimmed has nothing left to be glass over.
-    The explorer sheet's own fields (the search box, the results, the chosen destination) are
+    explorer's result card, the range bubble and the screen's three menus — the explorer's input
+    panel, the calendar picker and the map-style picker. **Liquid Glass** (`glassEffect`) rather
+    than a `Material`, because over a dark map a material — even `.ultraThin` — is a grey plate
+    with a blur on it: it neither lights its own edge nor reads as glass, while the glass does
+    both and still keeps the text readable. The **menus are drawn in the map screen itself**
+    (`MapTabView.menuPanel`) rather than presented as sheets, and that is not a style choice: a
+    half-height sheet is handed a glass panel of the system's own — Apple's note on adopting
+    Liquid Glass: "half sheets are inset from the edge of the display" — and no value of
+    `presentationBackground` removes it (measured on iOS 27: the card keeps its blurred panel
+    whatever the modifier is told, and only an opaque colour painted over it hides it). That card
+    is also the full width of the window, so on the Duo it lies over the rail the screen's toolbar
+    and tab registers live in. Drawn in the map screen instead, a menu keeps the width the range
+    bubble and the result card keep — reaching the rail without touching it — and is handed the
+    room the keyboard leaves it, so it shrinks rather than pushing its own header off the screen.
+    The explorer panel's own fields (the search box, the results, the chosen destination) are
     `.thinMaterial` over it, and every panel's close cross is **white** — black read as a hole
     punched in the glass. The flat `Palette.sheetCard` / `Palette.pickerGlass` fills went with
     it. The export card is the one exception: it is a full-screen viewer for the image it

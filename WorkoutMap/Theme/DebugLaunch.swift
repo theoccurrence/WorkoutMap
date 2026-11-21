@@ -11,6 +11,7 @@ enum DebugLaunch {
     static var startTab: Int { Int(env["WM_START_TAB"] ?? "0") ?? 0 }
     static var openDetail: Bool { env["WM_START_DETAIL"] == "1" }
     static var openExport: Bool { env["WM_START_EXPORT"] == "1" }
+    /// WM_START_SHEET=1 opens the calendar picker (the flag keeps the name it shipped with).
     static var openSheet: Bool { env["WM_START_SHEET"] == "1" }
     static var startCategory: WorkoutCategory? { env["WM_START_CATEGORY"].flatMap(WorkoutCategory.init(rawValue:)) }
     /// WM_START_MODE=explore|driving|transit|satellite|legacy picks the map style.
@@ -75,6 +76,9 @@ enum DebugLaunch {
     /// WM_SELECT_PIN=1 opens the pin's info bubble at launch — the simulator offers no way to
     /// tap the map from the command line.
     static var selectPin: Bool { env["WM_SELECT_PIN"] == "1" }
+    /// WM_FOCUS_SEARCH=1 puts the explorer's search field in focus at launch, so the room the
+    /// keyboard leaves the panel can be seen (the simulator offers no way to type into it).
+    static var focusSearch: Bool { env["WM_FOCUS_SEARCH"] == "1" }
     /// WM_PIN_DELETE=1 fires the bubble's bin a moment later, through the very delegate method
     /// the bin calls.
     static var pinDelete: Bool { env["WM_PIN_DELETE"] == "1" }
@@ -165,6 +169,7 @@ enum DebugLaunch {
     static var fakePlan: Bool { false }
     static var fakePin: CLLocationCoordinate2D? { nil }
     static var selectPin: Bool { false }
+    static var focusSearch: Bool { false }
     static var pinDelete: Bool { false }
     static var tapDelay: Double { 4 }
     static var hideCard: Bool { false }

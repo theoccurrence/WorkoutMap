@@ -29,7 +29,7 @@ struct MapTabView: View {
     /// The route the user last tapped. While one is selected the range bubble shows its own
     /// date and time instead of the range's label.
     @State private var tappedRouteID: String?
-    @State private var showSheet = DebugLaunch.openSheet
+    @State private var showRange = DebugLaunch.openSheet
     @State private var showModes = DebugLaunch.openModes
     @State private var showExport = DebugLaunch.openExport
     @State private var visibleMapRect: MKMapRect?
@@ -327,23 +327,10 @@ struct MapTabView: View {
         // The explorer's index covers every workout, so it is rebuilt when the workout set
         // changes rather than when the map's range does.
         .task(id: health.workouts.count) { coverage.update(workouts: health.workouts) }
-        .sheet(isPresented: $showPlanner) {
-            RoutePlannerSheet(mode: $planMode,
-                              kilometers: $planKilometers,
-                              destination: $planDestination,
-                              droppedPin: droppedPin,
-                              region: currentRegion,
-                              isReadingRoutes: coverage.isFilling,
-                              onPlan: { startPlanning($0) })
-        }
-        .sheet(isPresented: $showSheet) {
-            RangePickerSheet(selection: $selection, workouts: health.workouts)
-        }
-        .sheet(isPresented: $showModes) {
-            MapModeSheet(mode: $mapMode,
-                         appearance: mapAppearance,
-                         systemStyle: systemAppearance.style)
-        }
+        // The screen's menus are drawn in the map screen itself (`menuPanel`), not presented as
+        // sheets: see `View.glassPanel()` for what a half-height sheet's card does to the Duo's
+        // rail. The export preview is the one cover: a full-screen viewer for the image it
+        // produces rather than a panel over the map.
         .fullScreenCover(isPresented: $showExport) {
             ExportPreviewView(workout: mostRecentInFilter,
                               rangeLabel: rangeBubbleText,
@@ -371,8 +358,9 @@ struct MapTabView: View {
     /// cut-out's side, which is the left one when the phone is folded and turned that way.
     private var filtersOnTrailingEdge: Bool { windowInsets.left > windowInsets.right }
 
-    /// The distance from the screen's bottom edge to the filters' bottom edge.
-    private var filterBottomInset: CGFloat {
+    /// The distance from the screen's bottom edge to the bottom edge of the overlays that keep to it
+    /// — the filter column, and the menu panels, which sit where the filters do.
+    private var overlayBottomInset: CGFloat {
         // Sideways on the folded panel the rail's own edge is the one to keep to: it sits
         // at the rail's normal 23 pt in the rotation with the rail on the left, and the
         // camera cut-out pushes it far up in the other one. The bar cannot be measured
@@ -487,7 +475,7 @@ struct MapTabView: View {
                     if !filtersOnTrailingEdge { Spacer(minLength: 0) }
                 }
                 .padding(.horizontal, Metrics.screenInset)
-                .padding(.bottom, filterBottomInset)
+                .padding(.bottom, overlayBottomInset)
             }
             // Measured against the display edges rather than the safe area: the bubble keeps
             // the gap below the top of the screen that it has below the grey bar in the
@@ -507,7 +495,63 @@ struct MapTabView: View {
                     .ignoresSafeArea()
             }
 
+            // The explorer's input, the calendar and the map-style picker, as the screen's own
+            // panels — above the controls, the way the sheets they used to be sat above them.
+            if showPlanner {
+                menuPanel { room in
+                    RoutePlannerPanel(mode: $planMode,
+                                      kilometers: $planKilometers,
+                                      destination: $planDestination,
+                                      droppedPin: droppedPin,
+                                      region: currentRegion,
+                                      isReadingRoutes: coverage.isFilling,
+                                      room: room,
+                                      onClose: { showPlanner = false },
+                                      onPlan: { request in
+                                          showPlanner = false
+                                          startPlanning(request)
+                                      })
+                }
+            }
+            if showRange {
+                menuPanel { room in
+                    RangePickerPanel(selection: $selection,
+                                     workouts: health.workouts,
+                                     room: room,
+                                     onClose: { showRange = false })
+                }
+            }
+            if showModes {
+                menuPanel { room in
+                    MapModePanel(mode: $mapMode,
+                                 appearance: mapAppearance,
+                                 systemStyle: systemAppearance.style,
+                                 room: room,
+                                 onClose: { showModes = false })
+                }
+            }
         }
+    }
+
+    /// Where a menu panel of the map screen sits: the width the range bubble and the result card
+    /// keep, so the panel reaches the rail the Duo's toolbar and tab registers live in without
+    /// touching it, and clear of the tab bar's own top edge.
+    ///
+    /// The panel is handed the room it has to work with rather than a height of its own, so a
+    /// keyboard — which pushes the panel up but cannot make the screen taller — cannot take its
+    /// header and its close cross off the top. The container's own safe area is ignored (the panel
+    /// measures itself from the screen's edges, like the card does, instead of from the region left
+    /// over beside the rail); the keyboard's inset is what does the pushing, and it has to keep
+    /// doing it.
+    private func menuPanel<Content: View>(@ViewBuilder _ content: @escaping (CGFloat) -> Content) -> some View {
+        GeometryReader { proxy in
+            content(proxy.size.height - overlayBottomInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.leading, cardLeadingInset)
+                .padding(.trailing, cardTrailingInset)
+                .padding(.bottom, overlayBottomInset)
+        }
+        .ignoresSafeArea(.container)
     }
 
     /// Walk / Run / Ride as toolbar circles — symbol only, walk at the top, the selected
@@ -570,7 +614,7 @@ struct MapTabView: View {
             VStack(spacing: 0) {
                 toolbarButton("square.and.arrow.up", label: "Share") { showExport = true }
                 toolbarButton("calendar", label: "Pick a period") {
-                    if kind != .all { showSheet = true }
+                    if kind != .all { showRange = true }
                 }
                 .disabled(kind == .all)
                 Menu {
@@ -717,7 +761,7 @@ struct MapTabView: View {
 
     private var calendarToolbarItem: some View {
         Button {
-            if kind != .all { showSheet = true }
+            if kind != .all { showRange = true }
         } label: {
             Label("Pick a period", systemImage: "calendar")
         }

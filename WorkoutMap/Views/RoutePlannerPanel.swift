@@ -2,11 +2,18 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
-/// The explorer's input sheet: a loop or a walk to a destination, and how far.
+/// The explorer's input panel: a loop or a walk to a destination, and how far.
+///
+/// Drawn as one of the map screen's own overlays — the same kind of panel as the range bubble and
+/// the result card — rather than presented as a sheet. A half-height sheet is given a glass
+/// background by the system that `presentationBackground(.clear)` does not remove, and its card is
+/// the full width of the window: on the Duo that card lies over the screen's rail, the toolbar and
+/// the tab registers with it. Drawn in the map screen, the panel keeps the insets the other
+/// overlays keep (`MapTabView.cardLeadingInset`) and never touches that chrome.
 ///
 /// A destination is either a search result (`MKLocalSearchCompleter`, as Maps' own search does)
 /// or the pin the user dropped on the map — one pin at a time, a new one replacing the old.
-struct RoutePlannerSheet: View {
+struct RoutePlannerPanel: View {
     @Binding var mode: PlanMode
     @Binding var kilometers: Double
     @Binding var destination: PlanDestination?
@@ -16,14 +23,20 @@ struct RoutePlannerSheet: View {
     let region: MKCoordinateRegion?
     /// True while the routes that were not on disk yet are still being read.
     let isReadingRoutes: Bool
+    /// How much room the panel has to work with, so that the keyboard — which pushes the panel up
+    /// but cannot make it taller — never takes the header and the close cross off the screen.
+    let room: CGFloat
+    var onClose: () -> Void
     var onPlan: (PlanRequest) -> Void
 
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var search = DestinationSearch()
+    @FocusState private var searchFocused: Bool
 
     private var canPlan: Bool { mode == .loop || destination != nil }
 
-    private var detent: CGFloat { mode == .loop ? 340 : 560 }
+    /// The panel's own height: what the sheet it used to be was handed as a detent. The
+    /// destination needs the room for the search field, the results and the pin.
+    private var height: CGFloat { min(mode == .loop ? 340 : 560, room) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,21 +44,25 @@ struct RoutePlannerSheet: View {
             modePicker
             distance
             if mode == .destination {
-                destinationSection
+                // The destination part scrolls rather than growing: with the keyboard up there is
+                // not the room for it, and the header and Plan route have to stay where they are.
+                ScrollView { destinationSection }
+                    .scrollIndicators(.hidden)
+            } else {
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
             PrimaryButton(title: "Plan route") { plan() }
                 .opacity(canPlan ? 1 : 0.4)
                 .disabled(!canPlan)
                 .padding(.horizontal, Metrics.screenInset)
-                .padding(.bottom, 23)
+                .padding(.bottom, 16)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(height: height)
         .glassPanel()
-        .presentationDetents([.height(detent)])
-        .presentationDragIndicator(.hidden)
-        .presentationCornerRadius(12)
-        .onAppear { search.region = region }
+        .onAppear {
+            search.region = region
+            if DebugLaunch.focusSearch { searchFocused = true }
+        }
         .onChange(of: region?.center.latitude) { _, _ in search.region = region }
     }
 
@@ -56,7 +73,7 @@ struct RoutePlannerSheet: View {
                 .foregroundStyle(.white)
             HStack {
                 Spacer()
-                CloseCircleButton { dismiss() }
+                CloseCircleButton { onClose() }
             }
         }
         .padding(.horizontal, Metrics.contentInset)
@@ -132,6 +149,7 @@ struct RoutePlannerSheet: View {
                 .foregroundStyle(Palette.textSecondary)
             TextField("Search for a place", text: $search.query)
                 .textFieldStyle(.plain)
+                .focused($searchFocused)
                 .foregroundStyle(.white)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
@@ -248,7 +266,7 @@ struct RoutePlannerSheet: View {
                                   targetMeters: kilometers * 1000,
                                   destination: mode == .destination ? destination?.coordinate : nil,
                                   destinationName: mode == .destination ? destination?.name : nil)
-        dismiss()
+        onClose()
         onPlan(request)
     }
 }

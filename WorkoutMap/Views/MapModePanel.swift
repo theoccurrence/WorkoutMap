@@ -4,27 +4,36 @@ import MapKit
 /// The map style picker: Apple Maps' own "Map Modes" panel, with the app's grey map kept as
 /// the fifth entry, `Legacy`.
 ///
+/// Drawn as one of the map screen's own panels rather than presented as a sheet, so it keeps the
+/// screen's chrome (the Duo's rail and its tab registers) clear, and the row of tiles is centred
+/// on the panel itself whatever the window reserves at its edges. See `View.glassPanel()` for what
+/// a half-height sheet's card does to that chrome.
+///
 /// Every tile is bundled artwork — Maps' own for its four styles, the grey Explore tile for
 /// `Legacy` — so the panel is complete the moment it opens. The tiles were snapshots of the
 /// region the map was showing until now, which meant five `MKMapSnapshotter` runs per opening
 /// and an empty panel while they arrived.
-struct MapModeSheet: View {
+struct MapModePanel: View {
     @Binding var mode: MapMode
     /// The appearance setting and the system's own style, so every tile is the artwork of the
     /// style the map is being drawn in: light, dark, or — for `system` — whatever the phone is
     /// set to. `legacy` keeps its grey tile either way.
     let appearance: MapAppearance
     let systemStyle: UIUserInterfaceStyle
-
-    @Environment(\.dismiss) private var dismiss
+    /// How much room the panel has to work with (`MapTabView.menuPanel`).
+    let room: CGFloat
+    var onClose: () -> Void
 
     /// Square tiles, as in Maps. The row is as wide as the five of them and their gaps make
-    /// it, and the tiles take everything the sheet has to give up to `tileMax` — so they grow
+    /// it, and the tiles take everything the panel has to give up to `tileMax` — so they grow
     /// with the display instead of leaving the wide margins a fixed size would.
     private static let tileMax: CGFloat = 96
     private static let tileGap: CGFloat = 8
     private static let sideInset: CGFloat = 12
-    private static let detent: CGFloat = 200
+    private static let panelHeight: CGFloat = 200
+
+    /// The panel's own height: what the sheet it used to be was handed as a detent.
+    private var height: CGFloat { min(Self.panelHeight, room) }
 
     var body: some View {
         GeometryReader { proxy in
@@ -41,16 +50,8 @@ struct MapModeSheet: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        // On the folded panel the sheet's content is laid out beside the rail, 76 pt narrower
-        // than the card it is drawn in (measured: a 374 pt content area in a 466 pt window),
-        // and a row centred in there sits visibly off to one side — which side depending on
-        // where the rail is. The card covers that strip anyway, so the row is centred on the
-        // card instead.
-        .ignoresSafeArea(.container, edges: .horizontal)
+        .frame(height: height)
         .glassPanel()
-        .presentationDetents([.height(Self.detent)])
-        .presentationDragIndicator(.hidden)
-        .presentationCornerRadius(12)
     }
 
     private var header: some View {
@@ -60,7 +61,7 @@ struct MapModeSheet: View {
                 .foregroundStyle(.white)
             HStack {
                 Spacer()
-                CloseCircleButton { dismiss() }
+                CloseCircleButton { onClose() }
             }
         }
         .padding(.horizontal, Metrics.contentInset)

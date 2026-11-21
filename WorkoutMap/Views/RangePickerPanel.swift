@@ -1,14 +1,22 @@
 import SwiftUI
 
-struct RangePickerSheet: View {
+/// The range picker: the week / month / year the map is filtered to, as a wheel — drawn as one of
+/// the map screen's own panels rather than presented as a sheet, so it keeps the screen's chrome
+/// (the Duo's rail and its tab registers) clear, like the range bubble it is opened from. See
+/// `View.glassPanel()` for what a half-height sheet's card does to that chrome.
+struct RangePickerPanel: View {
     @Binding var selection: RangeSelection
     let workouts: [Workout]
-
-    @Environment(\.dismiss) private var dismiss
+    /// How much room the panel has to work with (`MapTabView.menuPanel`).
+    let room: CGFloat
+    var onClose: () -> Void
 
     @State private var weekOffset: Int = 0
     @State private var month: Int = 1
     @State private var year: Int = 2026
+
+    /// The panel's own height: what the sheet it used to be was handed as a detent.
+    private var height: CGFloat { min(358, room) }
 
     private var weekOffsets: [Int] { RangeSelection.weekOptions(from: workouts) }
     private var years: [Int] { RangeSelection.yearOptions }
@@ -18,15 +26,12 @@ struct RangePickerSheet: View {
             header
             wheels
             Spacer(minLength: 0)
-            PrimaryButton(title: "Done") { dismiss() }
+            PrimaryButton(title: "Done") { onClose() }
                 .padding(.horizontal, Metrics.screenInset)
-                .padding(.bottom, 23)
+                .padding(.bottom, 16)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(height: height)
         .glassPanel()
-        .presentationDetents([.height(358)])
-        .presentationDragIndicator(.hidden)
-        .presentationCornerRadius(12)
         .onAppear(perform: syncFromSelection)
         .onChange(of: weekOffset) { _, _ in pushSelection() }
         .onChange(of: month) { _, _ in pushSelection() }
@@ -40,7 +45,7 @@ struct RangePickerSheet: View {
                 .foregroundStyle(.white)
             HStack {
                 Spacer()
-                CloseCircleButton { dismiss() }
+                CloseCircleButton { onClose() }
             }
         }
         .padding(.horizontal, Metrics.contentInset)
