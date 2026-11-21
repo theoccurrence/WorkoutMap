@@ -32,8 +32,8 @@ enum DebugLaunch {
     /// WM_TAP_DELAY=<seconds> moves the `WM_TAP_AT` tap back, so it can land after a plan has
     /// arrived rather than before it.
     static var tapDelay: Double { Double(env["WM_TAP_DELAY"] ?? "") ?? 4 }
-    /// WM_HIDE_CARD=1 swipes the explorer's result card away a few seconds after it appears, so
-    /// the state the route stays in can be seen without a drag.
+    /// WM_HIDE_CARD=1 parks the explorer's result card a few seconds after it appears and brings
+    /// it back a few seconds later, so both states can be seen without a drag.
     static var hideCard: Bool { env["WM_HIDE_CARD"] == "1" }
     /// WM_SKIP_LOCATION=1 skips the location prompt (simulator screenshots).
     static var skipLocation: Bool { env["WM_SKIP_LOCATION"] == "1" }

@@ -78,9 +78,14 @@ struct MapTabView: View {
     /// True once Go was tapped: the route stays on the map until a new plan is started or the
     /// app is relaunched.
     @State private var planActive = false
-    /// Whether the result card is on screen. It can be swiped up out of the way without ending
-    /// anything, and the explorer's button brings it back.
-    @State private var cardShown = true
+    /// How far up the result card is being pulled right now, and how far it is parked once it has
+    /// been flicked away. The card follows the thumb rather than running a fixed animation on
+    /// release — a swipe that does not keep up with the finger does not feel like a swipe — so
+    /// both live in one offset that the drag writes and the release animates.
+    @State private var cardOffset: CGFloat = 0
+    @State private var cardParked = false
+    /// How far the card has to travel to be clear of the screen, measured from the card itself.
+    @State private var cardTravel: CGFloat = 200
     @State private var planTask: Task<Void, Never>?
 
     private var kind: RangeKind { selection.kind }
@@ -313,7 +318,9 @@ struct MapTabView: View {
             if DebugLaunch.planAutoRun { await autoPlan() }
             if DebugLaunch.hideCard {
                 try? await Task.sleep(for: .seconds(12))
-                withAnimation(.easeInOut(duration: 0.28)) { cardShown = false }
+                parkCard()
+                try? await Task.sleep(for: .seconds(8))
+                showCard()
             }
         }
         .task(id: reloadKey) { await reload() }
@@ -447,7 +454,7 @@ struct MapTabView: View {
                 if isPlanning {
                     planningBubble
                         .padding(.top, 10)
-                } else if let plan, cardShown {
+                } else if let plan {
                     PlannedRouteBar(plan: plan,
                                     selected: $selectedRoute,
                                     isActive: planActive,
@@ -458,10 +465,16 @@ struct MapTabView: View {
                         .padding(.leading, cardLeadingInset)
                         .padding(.trailing, cardTrailingInset)
                         .padding(.top, 10)
-                        // Swiped up and off the top of the screen; the clip on the column below
-                        // is what makes it leave rather than slide over the bubble.
-                        .transition(.move(edge: .top))
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                            // The card sits below the range bubble, so it has to travel its own
+                            // height plus that gap to be clear of the top of the screen.
+                            cardTravel = height + 90
+                        }
+                        .offset(y: cardOffset)
                         .gesture(cardDrag)
+                        // Off the top of the screen it is still laid out, so it must not keep
+                        // taking taps.
+                        .allowsHitTesting(!cardParked)
                 }
 
                 Spacer(minLength: 0)
@@ -524,8 +537,8 @@ struct MapTabView: View {
     /// so the route can be stopped and another one started from anywhere.
     private var exploreButton: some View {
         Button {
-            if (plan != nil || isPlanning) && !cardShown {
-                withAnimation(.easeInOut(duration: 0.3)) { cardShown = true }
+            if (plan != nil || isPlanning) && cardParked {
+                showCard()
             } else {
                 showPlanner = true
             }
@@ -626,7 +639,10 @@ struct MapTabView: View {
             .lineLimit(1)
             .padding(.horizontal, 13)
             .frame(height: Metrics.controlHeight)
-            .background(controlsAreLight ? Palette.surfaceLight : Palette.surface, in: Capsule())
+            // The same frosted glass as the explorer's own card, so the map shows through the
+            // pill rather than sitting under a grey plate.
+            .background(.regularMaterial, in: Capsule())
+            .environment(\.colorScheme, controlsAreLight ? .light : .dark)
     }
 
     /// What the screen shows while a route is being planned: `MKDirections` answers in about a
@@ -758,13 +774,37 @@ struct MapTabView: View {
 
     // MARK: - Explorer
 
-    /// Swiping the result card up puts it away without touching the route.
+    /// Dragging the result card up puts it away without touching the route.
+    ///
+    /// The card tracks the finger the whole way, and the release only decides which end it
+    /// settles at: past a third of the way off, or flicked fast enough that it *would* have got
+    /// there, it leaves; otherwise it springs back. The animation is a spring so the flick lands
+    /// with some weight instead of stopping dead.
     private var cardDrag: some Gesture {
-        DragGesture(minimumDistance: 14)
-            .onEnded { value in
-                guard value.translation.height < -36 else { return }
-                withAnimation(.easeInOut(duration: 0.28)) { cardShown = false }
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                cardOffset = min(0, value.translation.height)
             }
+            .onEnded { value in
+                let projected = min(value.translation.height, value.predictedEndTranslation.height)
+                let leaves = projected < -cardTravel / 3
+                cardParked = leaves
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                    cardOffset = leaves ? -cardTravel : 0
+                }
+            }
+    }
+
+    /// Brings the result card back down from wherever it is parked.
+    private func showCard() {
+        cardParked = false
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { cardOffset = 0 }
+    }
+
+    /// Puts it away again — the debug hook and the flicked-away state share this.
+    private func parkCard() {
+        cardParked = true
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { cardOffset = -cardTravel }
     }
 
     /// Picking one of the planned routes by tapping it on the map — the same choice the pills on
@@ -785,7 +825,8 @@ struct MapTabView: View {
         planActive = false
         plan = nil
         selectedRoute = 0
-        cardShown = true
+        cardParked = false
+        cardOffset = 0
 #if DEBUG
         let client: DirectionsClient = DebugLaunch.fakePlan
             ? FixtureDirectionsClient()

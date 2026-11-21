@@ -420,13 +420,19 @@ Notes on the map rendering, all measured from the original app:
     drawn at all: the map is the route being walked and nothing else.
   * The card is a state machine with an escape hatch. Before Go it offers the alternates and a
     cross that throws the plan away; after Go there is nothing left to pick between, so the pair
-    becomes one red **Stop**. The card can be **swiped up** and off the top of the screen without
-    touching the route — which needs the overlay column to be clipped, or it would slide over the
-    range bubble and fade out mid-screen instead — and the explorer's button brings it back down,
-    or opens the sheet again when it is already up. Both the card and the sheet are **frosted**
-    (`.regularMaterial`, the sheet's own fields `.thinMaterial` over it) rather than the flat
-    fills the older sheets use: the map shows through, and the material is opaque enough that the
-    distance and the share of new ways stay readable over it.
+    becomes one red **Stop**. Dragging it up **follows the finger**: the drag writes the card's
+    own offset — a swipe that does not keep up with the thumb does not feel like a swipe — and
+    only the release decides where it settles, leaving on a spring if it is past a third of the
+    way off or was flicked fast enough that it would have got there, and springing back if not.
+    The overlay column has to be clipped, or a card on its way out slides over the range bubble
+    and fades out mid-screen instead. The explorer's button brings it back down, or opens the
+    sheet again when it is already up.
+  * The explorer's surfaces are **frosted**, not flat: the result card and the range bubble use
+    `.regularMaterial`, and the planner's sheet `.ultraThinMaterial` — thinner than the rest,
+    because over a dark map a heavier material reads as a solid plate, and the streets have to
+    show through it for the glass to look like glass. The sheet's own fields (the search box, the
+    results, the chosen destination) are `.thinMaterial` over it. The sheets that shipped before
+    the explorer keep the flat fill they had.
   * The explorer is **independent** of the Walk / Run / Ride filters: it neither selects nor
     clears one, and a walk filter can be on while a planned route is on the map. That is also
     what makes the two comparable at a glance — a filter's routes and a planned route are drawn
