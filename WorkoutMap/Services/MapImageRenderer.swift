@@ -112,7 +112,8 @@ final class MapImageRenderer {
                 cg.setStrokeColor(route.color.cgColor)
                 cg.setLineWidth(route.width ?? lineWidth)
                 if let dash = route.dash {
-                    cg.setLineCap(.butt)
+                    // A round cap on a zero-length dash is the jump's dot — see `RouteJump`.
+                    cg.setLineCap(.round)
                     cg.setLineDash(phase: 0, lengths: dash)
                 } else {
                     cg.setLineCap(.round)
@@ -166,16 +167,21 @@ final class MapImageRenderer {
         let aspect = size.height > 1 ? size.width / size.height : 4
         let rect = MapImageRenderer.thumbnailMapRect(route: route.coordinates, aspect: aspect)
             ?? RouteGeometry.fitted(RouteGeometry.mapRect(for: route.coordinates.first ?? CLLocationCoordinate2D()))
-        // A jump is drawn a touch thinner than the route: 2.4 pt is what a thumbnail has room
-        // for, and the grey dashes stay legible beside it.
+        // A jump is dotted, and its dots are measured against the 2.4 pt the route itself is
+        // drawn at in a thumbnail, so they follow that weight instead of carrying one of their
+        // own.
+        let thumbnailRouteWidth: CGFloat = 2.4
         let drawing = route.drawing(style)
         var lines = drawing.walked.map { RouteLine(coordinates: $0, color: color) }
         lines += drawing.jumps.map {
-            RouteLine(coordinates: $0, color: RouteJump.uiColor, dash: RouteJump.dash, width: 1.8)
+            RouteLine(coordinates: $0,
+                      color: RouteJump.uiColor,
+                      dash: RouteJump.dotDash(routeWidth: thumbnailRouteWidth),
+                      width: RouteJump.dotDiameter(routeWidth: thumbnailRouteWidth))
         }
         let image = await image(mapRect: rect, size: size, scale: scale,
                                 routes: lines,
-                                lineWidth: 2.4,
+                                lineWidth: thumbnailRouteWidth,
                                 toneChroma: 0,
                                 toneScale: 0.29,
                                 toneOffset: 16)

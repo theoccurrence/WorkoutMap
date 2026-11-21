@@ -10,7 +10,7 @@ struct MapRouteLine: Equatable {
     /// planned route is drawn wider, with a casing under it (see `MapTabView.plannedLines`).
     var width: CGFloat = Metrics.routeWidth
     /// The dash pattern, in points, for a line that stands for ground the user did not cover —
-    /// a GPS jump. `nil` is a solid line.
+    /// a GPS jump, drawn as a row of dots (`RouteJump`). `nil` is a solid line.
     var dash: [CGFloat]? = nil
 
     static func == (lhs: MapRouteLine, rhs: MapRouteLine) -> Bool { lhs.id == rhs.id }
@@ -18,26 +18,30 @@ struct MapRouteLine: Equatable {
 
 extension MapRouteLine {
     /// One workout route as the lines it is drawn as: the stretches the user walked, in the
-    /// category's colour, and — where the setting asks for it — each GPS jump as a dashed grey
-    /// line of its own.
+    /// category's colour, and — where the setting asks for it — each GPS jump as a dotted grey
+    /// line of its own. A jump's dots are measured against `routeWidth`, so they follow the
+    /// weight the routes are drawn at rather than sit on a weight of their own.
     ///
     /// Every line's id is the workout's own with a suffix; `Coordinator.baseRouteID` cuts the
     /// suffix off again, so a tap anywhere on the route picks that workout.
     static func lines(for workout: Workout,
                       route: WorkoutRoute,
                       style: RouteJumpStyle,
-                      color: UIColor) -> [MapRouteLine] {
+                      color: UIColor,
+                      routeWidth: CGFloat = Metrics.routeWidth) -> [MapRouteLine] {
         let drawing = route.drawing(style)
         var lines = drawing.walked.enumerated().map { index, coordinates in
             MapRouteLine(id: "\(workout.id.uuidString)#\(index)",
                          coordinates: coordinates,
-                         color: color)
+                         color: color,
+                         width: routeWidth)
         }
         lines += drawing.jumps.enumerated().map { index, coordinates in
             MapRouteLine(id: "\(workout.id.uuidString)#jump\(index)",
                          coordinates: coordinates,
                          color: RouteJump.uiColor,
-                         dash: RouteJump.dash)
+                         width: RouteJump.dotDiameter(routeWidth: routeWidth),
+                         dash: RouteJump.dotDash(routeWidth: routeWidth))
         }
         return lines
     }
@@ -1096,9 +1100,9 @@ struct RouteMapView: UIViewRepresentable {
             renderer.lineWidth = group.width
             renderer.lineJoin = .round
             if let dash = group.dash {
-                // Square ends: a round cap would grow every dash by the line's width at each end
-                // and the gaps would close up, so the line would read as solid again.
-                renderer.lineCap = .butt
+                // A round cap on a zero-length dash is a circle — the jump's dot — and the
+                // pattern's second length is what keeps two of them apart.
+                renderer.lineCap = .round
                 renderer.lineDashPattern = dash.map { NSNumber(value: $0) }
             } else {
                 renderer.lineCap = .round

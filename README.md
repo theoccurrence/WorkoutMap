@@ -75,7 +75,7 @@ variables (Debug builds only):
 | `WM_START_MODE=explore\|driving\|transit\|satellite\|legacy` | Opens the map in that style |
 | `WM_START_MODES=1` | Opens the map style picker |
 | `WM_START_APPEARANCE=system\|light\|dark` | Draws the map light or dark (checks the appearance setting) |
-| `WM_START_JUMP_STYLE=dotted\|hidden\|solid` | Draws a GPS jump as a dashed grey line, not at all, or as the straight line the data holds |
+| `WM_START_JUMP_STYLE=dotted\|hidden\|solid` | Draws a GPS jump as a dotted grey line, not at all, or as the straight line the data holds |
 | `WM_SAMPLE_JUMPS=1` | Splices one errant fix into the sample routes (checks the GPS-jump setting) |
 | `WM_TAP_AT="x,y"` | Fires one tap on the map at those screen points (checks the route tap and the range bubble) |
 | `WM_MODE_COLORS="walk=FF00FF,run=00FFFF,ride=0000FF"` | Writes Walk / Run / Ride colours at launch through the same store the picker uses |
@@ -496,12 +496,14 @@ Notes on the map rendering, all measured from the original app:
   them — so nothing in the route itself marks it, and the cached route keeps one flag per fix
   beside the coordinates (`WMR1`; a cache file without that header is fetched from Health
   again rather than read as a route without any jumps). *Settings ▸ GPS Jumps* draws them the
-  way the Fitness app does — a grey dashed line, stroked with square ends so the dashes do not
-  close up into a solid line — hides them altogether, or leaves them solid as the app drew
-  them before. The walked stretches are split around every jump, which costs a handful of
-  polylines per workout and still one overlay — one draw call — per colour and dash pattern;
-  each jump line carries the workout's id with a suffix, which a tap cuts off again
-  (`Coordinator.baseRouteID`), so picking a route still picks that workout. Snapshots (card
-  thumbnails and the export card) stroke the same dashes into their pixels, and the thumbnail
-  cache key carries the setting so a cached image of the other one does not come back.
+  way the Fitness app does — a row of grey **dots**, each a zero-length dash stroked with a
+  round cap so the cap is the circle, and both the dot and its spacing measured against the
+  width the route itself is drawn at (`RouteJump`) — hides them altogether, or leaves them
+  solid as the app drew them before. The walked stretches are split around every jump, which
+  costs a handful of polylines per workout and still one overlay — one draw call — per colour
+  and dash pattern; each jump line carries the workout's id with a suffix, which a tap cuts off
+  again (`Coordinator.baseRouteID`), so picking a route still picks that workout. Snapshots
+  (card thumbnails and the export card) stroke the same dots into their pixels, and the
+  thumbnail cache key carries the setting so a cached image of the other one does not come
+  back.
 * The Settings screen omits the "WorkoutMap Plus" banner.

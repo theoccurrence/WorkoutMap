@@ -68,10 +68,31 @@ enum RouteBlue {
     static let uiCasing    = UIColor(red: 3.0 / 255, green: 61.0 / 255, blue: 138.0 / 255, alpha: 1)
 }
 
-/// How a GPS jump is drawn when the setting asks for it: the grey the Fitness app dashes across
-/// ground the workout never measured, and the dash pattern in points. The dashes are stroked
-/// with square ends, so a dash does not grow into the gap beside it.
+/// How a GPS jump is drawn when the setting asks for it: the grey the Fitness app dots across
+/// ground the workout never measured.
+///
+/// A jump is a row of **circles**, and both the circle and the gap between two of them are
+/// measured against the width the route itself is drawn at — a jump on a thicker line gets
+/// bigger dots rather than the same dots on a heavier stroke. A dot is stroked as a
+/// zero-length dash with a round cap, so the cap *is* the circle and its diameter is the line
+/// width.
 enum RouteJump {
     static let uiColor = UIColor(red: 174.0 / 255, green: 174.0 / 255, blue: 178.0 / 255, alpha: 1)
-    static let dash: [CGFloat] = [3, 5]
+
+    /// A dot is this share of the route's own width — thinner than the route, so the ground
+    /// that *was* walked reads as the solid line and the jump as a trail beside it.
+    static let dotScale: CGFloat = 0.7
+    /// Centre-to-centre spacing of two dots, in dot diameters.
+    static let spacingScale: CGFloat = 2.4
+
+    /// The diameter of one dot on a route drawn `routeWidth` wide.
+    static func dotDiameter(routeWidth: CGFloat) -> CGFloat {
+        max(1, routeWidth * dotScale)
+    }
+
+    /// The dash pattern that draws those dots: a zero-length dash with a round cap is one
+    /// circle, and the second length is the gap that sets how far apart they sit.
+    static func dotDash(routeWidth: CGFloat) -> [CGFloat] {
+        [0.01, dotDiameter(routeWidth: routeWidth) * spacingScale]
+    }
 }
