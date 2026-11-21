@@ -20,8 +20,13 @@ import CoreLocation
 /// routed, so only the best few ever reach the service.
 struct RoutePlanner {
     struct Config {
-        /// How many shapes are scored before any network request.
+        /// How many shapes are scored before any network request, at the start itself.
         var candidates = 8
+        /// And how many more on rings around it — the ground under the user's feet is the ground
+        /// they have covered most, so a loop that only ever centres there can never be mostly
+        /// new. Each factor is a share of the radius a circle of the requested length would have.
+        var ringFactors: [Double] = [0.45, 0.9, 1.4, 2.0]
+        var ringBearings = 6
         /// How many `MKDirections` calls run at once — the service throttles a burst
         /// (`MKError.Code.loadingThrottled`).
         var maxConcurrentLegs = 3
@@ -39,9 +44,11 @@ struct RoutePlanner {
         /// The angular window of that dock, in degrees.
         var recencyWindowDegrees = 70.0
         /// The most legs one route may be made of, and the most a whole plan may cost. The
-        /// second is what keeps "five routes" from turning into thirty requests.
+        /// second is the ceiling the settings' own maximums ask for — five routes of five legs —
+        /// plus a little slack, so asking for five routes never silently yields three. What
+        /// keeps a burst from being throttled is `maxConcurrentLegs` and the retry, not this.
         var maxLegsPerRoute = 5
-        var maxLegsPerPlan = 18
+        var maxLegsPerPlan = 30
 
         /// The number of legs a shape asks for: one at the widest, five at the tightest.
         static func steps(for shape: Double) -> Int {
@@ -54,6 +61,10 @@ struct RoutePlanner {
     var routeCount = ExploreOptions.routeCountDefault
     /// How tight the shape should be, 0...1 — see `ExploreOptions.shapeKey`.
     var shape = ExploreOptions.shapeDefault
+    /// How much of the route should be new ground, 0...1 — see `ExploreOptions.minimumNewKey`.
+    /// A target rather than a guarantee: it decides where the planner looks and what it ranks
+    /// first, and the card says what actually came back.
+    var minimumNew = ExploreOptions.minimumNewDefault
     var seed: UInt64 = UInt64.random(in: .min ... .max)
 
     /// How much longer a real route runs than the straight line its shape is sized on, at the
@@ -83,30 +94,35 @@ struct RoutePlanner {
         let target = max(200, request.targetMeters)
         var generator = SplitMix64(seed: seed)
         let history = PlanHistory.load()
-        let steps = max(2, min(config.maxLegsPerRoute, Config.steps(for: shape)))
+        // How tight the shape is: the setting, but pulled tighter still when the user is asking
+        // for a lot of new ground — filling the streets around the route is how that is found.
+        let steps = max(2, min(config.maxLegsPerRoute,
+                               Config.steps(for: max(shape, minimumNew))))
 
         var candidates: [(waypoints: [CLLocationCoordinate2D], rough: Double)] = []
-        for index in 0..<config.candidates {
-            let base = Double(index) / Double(config.candidates) * 360
-            let bearing = (base + Double.random(in: -22...22, using: &generator))
-                .truncatingRemainder(dividingBy: 360)
+        for centre in loopCentres(start: start, target: target, generator: &generator) {
             // A little wobble on every turning point, so two shapes that set off the same way are
             // still not the same walk.
             let jitters = (0..<steps).map { _ in
                 (along: Double.random(in: -0.16...0.16, using: &generator),
                  across: Double.random(in: -0.16...0.16, using: &generator))
             }
-            let waypoints = loopShape(start: start, bearing: bearing, steps: steps,
-                                      target: target, roadFactor: roadFactor, jitters: jitters)
+            guard let waypoints = loopShape(start: start, centre: centre.centre,
+                                            bearing: centre.bearing, steps: steps,
+                                            target: target, roadFactor: roadFactor,
+                                            coverage: coverage, jitters: jitters) else { continue }
 
             let straight = [start] + waypoints + [start]
             let length: Double = max(1, CoverageIndex.length(of: straight))
             let uncovered: Double = coverage.uncoveredMeters(of: straight)
+            let fraction: Double = uncovered / length
             let fit: Double = 1 - min(1, abs(length - target) / target)
-            let penalty: Double = history.penalty(start: start, bearing: bearing,
+            let penalty: Double = history.penalty(start: start, bearing: centre.bearing,
                                                   meters: target, config: config)
+            let shortfall: Double = max(0, minimumNew - fraction)
             let noise: Double = Double.random(in: -1...1, using: &generator)
-            let rough: Double = uncovered / target + 0.35 * fit - penalty + config.noise * noise
+            let rough: Double = fraction + 0.3 * fit - penalty - 3 * shortfall
+                + config.noise * noise
             candidates.append((waypoints, rough))
         }
 
@@ -129,19 +145,52 @@ struct RoutePlanner {
         return plan
     }
 
-    /// A loop as a zigzag over a square centred on the start: `steps` rows, the route turning at
-    /// each row's far end and coming home.
+    /// Where the loop's zigzag is tried: at the start itself, and then on rings around it. The
+    /// ground right under the user's feet is the ground they have covered most, so a shape that
+    /// only ever centres there can never be mostly new — a park two streets away whose little
+    /// paths were never walked can.
+    private func loopCentres(start: CLLocationCoordinate2D,
+                             target: Double,
+                             generator: inout SplitMix64) -> [(centre: CLLocationCoordinate2D, bearing: Double)] {
+        let reach = target / (2 * .pi)
+        var centres: [(centre: CLLocationCoordinate2D, bearing: Double)] = []
+        for index in 0..<config.candidates {
+            let base = Double(index) / Double(config.candidates) * 360
+            let bearing = (base + Double.random(in: -22...22, using: &generator))
+                .truncatingRemainder(dividingBy: 360)
+            centres.append((start, bearing))
+        }
+        for factor in config.ringFactors {
+            for index in 0..<config.ringBearings {
+                let base = Double(index) / Double(config.ringBearings) * 360
+                let bearing = base + Double.random(in: -18...18, using: &generator)
+                let centre = Geo.destination(from: start, bearing: bearing, distance: reach * factor)
+                let row = (bearing + Double.random(in: -35...35, using: &generator))
+                    .truncatingRemainder(dividingBy: 360)
+                centres.append((centre, row))
+            }
+        }
+        return centres
+    }
+
+    /// A loop as a zigzag over a square centred on `centre`: `steps` rows, the route turning at
+    /// each row's far end, and the start as both ends of the whole thing.
     ///
-    /// The square is sized so the zigzag's straight-line length is the distance asked for — the
-    /// length is proportional to the square's half-side, so one division does it — which is what
-    /// keeps the distance roughly constant while the shape changes. `roadFactor` corrects for a
-    /// real route being longer than the straight lines it follows.
+    /// The square is sized by bisection so the zigzag's straight-line length is the distance
+    /// asked for — including the legs out to a square that is not centred on the start, which is
+    /// what rules out a centre too far away to be reached and still come back. `roadFactor`
+    /// corrects for a real route being longer than the straight lines it follows.
+    ///
+    /// Returns `nil` when even a square of no size cannot be reached and returned within the
+    /// distance, which is what prunes the far rings.
     private func loopShape(start: CLLocationCoordinate2D,
+                           centre: CLLocationCoordinate2D,
                            bearing: Double,
                            steps: Int,
                            target: Double,
                            roadFactor: Double,
-                           jitters: [(along: Double, across: Double)]) -> [CLLocationCoordinate2D] {
+                           coverage: CoverageIndex,
+                           jitters: [(along: Double, across: Double)]) -> [CLLocationCoordinate2D]? {
         func points(scale: Double) -> [CLLocationCoordinate2D] {
             let radians = bearing * .pi / 180
             let spacing = 2 * scale / Double(steps)
@@ -149,14 +198,55 @@ struct RoutePlanner {
                 let jitter = row < jitters.count ? jitters[row] : (along: 0, across: 0)
                 let along = (row.isMultiple(of: 2) ? scale : -scale) * (1 + jitter.along)
                 let across = -scale + (Double(row) + 0.5) * spacing + scale * jitter.across
-                return Geo.offset(start,
+                return Geo.offset(centre,
                                   east: along * sin(radians) + across * cos(radians),
                                   north: along * cos(radians) - across * sin(radians))
             }
         }
-        let unit = CoverageIndex.length(of: [start] + points(scale: 1) + [start])
-        let scale = target / max(1, unit) / roadFactor
-        return points(scale: scale)
+        func length(_ scale: Double) -> Double {
+            CoverageIndex.length(of: [start] + points(scale: scale) + [start])
+        }
+
+        let wanted = target / roadFactor
+        var low = 0.0
+        var high = max(50, target)
+        guard length(high) > wanted else {
+            let sized = points(scale: high)
+            return sized.map { bias($0, across: bearing, span: high * 0.3, coverage: coverage) }
+        }
+        for _ in 0..<20 {
+            let mid = (low + high) / 2
+            if length(mid) < wanted { low = mid } else { high = mid }
+        }
+        let scale = (low + high) / 2
+        // The start has to be reached and left again whatever the square does.
+        guard scale > 1 else { return nil }
+        return points(scale: scale).map {
+            bias($0, across: bearing, span: scale * 0.3, coverage: coverage)
+        }
+    }
+
+    /// Slides a turning point across its row until it sits on the least covered ground within
+    /// `span`. The whole point of the feature is to walk the streets that are not covered, and a
+    /// waypoint a hundred metres to one side can be in a park while this one is on a road the
+    /// user runs every week.
+    private func bias(_ waypoint: CLLocationCoordinate2D,
+                      across bearing: Double,
+                      span: Double,
+                      coverage: CoverageIndex) -> CLLocationCoordinate2D {
+        guard span > 1 else { return waypoint }
+        var best = waypoint
+        var bestScore = coverage.coveredAround(waypoint)
+        for step in [-3, -2, -1, 1, 2, 3] {
+            let candidate = Geo.destination(from: waypoint, bearing: bearing + 90,
+                                            distance: Double(step) / 3 * span)
+            let score = coverage.coveredAround(candidate)
+            if score < bestScore {
+                bestScore = score
+                best = candidate
+            }
+        }
+        return best
     }
 
     // MARK: - Destination
@@ -169,7 +259,8 @@ struct RoutePlanner {
               !Geo.same(start, destination) else { return nil }
         let target = max(200, request.targetMeters)
         let history = PlanHistory.load()
-        let steps = min(config.maxLegsPerRoute, max(1, Config.steps(for: shape)))
+        let steps = min(config.maxLegsPerRoute,
+                        max(1, Config.steps(for: max(shape, minimumNew))))
 
         guard let directLegs = try? await client.route(from: start, to: destination),
               let direct = directLegs.first else { return nil }
@@ -186,10 +277,10 @@ struct RoutePlanner {
             var rounds: [(side: Double, jitter: Double, legs: [DirectionsLeg])] = []
             async let left = detourRound(start: start, destination: destination, steps: steps,
                                          side: -1, jitter: jitters[0], target: target,
-                                         offset: nil, client: client)
+                                         offset: nil, coverage: coverage, client: client)
             async let right = detourRound(start: start, destination: destination, steps: steps,
                                           side: 1, jitter: jitters[1], target: target,
-                                          offset: nil, client: client)
+                                          offset: nil, coverage: coverage, client: client)
             if let legs = await left { rounds.append((-1, jitters[0], legs)) }
             if let legs = await right { rounds.append((1, jitters[1], legs)) }
 
@@ -206,7 +297,8 @@ struct RoutePlanner {
                     let corrected = max(20, base * (target - direct.distance) / extra)
                     if let legs = await detourRound(start: start, destination: destination, steps: steps,
                                                     side: chosen.side, jitter: chosen.jitter,
-                                                    target: target, offset: corrected, client: client) {
+                                                    target: target, offset: corrected,
+                                                    coverage: coverage, client: client) {
                         rounds[best].legs = legs
                     }
                 }
@@ -240,12 +332,14 @@ struct RoutePlanner {
                              jitter: Double,
                              target: Double,
                              offset: Double?,
+                             coverage: CoverageIndex,
                              client: DirectionsClient) async -> [DirectionsLeg]? {
         let reach = offset ?? detourOffset(start: start, destination: destination,
                                            steps: steps, side: side, target: target)
         guard reach > 1 else { return nil }
         let waypoints = destinationShape(start: start, destination: destination, steps: steps,
-                                         side: side, jitter: jitter, offset: reach)
+                                         side: side, jitter: jitter, offset: reach,
+                                         coverage: coverage)
         let points = [start] + waypoints + [destination]
         let pairs = zip(points, points.dropFirst()).map { (from: $0, to: $1) }
         return await route(Array(pairs), client: client)
@@ -262,7 +356,7 @@ struct RoutePlanner {
         func length(_ offset: Double) -> Double {
             CoverageIndex.length(of: [start]
                 + destinationShape(start: start, destination: destination, steps: steps,
-                                   side: side, jitter: 0, offset: offset)
+                                   side: side, jitter: 0, offset: offset, coverage: nil)
                 + [destination])
         }
         var low = 0.0
@@ -282,13 +376,18 @@ struct RoutePlanner {
                                   steps: Int,
                                   side: Double,
                                   jitter: Double,
-                                  offset: Double) -> [CLLocationCoordinate2D] {
-        let radians = (Geo.bearing(from: start, to: destination) + jitter + side * 90) * .pi / 180
+                                  offset: Double,
+                                  coverage: CoverageIndex?) -> [CLLocationCoordinate2D] {
+        let corridor = Geo.bearing(from: start, to: destination)
+        let radians = (corridor + jitter + side * 90) * .pi / 180
         return (0..<steps).map { index in
             let base = CoverageIndex.interpolate(start, destination,
                                                  Double(index + 1) / Double(steps + 1))
             let reach = offset * (index.isMultiple(of: 2) ? 1 : -1)
-            return Geo.offset(base, east: reach * sin(radians), north: reach * cos(radians))
+            let waypoint = Geo.offset(base, east: reach * sin(radians), north: reach * cos(radians))
+            guard let coverage else { return waypoint }
+            // Side streets, not the main road the user takes every day.
+            return bias(waypoint, across: corridor, span: offset * 0.4, coverage: coverage)
         }
     }
 
@@ -371,7 +470,9 @@ struct RoutePlanner {
             // The variation comes from which shapes were generated and routed, not from noise
             // here: this is the last word on which route the user is offered first, and it
             // should be the best of them rather than the luckiest.
-            let score = 0.6 * route.newFraction + 0.4 * fit - penalty - (within ? 0 : 2)
+            let shortfall = max(0, minimumNew - route.newFraction)
+            let score = 0.5 * route.newFraction + 0.3 * fit - penalty
+                - 3 * shortfall - (within ? 0 : 2)
             scored.append((route, score))
         }
         let limit = max(1, min(routeCount, config.maxLegsPerRoute))

@@ -3,8 +3,10 @@ import SwiftUI
 /// The explorer's result card: what the planned route is, which of the alternates is the one,
 /// and the Go that keeps it on the map.
 ///
-/// After Go the card stays but only says that the route is planned — the route is left on the
-/// map until a new plan is started or the app is relaunched, and the cross clears it.
+/// Before Go it offers the alternates and a cross that throws the plan away. After Go there is
+/// nothing left to pick between — the map shows that one route alone — so the pair becomes a
+/// single red **Stop**, and the card can be swiped up out of the way without ending anything:
+/// the route stays on the map until Stop, a new plan, or a relaunch.
 struct PlannedRouteBar: View {
     let plan: RoutePlan
     @Binding var selected: Int
@@ -32,22 +34,13 @@ struct PlannedRouteBar: View {
                 }
                 Spacer(minLength: 0)
                 if isActive {
-                    Label("Planned", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(RouteBlue.primary)
-                        .labelStyle(.titleAndIcon)
+                    // Once the route is the one being walked there is nothing left to pick
+                    // between, so the Go and the cross give way to a single red Stop.
+                    stopButton
                 } else {
-                    Button(action: onGo) {
-                        Text("Go")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color.black)
-                            .padding(.horizontal, 20)
-                            .frame(height: 36)
-                            .background(Palette.accent, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+                    goButton
+                    CloseCircleButton(action: onClear)
                 }
-                CloseCircleButton(action: onClear)
             }
             if !isActive, plan.routes.count > 1 {
                 selector
@@ -55,8 +48,34 @@ struct PlannedRouteBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(isLight ? Palette.surfaceLight : Palette.surface,
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // Frosted rather than a flat fill: the map shows through it, but the material is opaque
+        // enough that the distance and the share of new ways stay readable over it.
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var goButton: some View {
+        Button(action: onGo) {
+            Text("Go")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.black)
+                .padding(.horizontal, 20)
+                .frame(height: 36)
+                .background(Palette.accent, in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var stopButton: some View {
+        Button(action: onClear) {
+            Text("Stop")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .frame(height: 36)
+                .background(Palette.pin, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Stop the route")
     }
 
     private var distanceText: String {

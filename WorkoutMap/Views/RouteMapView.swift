@@ -429,6 +429,9 @@ struct RouteMapView: UIViewRepresentable {
     /// A long press on the map: where it landed, so the explorer can drop its destination pin
     /// there, as Maps does.
     var onLongPress: ((CLLocationCoordinate2D) -> Void)?
+    /// A tap that landed on one of the planned routes: which one, so tapping a washed-out
+    /// alternate on the map makes it the one — as tapping an alternate card does in Maps.
+    var onPlannedTap: ((Int) -> Void)?
     /// The window's safe-area insets, reported after layout and on orientation or
     /// fold changes.
     var onSafeAreaChange: ((UIEdgeInsets) -> Void)?
@@ -486,7 +489,7 @@ struct RouteMapView: UIViewRepresentable {
         // WM_TAP_AT — see `DebugLaunch.tapAt`. The tap goes through the path the recognizer
         // uses, so the hit-test and the reporting are the ones that ship.
         if let point = DebugLaunch.tapAt {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak coordinator = context.coordinator] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + DebugLaunch.tapDelay) { [weak coordinator = context.coordinator] in
                 coordinator?.reportRouteTap(at: point)
             }
         }
@@ -670,7 +673,41 @@ struct RouteMapView: UIViewRepresentable {
                                                 toCoordinateFrom: map))
             let radius = abs(beside.x - tapped.x)
             guard radius > 0 else { return }
+            // A planned route comes first: it is drawn on top of the workout routes, so a tap
+            // that lands on one is meant for it.
+            if let index = plannedIndex(near: tapped, within: radius) {
+                parent.onPlannedTap?(index)
+                return
+            }
             parent.onRouteTap?(routeID(near: tapped, within: radius))
+        }
+
+        /// The planned route whose stroke passes within `threshold` map points of `point`, or
+        /// `nil` when the tap missed every one of them.
+        private func plannedIndex(near point: MKMapPoint, within threshold: Double) -> Int? {
+            var best: (index: Int, distance: Double)?
+            let limit = threshold * threshold
+            for line in parent.planned where line.coordinates.count > 1 {
+                guard let index = Coordinator.plannedIndex(of: line.id) else { continue }
+                var nearest = Double.greatestFiniteMagnitude
+                var previous: MKMapPoint?
+                for coordinate in line.coordinates {
+                    let current = MKMapPoint(coordinate)
+                    if let previous {
+                        nearest = min(nearest, Coordinator.distanceSquared(from: point, to: previous, current))
+                    }
+                    previous = current
+                }
+                guard nearest <= limit else { continue }
+                if best == nil || nearest < best!.distance { best = (index, nearest) }
+            }
+            return best?.index
+        }
+
+        /// `plan-2` and `plan-2-casing` are both route 2.
+        private static func plannedIndex(of id: String) -> Int? {
+            guard id.hasPrefix("plan-") else { return nil }
+            return Int(id.dropFirst(5).prefix { $0 != "-" })
         }
 
         /// The id of the nearest route whose stroke passes within `threshold` map points of

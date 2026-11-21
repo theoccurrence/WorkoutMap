@@ -29,6 +29,12 @@ enum DebugLaunch {
         guard parts.count == 2 else { return nil }
         return CGPoint(x: parts[0], y: parts[1])
     }
+    /// WM_TAP_DELAY=<seconds> moves the `WM_TAP_AT` tap back, so it can land after a plan has
+    /// arrived rather than before it.
+    static var tapDelay: Double { Double(env["WM_TAP_DELAY"] ?? "") ?? 4 }
+    /// WM_HIDE_CARD=1 swipes the explorer's result card away a few seconds after it appears, so
+    /// the state the route stays in can be seen without a drag.
+    static var hideCard: Bool { env["WM_HIDE_CARD"] == "1" }
     /// WM_SKIP_LOCATION=1 skips the location prompt (simulator screenshots).
     static var skipLocation: Bool { env["WM_SKIP_LOCATION"] == "1" }
     /// WM_STRESS=N replicates the sample workouts N times (performance testing).
@@ -59,6 +65,8 @@ enum DebugLaunch {
     static var planShape: Double? { env["WM_PLAN_SHAPE"].flatMap(Double.init) }
     /// WM_PLAN_ROUTES=1..5 pre-sets how many routes are offered.
     static var planRoutes: Int? { env["WM_PLAN_ROUTES"].flatMap(Int.init) }
+    /// WM_PLAN_NEW=0.1..1 pre-sets the share of the route that should be new ground.
+    static var planMinimumNew: Double? { env["WM_PLAN_NEW"].flatMap(Double.init) }
     /// WM_FAKE_PLAN=1 replaces MKDirections with a fixture, so the planner's UI can be
     /// exercised without a network.
     static var fakePlan: Bool { env["WM_FAKE_PLAN"] == "1" }
@@ -153,10 +161,13 @@ enum DebugLaunch {
     static var planAutoGo: Bool { false }
     static var planShape: Double? { nil }
     static var planRoutes: Int? { nil }
+    static var planMinimumNew: Double? { nil }
     static var fakePlan: Bool { false }
     static var fakePin: CLLocationCoordinate2D? { nil }
     static var selectPin: Bool { false }
     static var pinDelete: Bool { false }
+    static var tapDelay: Double { 4 }
+    static var hideCard: Bool { false }
     static var skipLocation: Bool { false }
     static var stressCopies: Int { 1 }
     static var stressSpread: Double { 0.035 }

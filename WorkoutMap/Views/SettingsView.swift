@@ -13,6 +13,8 @@ struct SettingsView: View {
     /// reads both when it plans, so a change here applies to the next plan.
     @AppStorage(ExploreOptions.routeCountKey) private var exploreRouteCount: Int = ExploreOptions.routeCountDefault
     @AppStorage(ExploreOptions.shapeKey) private var exploreShape: Double = ExploreOptions.shapeDefault
+    /// How much of the route should be new ground.
+    @AppStorage(ExploreOptions.minimumNewKey) private var exploreMinimumNew: Double = ExploreOptions.minimumNewDefault
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -86,6 +88,8 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
                         divider
                         shapeRow
+                        divider
+                        newWaysRow
                     }
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
 
@@ -122,27 +126,55 @@ struct SettingsView: View {
     /// start (or one big bow to a destination); at *Tight* it fills the streets around the route
     /// in as many small steps as the request budget pays for.
     private var shapeRow: some View {
+        sliderRow(title: "Route Shape",
+                  systemImage: "slider.horizontal.3",
+                  value: $exploreShape,
+                  range: 0...1,
+                  low: "Wide",
+                  high: "Tight",
+                  detail: ExploreOptions.shapeLabel(exploreShape))
+    }
+
+    /// The new-ways slider: how much of the route the planner should try to keep on ground the
+    /// user has never covered. A target rather than a guarantee — see `ExploreOptions`.
+    private var newWaysRow: some View {
+        sliderRow(title: "New Ways",
+                  systemImage: "sparkles",
+                  value: $exploreMinimumNew,
+                  range: ExploreOptions.minimumNewRange,
+                  low: "10%",
+                  high: "100%",
+                  detail: ExploreOptions.percentLabel(exploreMinimumNew))
+    }
+
+    private func sliderRow(title: String,
+                           systemImage: String,
+                           value: Binding<Double>,
+                           range: ClosedRange<Double>,
+                           low: String,
+                           high: String,
+                           detail: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 16) {
-                Image(systemName: "slider.horizontal.3")
+                Image(systemName: systemImage)
                     .font(.system(size: 20, weight: .regular))
                     .foregroundStyle(.white)
                     .frame(width: 24)
-                Text("Route Shape")
+                Text(title)
                     .font(.system(size: 19))
                     .foregroundStyle(.white)
                 Spacer(minLength: 8)
-                Text(ExploreOptions.shapeLabel(exploreShape))
+                Text(detail)
                     .font(.system(size: 19))
                     .foregroundStyle(Palette.textSecondary)
             }
             HStack(spacing: 10) {
-                Text("Wide")
+                Text(low)
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.textTertiary)
-                Slider(value: $exploreShape, in: 0...1)
+                Slider(value: value, in: range)
                     .tint(Palette.accent)
-                Text("Tight")
+                Text(high)
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.textTertiary)
             }

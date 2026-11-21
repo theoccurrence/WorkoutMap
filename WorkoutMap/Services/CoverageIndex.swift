@@ -68,12 +68,36 @@ struct CoverageIndex {
         }
     }
 
+    /// The share of the 3×3 cells around a coordinate that are covered: 0 is ground no workout
+    /// has been near, 1 is ground the user has walked through. The window rather than the single
+    /// cell because one cell is a coin toss — this is what nudges a turning point towards the
+    /// least covered ground nearby, and it should be a street that is empty, not a gap in one.
+    func coveredAround(_ coordinate: CLLocationCoordinate2D) -> Double {
+        let base = CoverageIndex.indices(of: coordinate)
+        var covered = 0
+        for deltaX in -1...1 {
+            for deltaY in -1...1 {
+                if cells.contains(CoverageIndex.cell(base.lat + Int64(deltaY),
+                                                     base.lon + Int64(deltaX))) { covered += 1 }
+            }
+        }
+        return Double(covered) / 9
+    }
+
     /// The grid cell a coordinate falls in, packed into one integer. Latitude and longitude
     /// indices each fit in 32 bits, so the two halves never collide.
     private static func cell(of coordinate: CLLocationCoordinate2D) -> Int64 {
-        let lat = Int64((coordinate.latitude / cellDegrees).rounded(.down))
-        let lon = Int64((coordinate.longitude / cellDegrees).rounded(.down))
-        return (lat << 32) ^ (lon & 0xFFFF_FFFF)
+        let indices = indices(of: coordinate)
+        return cell(indices.lat, indices.lon)
+    }
+
+    private static func indices(of coordinate: CLLocationCoordinate2D) -> (lat: Int64, lon: Int64) {
+        (Int64((coordinate.latitude / cellDegrees).rounded(.down)),
+         Int64((coordinate.longitude / cellDegrees).rounded(.down)))
+    }
+
+    private static func cell(_ lat: Int64, _ lon: Int64) -> Int64 {
+        (lat << 32) ^ (lon & 0xFFFF_FFFF)
     }
 
     /// Equirectangular distance, good enough for the few hundred metres one segment spans.

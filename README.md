@@ -16,8 +16,8 @@ desaturated Apple map and lets you filter them by week / month / year.
 | **Workouts** | Chronological list of every walk / run / ride with distance, date and a small map thumbnail of the route. Tapping a row opens the detail screen. |
 | **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as circle buttons on the opposite side. The map can be panned, pinched and turned with two fingers. The share button exports the current map as an image card. The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`); tapping the map itself brings the range's label back. |
 | **Map styles** | Apple Maps' own *Map Modes* panel: **Explore**, **Driving** (live traffic), **Transit** (stations only), **Satellite** (imagery) and **Legacy** — the grey map the app shipped with, which is also what it opens with. Each tile is Maps' own artwork for the style (the grey Explore tile for **Legacy**), so the panel is complete the moment it opens. The choice is kept in the settings, and the detail screen and the export card draw the map in it as well. The map itself — and every preview of it — is drawn in the system's own light or dark style, or in the one pinned under *Map Appearance*; **Legacy** is the grey map the app shipped with and stays dark either way. |
-| **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a sheet: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map — the route stays until a new plan is started or the app is relaunched. The pin carries an info bubble with the address it resolved and what is there, and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
-| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **explore** — how many routes are suggested (1–5) and a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) — feedback, share app, about, contact. |
+| **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a sheet: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map. Tapping one of the alternates on the map picks it, the same as tapping its pill on the card. Once Go is tapped the map shows that one route alone and the Go and the cross give way to a red **Stop**; the card can be swiped up out of the way without ending anything, and the binoculars bring it back — or open the sheet again to plan another one. The route stays until Stop, a new plan, or a relaunch. The pin carries an info bubble with the address it resolved and what is there, and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
+| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered — feedback, share app, about, contact. |
 
 Detail screen: map with the route, workout type, date, weather (temperature and
 humidity from the workout metadata), then time, distance, elevation, active
@@ -91,6 +91,9 @@ variables (Debug builds only):
 | `WM_PLAN_GO=1` | Taps Go as soon as a route has been planned |
 | `WM_PLAN_SHAPE=0\|0.5\|1` | Pre-sets the explorer's route shape (checks the wide/tight setting) |
 | `WM_PLAN_ROUTES=1..5` | Pre-sets how many routes are offered |
+| `WM_PLAN_NEW=0.1..1` | Pre-sets the share of the route that should be new ground |
+| `WM_TAP_DELAY=<seconds>` | Moves the `WM_TAP_AT` tap back, so it can land after a plan has arrived |
+| `WM_HIDE_CARD=1` | Swipes the explorer's result card away a few seconds after it appears |
 | `WM_SELECT_PIN=1` | Opens the dropped pin's info bubble (the simulator cannot tap the map from the command line) |
 | `WM_PIN_DELETE=1` | Fires that bubble's bin a moment later, through the delegate method the bin calls |
 | `WM_FAKE_PLAN=1` | Replaces `MKDirections` with a fixture, so the explorer runs without a network |
@@ -373,6 +376,17 @@ Notes on the map rendering, all measured from the original app:
     side streets either side of the way there. Measured on a 5 km loop from the same spot:
     5.87 km reaching ~1.1 km out at *Wide* against 4.81 km filling a ~1.1 km square at *Tight* —
     the distance holds while the shape changes, which is the whole point of the setting.
+  * The **new ways** slider is what makes the planner go looking. It is a target rather than a
+    guarantee — a route that starts at the front door has to cross the streets around it, and
+    those are the ones most likely to be covered already — and it works three ways at once.
+    A loop is tried over a **ring of centres around the start**, not only at the start, because
+    the ground under the user's feet is the ground they have covered most (a centre too far away
+    to be reached and returned within the distance is pruned by the sizing itself). Every turning
+    point is then nudged across its row, in both modes, to the **least covered ground within a
+    span** — a waypoint a hundred metres to one side can be in a park while this one is on a road
+    the user runs every week — which is what a park whose little paths were never walked rewards.
+    And the shape is pulled as tight as the slider asks for, since filling the streets around the
+    route is how new ground is found. What actually came back is what the card says.
   * Candidates are scored against the coverage grid *before* anything is routed, so only the
     best few ever reach the service, and the routed ones are ranked on the share of the finished
     route that is new ground, how close it lands to the distance asked for, and how recently the
@@ -400,7 +414,19 @@ Notes on the map rendering, all measured from the original app:
     filters and the toolbar live and both have to stay usable while a route is planned. It is a
     full-width card, so unlike the filter column — which simply keeps to the side the rail is not
     on — it cannot dodge a rail: it is held off both screen edges by the window's own safe-area
-    insets instead, because its close button was landing under the Duo's rail.
+    insets instead, because its close button was landing under the Duo's rail. Tapping an
+    alternate **on the map** picks it — the tap is resolved against the planned lines first,
+    since they are drawn on top of the workout routes — and after Go the alternates are not
+    drawn at all: the map is the route being walked and nothing else.
+  * The card is a state machine with an escape hatch. Before Go it offers the alternates and a
+    cross that throws the plan away; after Go there is nothing left to pick between, so the pair
+    becomes one red **Stop**. The card can be **swiped up** and off the top of the screen without
+    touching the route — which needs the overlay column to be clipped, or it would slide over the
+    range bubble and fade out mid-screen instead — and the explorer's button brings it back down,
+    or opens the sheet again when it is already up. Both the card and the sheet are **frosted**
+    (`.regularMaterial`, the sheet's own fields `.thinMaterial` over it) rather than the flat
+    fills the older sheets use: the map shows through, and the material is opaque enough that the
+    distance and the share of new ways stay readable over it.
   * The explorer is **independent** of the Walk / Run / Ride filters: it neither selects nor
     clears one, and a walk filter can be on while a planned route is on the map. That is also
     what makes the two comparable at a glance — a filter's routes and a planned route are drawn

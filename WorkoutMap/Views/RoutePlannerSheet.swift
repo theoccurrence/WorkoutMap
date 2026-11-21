@@ -41,7 +41,9 @@ struct RoutePlannerSheet: View {
                 .padding(.bottom, 23)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.sheetCard)
+        // Frosted rather than the flat card the other sheets use: the map stays visible behind
+        // it, and the material is opaque enough that the labels stay readable over it.
+        .presentationBackground(.regularMaterial)
         .presentationDetents([.height(detent)])
         .presentationDragIndicator(.hidden)
         .presentationCornerRadius(12)
@@ -147,7 +149,7 @@ struct RoutePlannerSheet: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 40)
-        .background(Palette.pickerGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var results: some View {
@@ -177,7 +179,7 @@ struct RoutePlannerSheet: View {
                 if completion.title != search.results.prefix(4).last?.title { divider }
             }
         }
-        .background(Palette.pickerGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var pinRow: some View {
@@ -224,7 +226,7 @@ struct RoutePlannerSheet: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 44)
-        .background(Palette.pickerGlass, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var divider: some View {

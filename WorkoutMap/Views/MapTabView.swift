@@ -69,6 +69,8 @@ struct MapTabView: View {
     /// things the settings let the user steer.
     @AppStorage(ExploreOptions.routeCountKey) private var exploreRouteCount: Int = ExploreOptions.routeCountDefault
     @AppStorage(ExploreOptions.shapeKey) private var exploreShape: Double = ExploreOptions.shapeDefault
+    /// How much of the route should be new ground — see `ExploreOptions.minimumNewKey`.
+    @AppStorage(ExploreOptions.minimumNewKey) private var exploreMinimumNew: Double = ExploreOptions.minimumNewDefault
     @State private var plan: RoutePlan?
     /// Which of the plan's routes is the one; 0 is the primary.
     @State private var selectedRoute = 0
@@ -76,6 +78,9 @@ struct MapTabView: View {
     /// True once Go was tapped: the route stays on the map until a new plan is started or the
     /// app is relaunched.
     @State private var planActive = false
+    /// Whether the result card is on screen. It can be swiped up out of the way without ending
+    /// anything, and the explorer's button brings it back.
+    @State private var cardShown = true
     @State private var planTask: Task<Void, Never>?
 
     private var kind: RangeKind { selection.kind }
@@ -132,7 +137,9 @@ struct MapTabView: View {
                                           coordinates: route.coordinates,
                                           color: RouteBlue.uiPrimary,
                                           width: 5))
-            } else {
+            } else if !planActive {
+                // Once Go has been tapped the map is the route being walked and nothing else:
+                // the alternates were a choice, and the choice has been made.
                 lines.append(MapRouteLine(id: "plan-\(index)",
                                           coordinates: route.coordinates,
                                           color: RouteBlue.uiAlternate,
@@ -300,9 +307,14 @@ struct MapTabView: View {
             if let start = DebugLaunch.startAppearance { mapAppearance = start }
             if let shape = DebugLaunch.planShape { exploreShape = shape }
             if let routes = DebugLaunch.planRoutes { exploreRouteCount = routes }
+            if let minimum = DebugLaunch.planMinimumNew { exploreMinimumNew = minimum }
             if !DebugLaunch.skipLocation { location.start() }
             if let pin = droppedPin { describePin(at: pin) }
             if DebugLaunch.planAutoRun { await autoPlan() }
+            if DebugLaunch.hideCard {
+                try? await Task.sleep(for: .seconds(12))
+                withAnimation(.easeInOut(duration: 0.28)) { cardShown = false }
+            }
         }
         .task(id: reloadKey) { await reload() }
         // The explorer's index covers every workout, so it is rebuilt when the workout set
@@ -414,6 +426,7 @@ struct MapTabView: View {
                          onUserInteraction: { userMoved = true },
                          onRouteTap: { tappedRouteID = $0 },
                          onLongPress: { dropPin(at: $0) },
+                         onPlannedTap: { select(route: $0) },
                          onSafeAreaChange: { if windowInsets != $0 { windowInsets = $0 } },
                          onTabBarInsets: { bottom, top in
                              if tabBarInsets == nil || tabBarInsets! != (bottom, top) {
@@ -434,16 +447,21 @@ struct MapTabView: View {
                 if isPlanning {
                     planningBubble
                         .padding(.top, 10)
-                } else if let plan {
+                } else if let plan, cardShown {
                     PlannedRouteBar(plan: plan,
                                     selected: $selectedRoute,
                                     isActive: planActive,
                                     isLight: controlsAreLight,
                                     onGo: { planActive = true },
                                     onClear: { clearPlan() })
+                        .environment(\.colorScheme, controlsAreLight ? .light : .dark)
                         .padding(.leading, cardLeadingInset)
                         .padding(.trailing, cardTrailingInset)
                         .padding(.top, 10)
+                        // Swiped up and off the top of the screen; the clip on the column below
+                        // is what makes it leave rather than slide over the bubble.
+                        .transition(.move(edge: .top))
+                        .gesture(cardDrag)
                 }
 
                 Spacer(minLength: 0)
@@ -462,6 +480,9 @@ struct MapTabView: View {
             // the gap below the top of the screen that it has below the grey bar in the
             // reference, and the overlays line up with the tab bar's own edges.
             .ignoresSafeArea()
+            // So the result card can be swiped up and actually leave: without a clip it would
+            // slide up over the range bubble and then fade out mid-screen instead.
+            .clipped()
 
             // Screens without a side rail get no vertical toolbar from the system, so the
             // same column is placed by hand: the action capsule with the locate circle
@@ -497,9 +518,17 @@ struct MapTabView: View {
 
     /// The explorer's button: binoculars, its own blue while it is on, the same glass circle as
     /// the filters otherwise.
+    ///
+    /// It opens the input sheet when there is nothing planned, brings the result card back down
+    /// when that has been swiped away, and opens the sheet again when the card is already up —
+    /// so the route can be stopped and another one started from anywhere.
     private var exploreButton: some View {
         Button {
-            showPlanner = true
+            if (plan != nil || isPlanning) && !cardShown {
+                withAnimation(.easeInOut(duration: 0.3)) { cardShown = true }
+            } else {
+                showPlanner = true
+            }
         } label: {
             toolbarGlyph("binoculars.fill", tint: exploreIsOn ? RouteBlue.primary : controlGlyph)
         }
@@ -613,7 +642,7 @@ struct MapTabView: View {
         }
         .padding(.horizontal, 14)
         .frame(height: Metrics.controlHeight)
-        .background(controlsAreLight ? Palette.surfaceLight : Palette.surface, in: Capsule())
+        .background(.regularMaterial, in: Capsule())
     }
 
     /// True while the window sits on the Duo's folded cover panel. Its content column is
@@ -729,6 +758,22 @@ struct MapTabView: View {
 
     // MARK: - Explorer
 
+    /// Swiping the result card up puts it away without touching the route.
+    private var cardDrag: some Gesture {
+        DragGesture(minimumDistance: 14)
+            .onEnded { value in
+                guard value.translation.height < -36 else { return }
+                withAnimation(.easeInOut(duration: 0.28)) { cardShown = false }
+            }
+    }
+
+    /// Picking one of the planned routes by tapping it on the map — the same choice the pills on
+    /// the card make.
+    private func select(route index: Int) {
+        guard let plan, plan.routes.indices.contains(index) else { return }
+        withAnimation(.easeInOut(duration: 0.15)) { selectedRoute = index }
+    }
+
     /// Plans a route for the request the sheet handed over, and fits the map to the result.
     ///
     /// The planner is given the coverage index for **all** workouts, so "new ways" means new to
@@ -740,6 +785,7 @@ struct MapTabView: View {
         planActive = false
         plan = nil
         selectedRoute = 0
+        cardShown = true
 #if DEBUG
         let client: DirectionsClient = DebugLaunch.fakePlan
             ? FixtureDirectionsClient()
@@ -752,6 +798,7 @@ struct MapTabView: View {
             var planner = RoutePlanner()
             planner.routeCount = exploreRouteCount
             planner.shape = exploreShape
+            planner.minimumNew = exploreMinimumNew
             let result = await planner.plan(request: request, start: start,
                                             coverage: index, client: client)
             guard !Task.isCancelled else { return }

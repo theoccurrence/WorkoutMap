@@ -21,6 +21,24 @@ enum ExploreOptions {
     static let shapeKey = "exploreShape"
     static let shapeDefault = 0.5
 
+    /// How much of the route the planner should try to keep on ground the user has never
+    /// covered, 0.1...1.
+    ///
+    /// It is a target rather than a guarantee: a route that starts at the front door has to
+    /// cross the streets around it, and those are the streets most likely to be covered already.
+    /// What the planner does with it is hunt — it tries the shape over a ring of centres around
+    /// the start instead of only at the start, nudges every turning point towards the least
+    /// covered ground nearby, keeps the shape as tight as the setting asks for, and then ranks
+    /// what came back by how close it got. A park whose little paths were never walked is
+    /// exactly the ground this finds.
+    static let minimumNewKey = "exploreMinimumNew"
+    static let minimumNewDefault = 0.5
+    static let minimumNewRange: ClosedRange<Double> = 0.1...1.0
+
+    static func percentLabel(_ fraction: Double) -> String {
+        "\(Int((fraction * 100).rounded()))%"
+    }
+
     static func shapeLabel(_ shape: Double) -> String {
         switch shape {
         case ..<0.2: return "Wide"
