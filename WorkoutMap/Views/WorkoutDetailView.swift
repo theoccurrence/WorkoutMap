@@ -162,6 +162,7 @@ struct WorkoutDetailView: View {
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.leading, 8)
@@ -173,6 +174,7 @@ struct WorkoutDetailView: View {
                 .font(.system(size: 22, weight: .regular))
                 .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.trailing, 8)

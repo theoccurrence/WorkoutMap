@@ -57,7 +57,7 @@ struct MapModePanel: View {
     private var header: some View {
         ZStack {
             Text("Map Modes")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(.white)
             HStack {
                 Spacer()

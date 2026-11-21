@@ -69,7 +69,7 @@ struct RoutePlannerPanel: View {
     private var header: some View {
         ZStack {
             Text("Explore")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(.white)
             HStack {
                 Spacer()
