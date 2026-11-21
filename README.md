@@ -99,6 +99,7 @@ variables (Debug builds only):
 | `WM_PLAN_SHAPE=0\|0.5\|1` | Pre-sets the explorer's route shape (checks the wide/tight setting) |
 | `WM_PLAN_ROUTES=1..5` | Pre-sets how many routes are offered |
 | `WM_PLAN_NEW=0.1..1` | Pre-sets the share of the route that should be new ground |
+| `WM_PLAN_ALGO=tour\|zigzag` | Picks the planner's algorithm (the tour is the proof of concept) |
 | `WM_TAP_DELAY=<seconds>` | Moves the `WM_TAP_AT` tap back, so it can land after a plan has arrived |
 | `WM_HIDE_CARD=1` | Swipes the explorer's result card away a few seconds after it appears |
 | `WM_SELECT_PIN=1` | Opens the dropped pin's info bubble (the simulator cannot tap the map from the command line) |
@@ -377,16 +378,35 @@ Notes on the map rendering, all measured from the original app:
     on disk are read first, so the first plan is instant; the rest are pulled from Health four
     at a time and folded in, and the panel says so while that is still running.
   * `MKDirections` knows no waypoints, so a route is a handful of point-to-point legs stitched
-    into one polyline — and both shapes are a **zigzag sized so its straight-line length is the
-    distance asked for**. That is what the *Route Shape* setting steers: how many legs the zigzag
-    is made of, not how long it is. A **loop** is a zigzag over a square centred on the start,
-    the route turning at each row's far end and coming home; a **destination** is a zigzag along
-    the direct line, alternating either side of it. At *Wide* the loop is two long legs out and
-    back around the start and the destination is one big bow off the corridor; at *Tight* the
+    into one polyline. **Two algorithms** build those legs and `WM_PLAN_ALGO` picks between them
+    at launch — the tour is the proof of concept and the default, the zigzag is what shipped.
+  * The **zigzag** (`WM_PLAN_ALGO=zigzag`) makes both shapes a **zigzag sized so its
+    straight-line length is the distance asked for**. That is what the *Route Shape* setting
+    steers: how many legs the zigzag is made of, not how long it is. A **loop** is a zigzag over
+    a square centred on the start, the route turning at each row's far end and coming home; a
+    **destination** is a zigzag along the direct line, alternating either side of it. At *Wide*
+    the loop is two long legs out and back around the start and the destination is one big bow
+    off the corridor; at *Tight* the
     loop is a **lawnmower over the square the start sits in** and the destination is a handful of
     side streets either side of the way there. Measured on a 5 km loop from the same spot:
     5.87 km reaching ~1.1 km out at *Wide* against 4.81 km filling a ~1.1 km square at *Tight* —
     the distance holds while the shape changes, which is the whole point of the setting.
+  * The **tour** (`WM_PLAN_ALGO=tour`) is the proof of concept. Instead of a zigzag sized on a
+    straight line, it puts a **disc of ground** around the user and sizes the disc so the streets
+    in it are the distance asked for; the walk then **sweeps the disc row by row**, a lawnmower
+    over the ground rather than a zigzag past it. The rows are the *Route Shape* setting: at
+    *Tight* it is many short rows over a small disc, at *Wide* a couple of long rows over a big
+    one. Rows that are covered ground from end to end are **dropped before anything is routed**,
+    so a tight tour spends its legs on the streets the user has not walked; the rows that remain
+    are nudged at each end towards the least covered ground nearby, exactly as the zigzag's
+    turning points are. The disc is tried at the start and on a few rings around it, and a centre
+    is preferred when the ground inside it is unexplored *and* it is near the user — which is the
+    answer to the zigzag's habit of ignoring the new streets under the user's feet in favour of a
+    bigger, emptier square further out. Both algorithms are docked for **re-walking ground they
+    have already walked** (`CoverageIndex.selfOverlapMeters`), so a route that goes out along a
+    street and back down it ranks below one that sweeps once. The loop's leg home still retraces
+    about the disc's radius — the open point this proof of concept leaves, where a shape whose
+    return is itself new ground is the obvious next step.
   * The **new ways** slider is what makes the planner go looking. It is a target rather than a
     guarantee — a route that starts at the front door has to cross the streets around it, and
     those are the ones most likely to be covered already — and it works three ways at once.
@@ -413,9 +433,11 @@ Notes on the map rendering, all measured from the original app:
     than 15 % off.
   * The legs are the request budget. `MKDirections` throttles a burst
     (`MKError.Code.loadingThrottled`), so at most three legs are in flight at once, a throttled
-    leg is retried twice with a growing delay, and a plan is capped at 18 legs — which is also
-    what caps *Routes Suggested* at three when the shape asks for five legs each. A leg that
-    fails outright drops its candidate: a route with a hole in it is not a route.
+    leg is retried twice with a growing delay, and the zigzag is capped at 18 legs — which is
+    also what caps *Routes Suggested* at three when the shape asks for five legs each. The tour
+    asks for more: a sweep is a row per leg and then some, so it is capped at 14 legs a route and
+    45 a plan, and the same three-at-a-time throttle carries the burst. A leg that fails
+    outright drops its candidate: a route with a hole in it is not a route.
   * The route is drawn by MapKit like everything else on this screen: the planned lines are
     handed to `RouteMapView` as a second list, added **after** the workout routes (MapKit draws
     one level's overlays in the order they were added, so a planned route always lands on top of

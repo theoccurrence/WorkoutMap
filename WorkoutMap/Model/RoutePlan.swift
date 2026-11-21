@@ -19,6 +19,28 @@ enum PlanMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which of the explorer's two algorithms plans the route.
+///
+/// This is a proof of concept: both live side by side so the two can be compared on the same
+/// start and the same coverage, and `WM_PLAN_ALGO` picks between them at launch.
+enum PlanStrategy: String, CaseIterable, Identifiable {
+    /// The shipped zigzag: a handful of long legs, sized so their straight-line length is the
+    /// distance asked for.
+    case zigzag
+    /// The tour: a disc of ground sized so the streets in it are the distance asked for, swept
+    /// row by row so the walk takes the new ground rather than passing it.
+    case tour
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .zigzag: return "Zigzag"
+        case .tour: return "Coverage tour"
+        }
+    }
+}
+
 /// What the user asked the planner for.
 struct PlanRequest {
     var mode: PlanMode
