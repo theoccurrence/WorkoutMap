@@ -81,7 +81,7 @@ enum RouteJump {
 
     /// A dot is this share of the route's own width — thinner than the route, so the ground
     /// that *was* walked reads as the solid line and the jump as a trail beside it.
-    static let dotScale: CGFloat = 0.7
+    static let dotScale: CGFloat = 0.5
     /// Centre-to-centre spacing of two dots, in dot diameters.
     static let spacingScale: CGFloat = 2.4
 

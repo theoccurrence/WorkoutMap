@@ -86,6 +86,61 @@ final class ToneOverlay: NSObject, MKOverlay {
     var boundingMapRect: MKMapRect { MKMapRect.world }
 }
 
+/// Draws a jump as a row of dots, itself.
+///
+/// MapKit's own dashed stroke does not hold a size against the map's zoom. Measured with the
+/// camera pinned over the *same* routes (`WM_ZOOM_SPAN`) the dots came out ~4 px at a 1.5 km
+/// span and ~10 px at a 40 km one, while the route's solid line stayed the same width at every
+/// span — so the dots grow past the line they interrupt. This renderer strokes the dots at a
+/// size the zoom cannot move instead, and the coordinator asks it to redraw when the zoom
+/// actually changed.
+final class JumpDotsRenderer: MKOverlayRenderer {
+    private let color: UIColor
+    /// The dot's diameter, in points on the screen.
+    private let diameter: CGFloat
+    /// The distance between two dot centres, in the same points.
+    private let spacing: CGFloat
+    private let polylines: [MKPolyline]
+
+    override init(overlay: MKOverlay) {
+        let jump = overlay as? RouteColorOverlay
+        color = jump?.color ?? RouteJump.uiColor
+        diameter = jump?.width ?? RouteJump.dotDiameter(routeWidth: Metrics.routeWidth)
+        spacing = diameter * RouteJump.spacingScale
+        polylines = (jump as? MKMultiPolyline)?.polylines ?? []
+        super.init(overlay: overlay)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+        guard !polylines.isEmpty, diameter > 0, spacing > 0 else { return }
+        // The renderer's own space is map points, and MapKit hands a *tile* over — measured, a
+        // tile is drawn at twice the display's resolution (a dot asked for at 1.45 pt came out
+        // at ~1.3 px per point of it) — so a size that should be `diameter` points on the screen
+        // is twice the diameter divided by the zoom scale. The same goes for the gap between two
+        // dots: a zero-length dash with a round cap is one circle, and the second length keeps
+        // two of them apart.
+        let scale = 2 / CGFloat(zoomScale)
+        context.setStrokeColor(color.cgColor)
+        context.setLineWidth(diameter * scale)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.setLineDash(phase: 0, lengths: [0.01 * scale, spacing * scale])
+        for polyline in polylines where polyline.pointCount > 1 {
+            let path = CGMutablePath()
+            let points = polyline.points()
+            for index in 0..<polyline.pointCount {
+                let dot = point(for: points[index])
+                if index == 0 { path.move(to: dot) } else { path.addLine(to: dot) }
+            }
+            context.addPath(path)
+            context.strokePath()
+        }
+        context.setLineDash(phase: 0, lengths: [])
+    }
+}
+
 final class ToneOverlayRenderer: MKOverlayRenderer {
     init(tone: ToneOverlay) {
         super.init(overlay: tone)
@@ -586,6 +641,14 @@ struct RouteMapView: UIViewRepresentable {
         private var appliedMode: MapMode?
         var appliedInterfaceStyle: UIUserInterfaceStyle?
         private var routeOverlays: [RouteColorOverlay] = []
+        /// The renderers of the dotted jump overlays, so a zoom change can ask them to redraw.
+        /// Rebuilt with the overlays; see `updateRoutes`.
+        private var jumpRenderers: [JumpDotsRenderer] = []
+        /// The visible width the dots were last redrawn at, and when — the map's own zoom proxy,
+        /// since `MKMapView` has no public zoom scale. A redraw re-strokes the whole overlay, so
+        /// it is throttled: the visible region changes on every pan frame too.
+        private var jumpRedrawWidth: Double?
+        private var jumpRedrawTime: CFTimeInterval = 0
         /// Routes already turned into overlays, so a reload that adds routes one at a
         /// time costs one polyline per arrival instead of rebuilding the whole set.
         private var polylines: [String: MKPolyline] = [:]
@@ -880,6 +943,7 @@ struct RouteMapView: UIViewRepresentable {
             }
 
             map.removeOverlays(routeOverlays)
+            jumpRenderers = []
             routeOverlays = grouped.map {
                 RouteColorOverlay(color: $0.color, width: $0.width, dash: $0.dash, polylines: $0.polylines)
             }
@@ -1095,6 +1159,15 @@ struct RouteMapView: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let tone = overlay as? ToneOverlay { return ToneOverlayRenderer(tone: tone) }
             guard let group = overlay as? RouteColorOverlay else { return MKOverlayRenderer(overlay: overlay) }
+            if group.dash != nil {
+                // A jump: drawn as dots by hand — MapKit's dashed stroke does not hold its size
+                // against the map's zoom (see `JumpDotsRenderer`) — and kept in the list so a
+                // zoom change can ask for a redraw.
+                let renderer = JumpDotsRenderer(overlay: group)
+                jumpRenderers = jumpRenderers.filter { $0.overlay !== group }
+                jumpRenderers.append(renderer)
+                return renderer
+            }
             let renderer = MKMultiPolylineRenderer(multiPolyline: group)
             renderer.strokeColor = group.color
             renderer.lineWidth = group.width
@@ -1126,6 +1199,26 @@ struct RouteMapView: UIViewRepresentable {
         /// so it has to follow the camera's heading or it would point at the wrong place.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
             applyDotDirection()
+            redrawJumpDotsIfZoomChanged(mapView)
+        }
+
+        /// Keeps a jump's dots at the size this zoom calls for.
+        ///
+        /// A dashed stroke is rasterised per tile level, so between two levels MapKit scales the
+        /// tile it already drew and the dots drift in size with the map. Asking the renderers to
+        /// redraw when the zoom has actually moved pulls them back — throttled, because the
+        /// visible region changes on every pan frame as well and one redraw re-strokes the whole
+        /// overlay.
+        private func redrawJumpDotsIfZoomChanged(_ map: MKMapView) {
+            guard !jumpRenderers.isEmpty else { return }
+            let width = map.visibleMapRect.width
+            if let previous = jumpRedrawWidth,
+               abs(width - previous) / max(width, previous) < 0.04 { return }
+            let now = CACurrentMediaTime()
+            guard now - jumpRedrawTime >= 0.05 else { return }
+            jumpRedrawWidth = width
+            jumpRedrawTime = now
+            for renderer in jumpRenderers { renderer.setNeedsDisplay() }
         }
     }
 }

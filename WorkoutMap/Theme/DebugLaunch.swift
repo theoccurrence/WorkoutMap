@@ -43,6 +43,9 @@ enum DebugLaunch {
     static var hideCard: Bool { env["WM_HIDE_CARD"] == "1" }
     /// WM_SKIP_LOCATION=1 skips the location prompt (simulator screenshots).
     static var skipLocation: Bool { env["WM_SKIP_LOCATION"] == "1" }
+    /// WM_ZOOM_SPAN=<metres> opens the map centred on the routes at that span instead of fitting
+    /// them, so the same route can be looked at at several zoom levels.
+    static var zoomSpan: Double? { env["WM_ZOOM_SPAN"].flatMap(Double.init) }
     /// WM_RESET_MODE_COLORS=1 puts Walk / Run / Ride back to their shipped colours at launch —
     /// the simulator cannot tap *Reset to Defaults* from the command line.
     static var resetModeColors: Bool { env["WM_RESET_MODE_COLORS"] == "1" }
@@ -197,6 +200,7 @@ enum DebugLaunch {
     static var tapDelay: Double { 4 }
     static var hideCard: Bool { false }
     static var skipLocation: Bool { false }
+    static var zoomSpan: Double? { nil }
     static var resetModeColors: Bool { false }
     static var modeColors: [(WorkoutCategory, UInt32)] { [] }
     static var stressCopies: Int { 1 }

@@ -996,7 +996,13 @@ struct MapTabView: View {
 
     private func fitContent() {
         if let rect = RouteGeometry.fittedRect(routes: loaded.map { $0.1.coordinates }) {
-            camera = .fit(rect)
+            // The debug hook holds the camera at a fixed span over the same routes, so the
+            // overlay can be looked at at one zoom level at a time (`WM_ZOOM_SPAN`).
+            if let span = DebugLaunch.zoomSpan {
+                camera = .center(MKMapPoint(x: rect.midX, y: rect.midY).coordinate, spanMeters: span)
+            } else {
+                camera = .fit(rect)
+            }
         } else if let coordinate = centersOn {
             camera = .center(coordinate, spanMeters: Self.emptySpanMeters)
         } else {

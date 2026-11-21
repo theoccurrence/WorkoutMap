@@ -83,6 +83,7 @@ variables (Debug builds only):
 | `WM_START_DETAIL=1` | Pushes the first workout's detail screen |
 | `WM_START_EXPORT=1` | Opens the export card |
 | `WM_SKIP_LOCATION=1` | Skips the location prompt (screenshots) |
+| `WM_ZOOM_SPAN=<metres>` | Opens the map centred on the routes at that span instead of fitting them (checks an overlay at one zoom level) |
 | `WM_FLIP_MODES=<seconds>` | Switches the stored map style between Explore and Legacy every that many seconds (checks the controls' own light/dark transition) |
 | `WM_ROTATE=landscapeRight,portrait` | Turns the device through those orientations, 4 s apart (there is no Simulator UI to drag in this setup) |
 | `WM_FAKE_LOCATION="lat,lon"` | Publishes a fixed position (checks the dot) |
@@ -499,7 +500,12 @@ Notes on the map rendering, all measured from the original app:
   way the Fitness app does — a row of grey **dots**, each a zero-length dash stroked with a
   round cap so the cap is the circle, and both the dot and its spacing measured against the
   width the route itself is drawn at (`RouteJump`) — hides them altogether, or leaves them
-  solid as the app drew them before. The walked stretches are split around every jump, which
+  solid as the app drew them before. The dots are stroked by the app's own renderer
+  (`JumpDotsRenderer`), because MapKit's dashed stroke grows with the map's zoom: measured with
+  the camera pinned over the same routes, the dots came out ~4 px at a 1.5 km span and ~10 px
+  at a 40 km one while the route line stayed put, so they ended up wider than the line they
+  interrupt. The renderer keeps the dot and its gap fixed against the zoom and is asked to
+  redraw when the zoom actually changed. The walked stretches are split around every jump, which
   costs a handful of polylines per workout and still one overlay — one draw call — per colour
   and dash pattern; each jump line carries the workout's id with a suffix, which a tap cuts off
   again (`Coordinator.baseRouteID`), so picking a route still picks that workout. Snapshots
