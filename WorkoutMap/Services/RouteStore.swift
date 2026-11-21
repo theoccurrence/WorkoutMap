@@ -121,18 +121,21 @@ final class RouteStore: @unchecked Sendable {
         return WorkoutRoute(locations: locations)
     }
 
-    /// The cache's own format: `WMR1`, then the fix count, the coordinates, and one byte per fix
-    /// saying whether the leg that arrives at it is a jump.
+    /// The cache's own format: `WMR2`, then the fix count, the coordinates, and one `Float32`
+    /// per fix — the seconds the leg arriving at it took.
     ///
-    /// The count and the coordinates alone are what this file held before the jumps were told
-    /// apart, and a file in that shape cannot say where they are, so it is refused rather than
-    /// read as a route without any — the workout is fetched from Health again, which is where
-    /// the jumps come from.
-    private static let magic = Array("WMR1".utf8)
+    /// The times, rather than a jump flag, because what counts as a jump is a setting now: the
+    /// two thresholds move under the user's finger, and a route must not have to be fetched from
+    /// Health again every time one does. The count and the coordinates alone are what the file
+    /// held before the jumps were told apart, and `WMR1` held one jump byte per fix; neither can
+    /// say how long a leg took, so both are refused rather than read as a route whose legs all
+    /// look instantaneous — the workout is fetched from Health again, which is where the times
+    /// come from.
+    private static let magic = Array("WMR2".utf8)
     /// Four bytes of magic and four of count, before the coordinates.
     private static let header = 8
-    /// One coordinate, and one byte of jump flag per fix.
-    private static let stride = 17
+    /// One coordinate, and one `Float32` of leg seconds per fix.
+    private static let stride = 20
 
     static func encode(_ route: WorkoutRoute) -> Data {
         var data = Data(capacity: header + route.coordinates.count * stride)
@@ -146,7 +149,9 @@ final class RouteStore: @unchecked Sendable {
             withUnsafeBytes(of: &lon) { data.append(contentsOf: $0) }
         }
         for index in route.coordinates.indices {
-            data.append(route.jumps.contains(index) ? 1 : 0)
+            let seconds = route.intervals.indices.contains(index) ? route.intervals[index] : 0
+            var bits = Float(seconds).bitPattern.littleEndian
+            withUnsafeBytes(of: &bits) { data.append(contentsOf: $0) }
         }
         return data
     }
@@ -155,21 +160,21 @@ final class RouteStore: @unchecked Sendable {
         guard data.count >= header, Array(data.prefix(magic.count)) == magic else { return nil }
         let count = Int(data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }.littleEndian)
         guard data.count >= header + count * stride else { return nil }
-        let flagOffset = header + count * 16
+        let timeOffset = header + count * 16
         var coords: [CLLocationCoordinate2D] = []
         coords.reserveCapacity(count)
-        var jumps: Set<Int> = []
+        var intervals: [Double] = []
+        intervals.reserveCapacity(count)
         data.withUnsafeBytes { raw in
             for i in 0..<count {
                 let lat = raw.loadUnaligned(fromByteOffset: header + i * 16, as: UInt64.self).littleEndian
                 let lon = raw.loadUnaligned(fromByteOffset: header + i * 16 + 8, as: UInt64.self).littleEndian
                 coords.append(CLLocationCoordinate2D(latitude: Double(bitPattern: lat),
                                                      longitude: Double(bitPattern: lon)))
-                if raw.loadUnaligned(fromByteOffset: flagOffset + i, as: UInt8.self) != 0 {
-                    jumps.insert(i)
-                }
+                let bits = raw.loadUnaligned(fromByteOffset: timeOffset + i * 4, as: UInt32.self).littleEndian
+                intervals.append(Double(Float(bitPattern: bits)))
             }
         }
-        return WorkoutRoute(coordinates: coords, jumps: jumps)
+        return WorkoutRoute(coordinates: coords, intervals: intervals)
     }
 }

@@ -23,6 +23,31 @@ enum DebugLaunch {
     /// WM_SAMPLE_JUMPS=1 splices one errant fix into the sample routes, so the jump setting can
     /// be exercised without a workout whose receiver actually jumped.
     static var sampleJumps: Bool { env["WM_SAMPLE_JUMPS"] == "1" }
+    /// WM_JUMP_DISTANCE_STYLE / WM_JUMP_SPEED_STYLE=dotted|hidden|solid and
+    /// WM_JUMP_DISTANCE_M=<metres> / WM_JUMP_SPEED_KMH=<km/h> set the two softer jump rules, so
+    /// each can be checked on its own. `WM_START_JUMP_STYLE` still sets the distance rule.
+    static var jumpDistanceStyle: RouteJumpStyle? { env["WM_JUMP_DISTANCE_STYLE"].flatMap(RouteJumpStyle.init(rawValue:)) }
+    static var jumpSpeedStyle: RouteJumpStyle? { env["WM_JUMP_SPEED_STYLE"].flatMap(RouteJumpStyle.init(rawValue:)) }
+    static var jumpDistanceThreshold: Double? { env["WM_JUMP_DISTANCE_M"].flatMap(Double.init) }
+    static var jumpSpeedThreshold: Double? { env["WM_JUMP_SPEED_KMH"].flatMap(Double.init) }
+
+    /// Writes the jump hooks above into the settings the views read, at launch rather than when
+    /// the map screen opens — the Workouts list draws its thumbnails before any map exists.
+    static func applyJumpOverrides() {
+        let defaults = UserDefaults.standard
+        if let style = startJumpStyle ?? jumpDistanceStyle {
+            defaults.set(style.rawValue, forKey: JumpSettings.distanceStyleKey)
+        }
+        if let metres = jumpDistanceThreshold {
+            defaults.set(metres, forKey: JumpSettings.distanceThresholdKey)
+        }
+        if let style = jumpSpeedStyle {
+            defaults.set(style.rawValue, forKey: JumpSettings.speedStyleKey)
+        }
+        if let kmh = jumpSpeedThreshold {
+            defaults.set(kmh, forKey: JumpSettings.speedThresholdKey)
+        }
+    }
     /// WM_START_MODES=1 opens the map style picker.
     static var openModes: Bool { env["WM_START_MODES"] == "1" }
     /// WM_TAP_AT="x,y" fires one tap on the map at those screen points, once the routes are on
@@ -180,6 +205,11 @@ enum DebugLaunch {
     static var startAppearance: MapAppearance? { nil }
     static var startJumpStyle: RouteJumpStyle? { nil }
     static var sampleJumps: Bool { false }
+    static var jumpDistanceStyle: RouteJumpStyle? { nil }
+    static var jumpSpeedStyle: RouteJumpStyle? { nil }
+    static var jumpDistanceThreshold: Double? { nil }
+    static var jumpSpeedThreshold: Double? { nil }
+    static func applyJumpOverrides() {}
     static var openModes: Bool { false }
     static var tapAt: CGPoint? { nil }
     static var fakeHeading: String? { nil }

@@ -54,7 +54,7 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color.black)
                 .frame(maxWidth: .infinity)
                 .frame(height: height)

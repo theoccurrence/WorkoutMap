@@ -12,15 +12,21 @@ struct WorkoutDetailView: View {
     /// How the map is drawn, matching the map screen: the appearance setting against the
     /// system's own style.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
-    /// What the map does with a GPS jump — the same setting the map screen reads.
-    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
+    /// The jump rules — the same settings the map screen reads.
+    @AppStorage(JumpSettings.distanceStyleKey) private var jumpDistanceStyle: RouteJumpStyle = JumpRules.standard.distanceStyle
+    @AppStorage(JumpSettings.distanceThresholdKey) private var jumpDistanceThreshold: Double = JumpRules.standard.distanceThreshold
+    @AppStorage(JumpSettings.speedStyleKey) private var jumpSpeedStyle: RouteJumpStyle = JumpRules.standard.speedStyle
+    @AppStorage(JumpSettings.speedThresholdKey) private var jumpSpeedThreshold: Double = JumpRules.standard.speedThreshold
     @ObservedObject private var systemAppearance = SystemAppearance.shared
     @ObservedObject private var modeColors = CategoryColorStore.shared
 
     private var lines: [MapRouteLine] {
         MapRouteLine.lines(for: workout,
                            route: route,
-                           style: jumpStyle,
+                           rules: JumpRules(distanceStyle: jumpDistanceStyle,
+                                            distanceThreshold: jumpDistanceThreshold,
+                                            speedStyle: jumpSpeedStyle,
+                                            speedThreshold: jumpSpeedThreshold),
                            color: modeColors.uiColor(for: workout.category))
     }
 

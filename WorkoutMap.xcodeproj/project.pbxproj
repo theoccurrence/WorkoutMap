@@ -28,6 +28,7 @@
 		636020DA50D5474720DFF24F /* HealthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C8374FFE8DA74D43CDF3D0 /* HealthStore.swift */; };
 		7131D644AACFAFACB6D34F08 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B10383FCD4C6961C1FC099A /* RootView.swift */; };
 		71F49ECC3F232EE299342BB3 /* WorkoutRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4586A1D91847FB9514DD8126 /* WorkoutRoute.swift */; };
+		7BB4A7BCE191B84F65794F27 /* JumpRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = D23113E626179A5E78CDF657 /* JumpRules.swift */; };
 		860DE2C06087E6D338E4F9FF /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB7B41C2C224D883B2841A0 /* Formatters.swift */; };
 		97C0361AE400FD9489827864 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F03628C72B3659DAB8738B /* LocationProvider.swift */; };
 		9C0464366C4261DCBC4238A4 /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239FACC29E0EB5235839B714 /* DebugLaunch.swift */; };
@@ -87,6 +88,7 @@
 		BEE6C11B7D46FCF2B7C9BC37 /* WorkoutsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutsListView.swift; sourceTree = "<group>"; };
 		C2F03628C72B3659DAB8738B /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		CAC7B9B7F0700D15D156BE5C /* RoutePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutePlan.swift; sourceTree = "<group>"; };
+		D23113E626179A5E78CDF657 /* JumpRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpRules.swift; sourceTree = "<group>"; };
 		D283CFA1D7D081654E932501 /* WorkoutMapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutMapApp.swift; sourceTree = "<group>"; };
 		D508E97CB901197853D63B57 /* ControlAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlAppearance.swift; sourceTree = "<group>"; };
 		D603CC3A9F9C2C651179854C /* DirectionsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectionsClient.swift; sourceTree = "<group>"; };
@@ -166,6 +168,7 @@
 			isa = PBXGroup;
 			children = (
 				862641A6A5F977298C3A9AE6 /* ExploreOptions.swift */,
+				D23113E626179A5E78CDF657 /* JumpRules.swift */,
 				261EAD446B5AC5B4F86D01F0 /* MapMode.swift */,
 				7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */,
 				19FF8DC6198EEE24F3EBFD57 /* RouteJumpStyle.swift */,
@@ -276,6 +279,7 @@
 				5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */,
 				860DE2C06087E6D338E4F9FF /* Formatters.swift in Sources */,
 				636020DA50D5474720DFF24F /* HealthStore.swift in Sources */,
+				7BB4A7BCE191B84F65794F27 /* JumpRules.swift in Sources */,
 				97C0361AE400FD9489827864 /* LocationProvider.swift in Sources */,
 				AE7D60C69F4446EDCE650B18 /* MapImageRenderer.swift in Sources */,
 				06E25D7A2B2F874D3269A75F /* MapMode.swift in Sources */,

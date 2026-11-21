@@ -23,9 +23,12 @@ struct MapTabView: View {
     /// settings.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance =
         DebugLaunch.startAppearance ?? MapAppearance.stored
-    /// What the map does with a GPS jump: the dashed grey line of the Fitness app, or nothing at
-    /// all. Read live, so a change in the settings redraws the routes at once.
-    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
+    /// How the two softer jump rules are set — what counts as a jump, and how it is drawn. Read
+    /// live, so a change in the settings redraws the routes at once.
+    @AppStorage(JumpSettings.distanceStyleKey) private var jumpDistanceStyle: RouteJumpStyle = JumpRules.standard.distanceStyle
+    @AppStorage(JumpSettings.distanceThresholdKey) private var jumpDistanceThreshold: Double = JumpRules.standard.distanceThreshold
+    @AppStorage(JumpSettings.speedStyleKey) private var jumpSpeedStyle: RouteJumpStyle = JumpRules.standard.speedStyle
+    @AppStorage(JumpSettings.speedThresholdKey) private var jumpSpeedThreshold: Double = JumpRules.standard.speedThreshold
     /// The system's own style, for `MapAppearance.system` — read from the screen, since the app
     /// itself is pinned to dark (see `SystemAppearance`).
     @ObservedObject private var systemAppearance = SystemAppearance.shared
@@ -131,7 +134,7 @@ struct MapTabView: View {
         loaded.flatMap {
             MapRouteLine.lines(for: $0.0,
                                route: $0.1,
-                               style: jumpStyle,
+                               rules: jumpRules,
                                color: modeColors.uiColor(for: $0.0.category))
         }
     }
@@ -195,6 +198,14 @@ struct MapTabView: View {
     }
 
     private var dotColor: UIColor { modeColors.uiColor(for: category ?? .walk) }
+
+    /// The two jump rules as the settings have them.
+    private var jumpRules: JumpRules {
+        JumpRules(distanceStyle: jumpDistanceStyle,
+                  distanceThreshold: jumpDistanceThreshold,
+                  speedStyle: jumpSpeedStyle,
+                  speedThreshold: jumpSpeedThreshold)
+    }
 
     /// The style the map is drawn in. `legacy` is the grey map the app shipped with and stays
     /// dark whatever the setting says; every other mode follows it.
@@ -319,7 +330,6 @@ struct MapTabView: View {
         .task {
             if let start = DebugLaunch.startMapMode { mapMode = start }
             if let start = DebugLaunch.startAppearance { mapAppearance = start }
-            if let style = DebugLaunch.startJumpStyle { jumpStyle = style }
             if let shape = DebugLaunch.planShape { exploreShape = shape }
             if let routes = DebugLaunch.planRoutes { exploreRouteCount = routes }
             if let minimum = DebugLaunch.planMinimumNew { exploreMinimumNew = minimum }

@@ -18,30 +18,40 @@ struct MapRouteLine: Equatable {
 
 extension MapRouteLine {
     /// One workout route as the lines it is drawn as: the stretches the user walked, in the
-    /// category's colour, and — where the setting asks for it — each GPS jump as a dotted grey
-    /// line of its own. A jump's dots are measured against `routeWidth`, so they follow the
-    /// weight the routes are drawn at rather than sit on a weight of their own.
+    /// category's colour, and each leg one of the two jump rules caught, in that rule's own tone
+    /// and style (`JumpRules`). A leg's dots are measured against `routeWidth`, so they follow
+    /// the weight the routes are drawn at rather than sit on a weight of their own.
     ///
     /// Every line's id is the workout's own with a suffix; `Coordinator.baseRouteID` cuts the
     /// suffix off again, so a tap anywhere on the route picks that workout.
     static func lines(for workout: Workout,
                       route: WorkoutRoute,
-                      style: RouteJumpStyle,
+                      rules: JumpRules,
                       color: UIColor,
                       routeWidth: CGFloat = Metrics.routeWidth) -> [MapRouteLine] {
-        let drawing = route.drawing(style)
+        let drawing = route.drawing(rules)
         var lines = drawing.walked.enumerated().map { index, coordinates in
             MapRouteLine(id: "\(workout.id.uuidString)#\(index)",
                          coordinates: coordinates,
                          color: color,
                          width: routeWidth)
         }
-        lines += drawing.jumps.enumerated().map { index, coordinates in
-            MapRouteLine(id: "\(workout.id.uuidString)#jump\(index)",
-                         coordinates: coordinates,
-                         color: RouteJump.uiColor,
-                         width: RouteJump.dotDiameter(routeWidth: routeWidth),
-                         dash: RouteJump.dotDash(routeWidth: routeWidth))
+        for (index, leg) in drawing.legs.enumerated() {
+            switch rules.style(for: leg.kind) {
+            case .hidden:
+                continue
+            case .dotted:
+                lines.append(MapRouteLine(id: "\(workout.id.uuidString)#\(leg.kind.rawValue)\(index)",
+                                          coordinates: leg.coordinates,
+                                          color: RouteJump.uiColor(for: leg.kind),
+                                          width: RouteJump.dotDiameter(routeWidth: routeWidth),
+                                          dash: RouteJump.dotDash(routeWidth: routeWidth)))
+            case .solid:
+                lines.append(MapRouteLine(id: "\(workout.id.uuidString)#\(leg.kind.rawValue)\(index)",
+                                          coordinates: leg.coordinates,
+                                          color: RouteJump.uiColor(for: leg.kind),
+                                          width: routeWidth))
+            }
         }
         return lines
     }

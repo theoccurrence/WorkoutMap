@@ -9,9 +9,12 @@ struct SettingsView: View {
     /// How the map is drawn: the system's own light or dark style, or one pinned. The map
     /// reads it live, so a change here redraws it at once.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
-    /// What the map does with a GPS jump: the dashed grey line the Fitness app draws across
-    /// ground the workout never measured, or nothing at all. The map screens read it live.
-    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
+    /// The two softer jump rules: what counts as a jump, and how each is drawn. The map screens
+    /// read them live. The strict three-part detection is not here — it is never drawn.
+    @AppStorage(JumpSettings.distanceStyleKey) private var jumpDistanceStyle: RouteJumpStyle = JumpRules.standard.distanceStyle
+    @AppStorage(JumpSettings.distanceThresholdKey) private var jumpDistanceThreshold: Double = JumpRules.standard.distanceThreshold
+    @AppStorage(JumpSettings.speedStyleKey) private var jumpSpeedStyle: RouteJumpStyle = JumpRules.standard.speedStyle
+    @AppStorage(JumpSettings.speedThresholdKey) private var jumpSpeedThreshold: Double = JumpRules.standard.speedThreshold
     /// How many routes the explorer offers at once, and how tight it keeps them. The map screen
     /// reads both when it plans, so a change here applies to the next plan.
     @AppStorage(ExploreOptions.routeCountKey) private var exploreRouteCount: Int = ExploreOptions.routeCountDefault
@@ -67,22 +70,71 @@ struct SettingsView: View {
                                        showsChevron: true)
                         }
                         .buttonStyle(.plain)
-                        divider
+                    }
+                    .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
+
+                    Spacer().frame(height: 33)
+
+                    Text("GPS Jumps")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.textSecondary)
+                        .padding(.leading, 2)
+                        .padding(.bottom, 8)
+
+                    VStack(spacing: 0) {
                         Menu {
-                            Picker("GPS Jumps", selection: $jumpStyle) {
+                            Picker("Distance Jumps", selection: $jumpDistanceStyle) {
                                 ForEach(RouteJumpStyle.allCases) { style in
                                     Text(style.title).tag(style)
                                 }
                             }
                         } label: {
-                            rowContent(title: "GPS Jumps",
-                                       systemImage: "point.topleft.down.to.point.bottomright.curvepath",
-                                       detail: jumpStyle.title,
+                            rowContent(title: "Distance Jumps",
+                                       systemImage: "ruler",
+                                       detail: jumpDistanceStyle.title,
                                        showsChevron: true)
                         }
                         .buttonStyle(.plain)
+                        divider
+                        sliderRow(title: "Distance",
+                                  systemImage: "arrow.left.and.right",
+                                  value: $jumpDistanceThreshold,
+                                  range: JumpSettings.distanceRange,
+                                  step: JumpSettings.distanceStep,
+                                  low: "\(Int(JumpSettings.distanceRange.lowerBound)) m",
+                                  high: "\(Int(JumpSettings.distanceRange.upperBound)) m",
+                                  detail: "\(Int(jumpDistanceThreshold)) m")
+                        divider
+                        Menu {
+                            Picker("Fast Legs", selection: $jumpSpeedStyle) {
+                                ForEach(RouteJumpStyle.allCases) { style in
+                                    Text(style.title).tag(style)
+                                }
+                            }
+                        } label: {
+                            rowContent(title: "Fast Legs",
+                                       systemImage: "bolt.fill",
+                                       detail: jumpSpeedStyle.title,
+                                       showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                        divider
+                        sliderRow(title: "Speed",
+                                  systemImage: "speedometer",
+                                  value: $jumpSpeedThreshold,
+                                  range: JumpSettings.speedRange,
+                                  step: JumpSettings.speedStep,
+                                  low: "\(Int(JumpSettings.speedRange.lowerBound))",
+                                  high: "\(Int(JumpSettings.speedRange.upperBound)) km/h",
+                                  detail: "\(Int(jumpSpeedThreshold)) km/h")
                     }
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
+
+                    Text("A leg longer than the distance, or faster than the speed, is drawn as that rule says. A leg that trips both is drawn as a fast leg, and a leg the combined detection catches is never drawn.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Palette.textTertiary)
+                        .padding(.horizontal, 2)
+                        .padding(.top, 8)
 
                     Spacer().frame(height: 33)
 
@@ -237,6 +289,7 @@ struct SettingsView: View {
                            systemImage: String,
                            value: Binding<Double>,
                            range: ClosedRange<Double>,
+                           step: Double? = nil,
                            low: String,
                            high: String,
                            detail: String) -> some View {
@@ -258,7 +311,7 @@ struct SettingsView: View {
                 Text(low)
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.textTertiary)
-                Slider(value: value, in: range)
+                Slider(value: value, in: range, step: step ?? 0.01)
                     .tint(Palette.accent)
                 Text(high)
                     .font(.system(size: 12))

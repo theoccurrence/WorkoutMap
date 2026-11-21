@@ -12,8 +12,11 @@ struct WorkoutCardView: View {
 
     @State private var thumbnail: UIImage?
     @State private var size: CGSize = .zero
-    /// What the map does with a GPS jump — the same setting the map screen reads.
-    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
+    /// The jump rules — the same settings the map screen reads.
+    @AppStorage(JumpSettings.distanceStyleKey) private var jumpDistanceStyle: RouteJumpStyle = JumpRules.standard.distanceStyle
+    @AppStorage(JumpSettings.distanceThresholdKey) private var jumpDistanceThreshold: Double = JumpRules.standard.distanceThreshold
+    @AppStorage(JumpSettings.speedStyleKey) private var jumpSpeedStyle: RouteJumpStyle = JumpRules.standard.speedStyle
+    @AppStorage(JumpSettings.speedThresholdKey) private var jumpSpeedThreshold: Double = JumpRules.standard.speedThreshold
     /// The colour the mode is drawn in — the same choice the map screen uses.
     @ObservedObject private var modeColors = CategoryColorStore.shared
 
@@ -77,17 +80,24 @@ struct WorkoutCardView: View {
         if let image = await MapImageRenderer.shared.thumbnail(for: workout.id,
                                                               route: route,
                                                               color: modeColors.uiColor(for: workout.category),
-                                                              style: jumpStyle,
+                                                              rules: jumpRules,
                                                               size: target,
                                                               scale: displayScale) {
             withAnimation(.easeOut(duration: 0.2)) { thumbnail = image }
         }
     }
 
-    /// What the thumbnail is drawn from: the card's own size and the jump setting, so a change to
-    /// either draws it again.
+    /// What the thumbnail is drawn from: the card's own size, the jump rules and the mode's
+    /// colour, so a change to any of them draws it again.
     private var loadKey: String {
-        "\(size.width)x\(size.height)-\(jumpStyle.rawValue)-\(modeColors.hexString(for: workout.category))"
+        "\(size.width)x\(size.height)-\(jumpRules.key)-\(modeColors.hexString(for: workout.category))"
+    }
+
+    private var jumpRules: JumpRules {
+        JumpRules(distanceStyle: jumpDistanceStyle,
+                  distanceThreshold: jumpDistanceThreshold,
+                  speedStyle: jumpSpeedStyle,
+                  speedThreshold: jumpSpeedThreshold)
     }
 
     private func route() async -> WorkoutRoute {

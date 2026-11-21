@@ -126,9 +126,10 @@ enum SampleData {
     /// The sample route, with one errant fix spliced in when `WM_SAMPLE_JUMPS=1` asks for it.
     ///
     /// The errant fix goes through the same detection the app puts a real route through
-    /// (`WorkoutRoute.jumps(in:)`): the fixes carry the one-second spacing Health gives them, so
-    /// the spliced jump is found the way a real one is. It shows as the spike a real jump makes —
-    /// out to somewhere the user never was, and back.
+    /// (`WorkoutRoute.drawing`): the fixes carry the one-second spacing Health gives them, so
+    /// the spliced jump is judged the way a real one is — far enough to trip the strict rule,
+    /// which never draws a leg. It shows as the spike a real jump makes — out to somewhere the
+    /// user never was, and back.
     static func route(for spec: Spec) -> WorkoutRoute {
         let coordinates = track(for: spec)
         guard DebugLaunch.sampleJumps, coordinates.count > 4 else {

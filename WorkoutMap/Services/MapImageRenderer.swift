@@ -155,29 +155,36 @@ final class MapImageRenderer {
     func thumbnail(for id: UUID,
                    route: WorkoutRoute,
                    color: UIColor,
-                   style: RouteJumpStyle,
+                   rules: JumpRules,
                    size: CGSize,
                    scale: CGFloat) async -> UIImage? {
-        // The style and the mode's colour are part of the key: the same workout is drawn
+        // The rules and the mode's colour are part of the key: the same workout is drawn
         // differently once either changes, and a cached image of the other look must not come
         // back.
-        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))-\(style.rawValue)-\(color.hexRGB)" as NSString
+        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))-\(rules.key)-\(color.hexRGB)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
 
         let aspect = size.height > 1 ? size.width / size.height : 4
         let rect = MapImageRenderer.thumbnailMapRect(route: route.coordinates, aspect: aspect)
             ?? RouteGeometry.fitted(RouteGeometry.mapRect(for: route.coordinates.first ?? CLLocationCoordinate2D()))
-        // A jump is dotted, and its dots are measured against the 2.4 pt the route itself is
-        // drawn at in a thumbnail, so they follow that weight instead of carrying one of their
-        // own.
+        // A leg's dots are measured against the 2.4 pt the route itself is drawn at in a
+        // thumbnail, so they follow that weight instead of carrying one of their own.
         let thumbnailRouteWidth: CGFloat = 2.4
-        let drawing = route.drawing(style)
+        let drawing = route.drawing(rules)
         var lines = drawing.walked.map { RouteLine(coordinates: $0, color: color) }
-        lines += drawing.jumps.map {
-            RouteLine(coordinates: $0,
-                      color: RouteJump.uiColor,
-                      dash: RouteJump.dotDash(routeWidth: thumbnailRouteWidth),
-                      width: RouteJump.dotDiameter(routeWidth: thumbnailRouteWidth))
+        for leg in drawing.legs {
+            switch rules.style(for: leg.kind) {
+            case .hidden:
+                continue
+            case .dotted:
+                lines.append(RouteLine(coordinates: leg.coordinates,
+                                       color: RouteJump.uiColor(for: leg.kind),
+                                       dash: RouteJump.dotDash(routeWidth: thumbnailRouteWidth),
+                                       width: RouteJump.dotDiameter(routeWidth: thumbnailRouteWidth)))
+            case .solid:
+                lines.append(RouteLine(coordinates: leg.coordinates,
+                                       color: RouteJump.uiColor(for: leg.kind)))
+            }
         }
         let image = await image(mapRect: rect, size: size, scale: scale,
                                 routes: lines,
