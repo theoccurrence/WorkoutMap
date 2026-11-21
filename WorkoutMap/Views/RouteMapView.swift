@@ -23,12 +23,15 @@ extension MapRouteLine {
     ///
     /// Every line's id is the workout's own with a suffix; `Coordinator.baseRouteID` cuts the
     /// suffix off again, so a tap anywhere on the route picks that workout.
-    static func lines(for workout: Workout, route: WorkoutRoute, style: RouteJumpStyle) -> [MapRouteLine] {
+    static func lines(for workout: Workout,
+                      route: WorkoutRoute,
+                      style: RouteJumpStyle,
+                      color: UIColor) -> [MapRouteLine] {
         let drawing = route.drawing(style)
         var lines = drawing.walked.enumerated().map { index, coordinates in
             MapRouteLine(id: "\(workout.id.uuidString)#\(index)",
                          coordinates: coordinates,
-                         color: workout.category.uiColor)
+                         color: color)
         }
         lines += drawing.jumps.enumerated().map { index, coordinates in
             MapRouteLine(id: "\(workout.id.uuidString)#jump\(index)",

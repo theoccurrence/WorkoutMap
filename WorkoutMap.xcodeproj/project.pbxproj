@@ -42,6 +42,7 @@
 		DB645A199F829A2763800D07 /* SystemAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AF569EB5045DD43C9FE1EE3 /* SystemAppearance.swift */; };
 		E0B814F3C4EBACC660298A61 /* WorkoutCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43AA47D31BF875793C2277 /* WorkoutCardView.swift */; };
 		E5E14CFB5D3EF838CC314995 /* DirectionsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D603CC3A9F9C2C651179854C /* DirectionsClient.swift */; };
+		E8613B274BAA68F03BD22EC5 /* CategoryColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86BF5BAA0726A779B643C6F3 /* CategoryColors.swift */; };
 		E955ADB8CF98796125D1E5D9 /* DebugSampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A63D8776C7CC508C221A2CF /* DebugSampleData.swift */; };
 		EE7D5FD69F06772D89F538E4 /* CoverageIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EC549C8FC154240F7FB97A /* CoverageIndex.swift */; };
 		EF048E31131A14D028921ADF /* Workout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F90752D46A1FDDCFD1D51E8 /* Workout.swift */; };
@@ -76,6 +77,7 @@
 		7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteGeometry.swift; sourceTree = "<group>"; };
 		862641A6A5F977298C3A9AE6 /* ExploreOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploreOptions.swift; sourceTree = "<group>"; };
 		86B99557E5665B1E1491E0F9 /* RangePickerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RangePickerPanel.swift; sourceTree = "<group>"; };
+		86BF5BAA0726A779B643C6F3 /* CategoryColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryColors.swift; sourceTree = "<group>"; };
 		90C8374FFE8DA74D43CDF3D0 /* HealthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthStore.swift; sourceTree = "<group>"; };
 		9978FD106F794C8E5F7E61F2 /* CoverageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverageStore.swift; sourceTree = "<group>"; };
 		A231724BE3653A235B51A2F6 /* MapTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapTabView.swift; sourceTree = "<group>"; };
@@ -179,6 +181,7 @@
 		F0AE655E4C5D9906B67B0101 /* Theme */ = {
 			isa = PBXGroup;
 			children = (
+				86BF5BAA0726A779B643C6F3 /* CategoryColors.swift */,
 				D508E97CB901197853D63B57 /* ControlAppearance.swift */,
 				239FACC29E0EB5235839B714 /* DebugLaunch.swift */,
 				1AB7B41C2C224D883B2841A0 /* Formatters.swift */,
@@ -261,6 +264,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0732BA69F360061119BC962D /* AppBackground.swift in Sources */,
+				E8613B274BAA68F03BD22EC5 /* CategoryColors.swift in Sources */,
 				9C16629B50448FB841A06D90 /* Components.swift in Sources */,
 				AF5367A93BE477457C50C10D /* ControlAppearance.swift in Sources */,
 				EE7D5FD69F06772D89F538E4 /* CoverageIndex.swift in Sources */,

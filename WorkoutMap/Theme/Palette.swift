@@ -11,11 +11,29 @@ extension Color {
     }
 }
 
+extension UIColor {
+    convenience init(hex: UInt32) {
+        self.init(red: CGFloat((hex >> 16) & 0xFF) / 255.0,
+                  green: CGFloat((hex >> 8) & 0xFF) / 255.0,
+                  blue: CGFloat(hex & 0xFF) / 255.0,
+                  alpha: 1)
+    }
+
+    /// The colour as `0xRRGGBB`, with each component clamped and rounded. A colour the picker
+    /// hands back in a wide gamut is reduced to the sRGB byte it is closest to.
+    var hexRGB: UInt32 {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return 0 }
+        func byte(_ component: CGFloat) -> UInt32 {
+            UInt32((min(max(component, 0), 1) * 255).rounded())
+        }
+        return byte(red) << 16 | byte(green) << 8 | byte(blue)
+    }
+}
+
 /// Exact colours measured from the original app.
 enum Palette {
     static let accent      = Color(hex: 0xFFC703)
-    static let orange      = Color(hex: 0xEB7D14)
-    static let green       = Color(hex: 0x0BA958)
 
     /// Toolbar / pills / floating buttons.
     static let surface     = Color(hex: 0x393939)

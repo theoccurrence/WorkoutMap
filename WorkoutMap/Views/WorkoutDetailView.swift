@@ -15,9 +15,13 @@ struct WorkoutDetailView: View {
     /// What the map does with a GPS jump — the same setting the map screen reads.
     @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
     @ObservedObject private var systemAppearance = SystemAppearance.shared
+    @ObservedObject private var modeColors = CategoryColorStore.shared
 
     private var lines: [MapRouteLine] {
-        MapRouteLine.lines(for: workout, route: route, style: jumpStyle)
+        MapRouteLine.lines(for: workout,
+                           route: route,
+                           style: jumpStyle,
+                           color: modeColors.uiColor(for: workout.category))
     }
 
     /// The style the map is drawn in — `legacy`, the stored style, stays dark.
