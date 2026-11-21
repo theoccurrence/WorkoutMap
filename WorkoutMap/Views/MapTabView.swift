@@ -46,33 +46,8 @@ struct MapTabView: View {
     @State private var washOpacity: Double = 0
     @State private var washTask: Task<Void, Never>?
     /// The map screen's size: which way round the rail runs, and which of the Duo's two panels
-    /// it sits on. The folded cover panel's rail is the one with no room for the full set of
-    /// actions, which is what `wantedRailSet` reads off it.
+    /// it sits on.
     @State private var railSize: CGSize = .zero
-    /// The set of actions the rail declares. Which one it is is the only lever this screen has
-    /// — the system places the items itself, and nothing inside one of them may be animated —
-    /// and there are three of them.
-    private enum RailSet {
-        /// Share, the calendar and the range — and the map style above the locate action, in a
-        /// bubble of their own. For a rail with room to spare.
-        case full
-        /// Share and one overflow menu carrying the calendar and the range — the map style and
-        /// the locate action keep their own bubble. For a rail too tight for the full set.
-        case filtersFolded
-        /// Share and one overflow menu carrying the calendar, the range *and* the map style —
-        /// the locate action alone in its bubble.
-        case compact
-    }
-
-    /// The set the rail declares right now. Applied only once the window has stopped moving
-    /// (`scheduleRailSet`): changing it while the system is relocating the rail makes the bar
-    /// rebuild, and then the whole rail, the system's own tab bar included, is gone for a
-    /// moment. The first set the rail is ever handed goes over at once instead: the rail must
-    /// not open on a set the window cannot hold.
-    @State private var railSet: RailSet = .full
-    @State private var railSetTask: Task<Void, Never>?
-    /// Whether the rail has ever been handed a set (see `scheduleRailSet`).
-    @State private var railSetApplied = false
     /// The floating tab bar's capsule as insets from the window's bottom edge to its own
     /// bottom and top edges, measured from the bar so the overlays can line up with it.
     @State private var tabBarInsets: (bottom: CGFloat, top: CGFloat)?
@@ -203,12 +178,6 @@ struct MapTabView: View {
             .onAppear { ControlAppearance.shared.setLight(controlsAreLight) }
             .onChange(of: controlsAreLight) { _, light in ControlAppearance.shared.setLight(light) }
             .onGeometryChange(for: CGSize.self) { $0.size } action: { railSize = $0 }
-            // A turn, a fold of the phone or a move to the other display: the rail's set is
-            // re-decided from the size it moved to (`wantedRailSet`), and nothing here reads
-            // the system's rail.
-            .onChange(of: railSize) { _, _ in scheduleRailSet() }
-            .onChange(of: usesVerticalControls) { _, _ in scheduleRailSet() }
-            .onChange(of: windowInsets) { _, _ in scheduleRailSet() }
             // The rail's actions MUST stay system toolbar items. The system places them
             // itself — below the status cluster, clear of the camera cut-out and of a Live
             // Activity — and re-lays them out when the screen turns. Every attempt to draw
@@ -217,58 +186,28 @@ struct MapTabView: View {
             // clock and status badge run straight over it as soon as a Live Activity is
             // live.
             //
-            // Three things follow from that, all measured, all easy to get wrong again:
+            // What the system does when the room runs out is *its* business: the screen names
+            // every action and says which of them matter (`railToolbarItems`), and the system
+            // folds the ones that may go. Two things were measured the hard way and are easy
+            // to get wrong again:
             //
-            // * The *set* has to be one the window can hold: the system folds what does not
-            //   fit into an overflow of its own, and on the folded panel it folds the map
-            //   style and the locate action — the pill this screen is for — away with it. A
-            //   set that only just fits is therefore not safe, and the rail decides which one
-            //   to declare from the window's own size rather than by watching for the fold
-            //   (`wantedRailSet`). Watching for it leaves the folded pill on screen for as
-            //   long as the fold takes to be answered, which is what a Live Activity growing
-            //   the status cluster used to show for a moment.
-            // * The set may only change once the window has stopped moving —
-            //   see `scheduleRailSet`. Changed mid-turn the bar host rebuilds the rail
-            //   while the system is still relocating it, and the whole rail, the system's
-            //   own tab bar included, is missing for a moment. Changed at rest the host
-            //   brings the new pill in with an animation of its own, and that is the only
-            //   animation available here.
-            // * One item whose *content* changes, instead of a set that changes, does not
-            //   work either: the glass around the item is measured when it is inserted and
-            //   never again, so it keeps the height of the state before — clipped glyphs
-            //   one way round, an empty capsule the other. And an item's content cannot be
-            //   animated at all: `.animation`/`.transition` inside a `ToolbarItem` never
-            //   reach the UIKit bar, which simply swaps the content in one frame.
+            // * One item whose *content* changes, instead of the actions themselves, does not
+            //   work: the glass around the item is measured when it is inserted and never
+            //   again, so it keeps the height of the state before — clipped glyphs one way
+            //   round, an empty capsule the other. And an item's content cannot be animated at
+            //   all: `.animation`/`.transition` inside a `ToolbarItem` never reach the UIKit
+            //   bar, which simply swaps the content in one frame.
+            // * The bar is not something to read back and answer. A screen that watched the
+            //   system fold the map-style pill away and then declared a different set left
+            //   that fold on screen for as long as the answer took — quarter of a second,
+            //   every Live Activity. Priorities say which actions may go, and the system
+            //   folds them in the same pass that makes the room.
             .toolbar(usesVerticalControls ? .visible : .hidden, for: .navigationBar)
             // The bar's own glass follows the map, too: the system draws it from the colour
             // scheme the toolbar is given, and `legacy` never asks for the light one.
             .toolbarColorScheme(controlsAreLight ? .light : .dark, for: .navigationBar, .bottomBar)
             .toolbar {
-                if usesVerticalControls {
-                    ToolbarItem { shareToolbarItem }
-                    if railSet == .full {
-                        ToolbarItem { calendarToolbarItem }
-                        ToolbarItem { rangeToolbarItem }
-                    } else {
-                        ToolbarItem { railOverflowToolbarItem }
-                    }
-                    // Its own group: the system gives these a bubble of their own, aligned
-                    // with the bottom bar instead of the pill above — the map style above
-                    // the locate action, the same two-button pill the hand-placed column
-                    // below draws.
-                    //
-                    // The map style only gets that bubble while the rail has room for two
-                    // items in it. On the short rail the system folds a second bubble into an
-                    // overflow of its own, so the style moves into the menu above instead and
-                    // the locate action keeps its own button to itself. When the system is the
-                    // one folding — a Live Activity taking the room — the style stays here and
-                    // the calendar and the range go into the menu instead: this pill is what
-                    // the screen is for, the filters are one tap deeper.
-                    if railSet != .compact {
-                        ToolbarItem(placement: .bottomBar) { mapModeToolbarItem }
-                    }
-                    ToolbarItem(placement: .bottomBar) { locateToolbarItem }
-                }
+                if usesVerticalControls { railToolbarItems }
             }
         }
         // The wash covers the screen — the map, the overlays and the rail — so the whole thing
@@ -523,62 +462,45 @@ struct MapTabView: View {
     /// against 951 pt — which is what tells the two panels apart in every orientation,
     /// where a plain height check cannot (folded portrait and unfolded landscape are
     /// nearly the same height).
-    ///
-    /// It also chooses the rail's set: the cover panel's rail is the one with no room for the
-    /// full set of actions (see `wantedRailSet`).
     private var isFoldedPanel: Bool { min(railSize.width, railSize.height) < 500 }
 
     // MARK: - Rail toolbar items
 
-    /// The folded landscape is the one rail where all seven buttons do not fit above each
-    /// other, so the calendar and the range fold into one menu there and the map style joins
-    /// them: the rail has no room for a second bubble beside the locate action.
-    private var shortRailWanted: Bool {
-        guard usesVerticalControls else { return false }
-        return isFoldedPanel && railSize.height < 540
-    }
-
-    /// The set the rail should be declaring, decided from the window's own geometry.
+    /// The screen's actions for the system's vertical bar.
     ///
-    /// The system folds whatever it is handed and does not fit into an overflow of its own, and
-    /// on the folded panel that is the map style and the locate action — the pill this screen is
-    /// for. So a tight rail declares a set that fits instead, and it decides that from the size
-    /// of the window rather than by watching the system fold: a set that only *just* fits shows
-    /// the wrong pill for as long as the fold takes to be noticed, and that is what used to be
-    /// on screen for a moment when a Live Activity grew the status cluster.
+    /// The bar is handed every action the screen has, together with the *priority* that says
+    /// which of them may be folded into the bar's own overflow menu when the room runs out —
+    /// not a set of actions picked here from the size of the window.
     ///
-    /// * the short rail — the folded panel held sideways — declares `compact`;
-    /// * the folded cover panel's rail, upright, declares `filtersFolded`: its status cluster is
-    ///   a *vertical* strip that takes most of the rail's height, which leaves the rail room for
-    ///   the filters' set but not for the full one, and a Live Activity in it only takes more;
-    /// * anything else — a rail with room — declares `full`.
-    private var wantedRailSet: RailSet {
-        if shortRailWanted { return .compact }
-        return isFoldedPanel ? .filtersFolded : .full
-    }
-
-    /// Hands the rail its set once the window has stopped moving — see the note above the
-    /// toolbar. The change goes through `withAnimation`: inside a transaction the bar host
-    /// brings the new pill in with an animation of its own instead of swapping it in one frame,
-    /// and that animation is all there is — the system owns this bar. The first set the rail is
-    /// ever handed goes over at once: the rail has just been built and is not going anywhere,
-    /// and it must not spend a moment declaring a set the window cannot hold.
-    private func scheduleRailSet() {
-        railSetTask?.cancel()
-        let wanted = wantedRailSet
-        guard wanted != railSet else { return }
-        let apply = {
-            withAnimation(.easeInOut(duration: 0.2)) { railSet = wanted }
-            railSetApplied = true
-        }
-        guard railSetApplied else {
-            apply()
-            return
-        }
-        railSetTask = Task {
-            try? await Task.sleep(for: .milliseconds(120))
-            guard !Task.isCancelled else { return }
-            apply()
+    /// The ladder, first to go first: the calendar and the range (`.low`), then the map style,
+    /// then the locate action and the share action (`.high`). Measured on the folded cover
+    /// panel: upright, the rail fits every action while the status cluster is at rest and only
+    /// the filters' worth once a Live Activity has grown it — so the system folds exactly the
+    /// calendar and the range, in the pass that makes the room, and the map-style pill stays
+    /// where it is; held sideways, where the rail is shorter still, it goes on to fold the map
+    /// style and the locate action keeps its own button, as it did before. Nothing here is read
+    /// back or answered, which is what used to leave the folded pill on screen for a moment.
+    ///
+    /// `visibilityPriority` is iOS 27; an older SDK gets the same actions with the system's own
+    /// automatic priorities (and an older SDK has no Duo to put them in a vertical bar).
+    @ToolbarContentBuilder
+    private var railToolbarItems: some ToolbarContent {
+        if #available(iOS 27.0, *) {
+            ToolbarItem { shareToolbarItem }.visibilityPriority(.high)
+            ToolbarItem { calendarToolbarItem }.visibilityPriority(.low)
+            ToolbarItem { rangeToolbarItem }.visibilityPriority(.low)
+            // Its own group: the system gives these a bubble of their own, aligned with the
+            // bottom bar instead of the pill above — the map style above the locate action, the
+            // same two-button pill the hand-placed column below draws. The map style is left at
+            // the system's own priority so it goes before the locate action, not after it.
+            ToolbarItem(placement: .bottomBar) { mapModeToolbarItem }
+            ToolbarItem(placement: .bottomBar) { locateToolbarItem }.visibilityPriority(.high)
+        } else {
+            ToolbarItem { shareToolbarItem }
+            ToolbarItem { calendarToolbarItem }
+            ToolbarItem { rangeToolbarItem }
+            ToolbarItem(placement: .bottomBar) { mapModeToolbarItem }
+            ToolbarItem(placement: .bottomBar) { locateToolbarItem }
         }
     }
 
@@ -625,35 +547,6 @@ struct MapTabView: View {
             locate()
         } label: {
             Label("Current position", systemImage: "location.fill")
-        }
-        .tint(controlGlyph)
-    }
-
-    /// Calendar and range folded into one menu — the rail's answer to a short column. On the
-    /// short rail the style joins them, because there is no room for a second bubble beside the
-    /// locate action; when the system is the one folding, the style keeps its own bubble.
-    private var railOverflowToolbarItem: some View {
-        Menu {
-            Button {
-                if kind != .all { showSheet = true }
-            } label: {
-                Label("Pick a period", systemImage: "calendar")
-            }
-            .disabled(kind == .all)
-            Menu {
-                rangePicker
-            } label: {
-                Label("Range", systemImage: "line.3.horizontal.decrease")
-            }
-            if railSet == .compact {
-                Button {
-                    showModes = true
-                } label: {
-                    Label("Map mode", systemImage: "map.fill")
-                }
-            }
-        } label: {
-            Label("More", systemImage: "ellipsis")
         }
         .tint(controlGlyph)
     }

@@ -261,49 +261,45 @@ Notes on the map rendering, all measured from the original app:
   bar's top edge: the system only offers a vertical bar where it reserves a side inset, and
   there is nowhere else to put one at the bottom of a portrait screen. The grey top bar
   (`MapTabView.toolbar`) is gone with it.
-  The rail declares one of **three sets**, and it chooses between them from the window's own
-  geometry — not by watching what the system does with them:
-  `full` — share, the calendar and the range, and the map style above the locate action in a
-  bubble of their own; `filtersFolded` — share and one overflow menu carrying the calendar and
-  the range, the map style and the locate action untouched; and `compact` — share, the calendar,
-  the range *and* the map style behind that menu, the locate action alone in its bubble.
-  `compact` is the short rail's own set (`shortRailWanted`: the folded cover panel held sideways
-  — its content column is 382 pt wide and 620 pt tall in portrait, ~445 pt tall in landscape,
-  against the unfolded panel's ~650 pt, so this never trips when the phone is unfolded).
-  `filtersFolded` is the folded cover panel's rail, upright (`isFoldedPanel`), and it is what
-  that rail can hold. Its status cluster is a *vertical* strip — the clock, the battery and the
-  badge turn with the rail — and it takes most of the rail's height (measured: the rail's own
-  top sits ~370 pt down a 678 pt screen), which leaves the rail room for the filters' set but
-  not for the full one. Without a Live Activity the full set fits there by a hair; a Live
-  Activity grows the cluster, and the system folds what no longer fits into an `ellipsis` of its
-  own — measured on that panel, it folds the **map style and the locate action**, the pill the
-  screen is for, away with it. No API says a Live Activity is there, and reading it off the rail
-  (the system showing fewer items than the declared set: `railItems`, polled every 0.15 s) left
-  that wrong pill on screen for the quarter second the answer took, after every Live Activity.
-  A rail the full set only *just* fills is not one to declare a full set on: the rail declares
-  the set the window can hold whatever the status cluster does, and the cluster can no longer
-  change the layout at all. The cost is that this rail shows the filters folded even while the
-  cluster is at rest, where the full set fits — two buttons sit one tap deeper, and the layout
-  is the same in every state.
-  The rail is not measured at all any more: `FittableMapView` reports the window's safe area and
-  the tab bar's capsule — both needed elsewhere — and nothing else, and the 0.15 s poll the Live
-  Activity needed is gone with it.
+  The rail is handed **every action** and says which of them may go, instead of declaring a set
+  of its own: the calendar and the range carry `ToolbarItem.visibilityPriority(.low)`, the share
+  action and the locate action `.high`, and the map style is left at the system's own priority.
+  That ladder is the order the system folds along, first to go first (iOS 27; an SDK with no Duo
+  to put a rail on falls back to the same actions with the system's automatic order). With no
+  priority the bar folds what sits lowest — measured on the folded cover panel, that is the **map
+  style and the locate action**, the pill this screen is for, while the calendar and the range
+  stay, which is what the rail used to be in the habit of showing. The ladder puts the filters
+  first instead, and the rest of the order lands the way this screen wants:
+  * the folded cover panel's rail, upright, fits the whole set while its status cluster is at
+    rest — measured: exactly, three actions in the pill and the map style above the locate action
+    in their bubble. A Live Activity grows that cluster by about a button's worth, and the system
+    folds the calendar and the range to make the room, in the same pass — the layout the screen
+    wants, with nothing to read back;
+  * the same rail held sideways is shorter still, and the fold goes on there: the calendar and
+    the range, then the map style, and the locate action keeps a button of its own;
+  * a rail with room to spare never folds anything.
+  The actions used to be declared as one of three **sets** instead, and the set was changed when
+  the screen had watched the system fold — `railItems`, the system's own bar buttons counted out
+  of the view tree and polled every 0.15 s, answered with the filters folded once the system had
+  already shown the wrong pill. That left it on screen for the quarter second the answer took,
+  after every Live Activity. The rail is not measured at all any more: `FittableMapView` reports
+  the window's safe area and the tab bar's capsule — both needed elsewhere — and nothing else,
+  and the 0.15 s poll is gone with them.
   **The items stay system items — do not hand-place this column.** The system positions them
   itself (below the status cluster, clear of the camera cut-out and of a Live Activity) and
   re-lays them out on every turn. A hand-placed overlay — it was tried once, on the folded
   panel — sits at a fixed offset, drifts out of line with the tab bar underneath it and runs
   under the clock as soon as a Live Activity is live; it has none of the system's dynamics.
-  And since the *set* of items is the only lever, it must not change while the system is
-  moving the rail: an item set that changed mid-turn made the bar rebuild itself, and the
-  whole rail — the system's own tab bar included — was gone for a moment on every turn. So
-  `MapTabView.scheduleRailSet` hands the new set over only once the window has stopped
-  moving (120 ms after the last geometry change) — except the first set the rail is ever
-  handed, which goes over at once so the rail never opens on a set the window cannot hold.
+  The actions themselves may not be re-declared while the system is moving the rail: an item
+  set swapped mid-turn made the bar rebuild itself, and the whole rail — the system's own tab
+  bar included — was gone for a moment on every turn. Nothing is swapped here any more; the only
+  thing that changes about the rail is which actions the system folds, and that is the system's
+  own doing, in the pass that makes the room.
   **What the transition can and cannot be** — measured, with three routes tried:
-  * The item *set* is the only lever, and it may only change once the window is still.
-    Mid-turn the host rebuilds the rail while it is relocating it and the whole rail, tab bar
-    included, is missing for a moment; at rest the host brings the new pill in with an
-    animation of its own, and that animation is all there is.
+  * An item set re-declared by the screen is the thing that does not work: swapped mid-turn the
+    host rebuilds the rail while it is relocating it and the whole rail, tab bar included, is
+    missing for a moment. Letting the system fold its own action costs none of that — the fold
+    happens in the pass that makes the room, and the host animates the new pill in itself.
   * One `ToolbarItem` whose *content* changes, instead of a set that changes, does not work:
     the glass around the item is measured when it is inserted and never again, so it keeps
     the height of the state before — clipped glyphs one way round, an empty capsule the other
