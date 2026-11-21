@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import MapKit
 
 /// Which kind of route the explorer plans.
 enum PlanMode: String, CaseIterable, Identifiable {
@@ -53,6 +54,41 @@ extension PlanDestination: Equatable {
             && lhs.name == rhs.name
             && lhs.coordinate.latitude == rhs.coordinate.latitude
             && lhs.coordinate.longitude == rhs.coordinate.longitude
+    }
+}
+
+/// What the map knows about the pin the user dropped: the address the geocoder resolved for it,
+/// and what is there.
+struct PinPlace: Equatable {
+    var title: String
+    var subtitle: String
+
+    /// Reverse-geocodes a coordinate for the pin's info bubble. Falls back to the coordinate
+    /// itself, so the bubble always says something.
+    static func describe(_ coordinate: CLLocationCoordinate2D) async -> PinPlace {
+        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        // `MKReverseGeocodingRequest` rather than `CLGeocoder`, which is deprecated in iOS 26.
+        if let request = MKReverseGeocodingRequest(location: location),
+           let item = try? await request.mapItems.first {
+            // What is *at* the pin — the park, the square, the shop — on top, and the address
+            // underneath.
+            let address = item.address?.fullAddress
+            let title = item.name ?? item.address?.shortAddress ?? "Dropped pin"
+            // The full address repeats the name it starts with ("Putziger Straße 39A, 81929
+            // Munich, Germany"); the bubble does not need it twice.
+            var subtitle = address ?? coordinatesText(coordinate)
+            if let address, address.hasPrefix(title) {
+                let rest = address.dropFirst(title.count)
+                    .drop(while: { $0 == "," || $0 == " " })
+                subtitle = rest.isEmpty ? address : String(rest)
+            }
+            return PinPlace(title: title, subtitle: subtitle)
+        }
+        return PinPlace(title: "Dropped pin", subtitle: coordinatesText(coordinate))
+    }
+
+    private static func coordinatesText(_ coordinate: CLLocationCoordinate2D) -> String {
+        String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude)
     }
 }
 

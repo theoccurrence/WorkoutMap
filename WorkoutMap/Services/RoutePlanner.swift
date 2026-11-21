@@ -3,44 +3,64 @@ import CoreLocation
 
 /// Plans a walk that covers as much ground as possible the user has never covered.
 ///
-/// Two shapes:
+/// Both shapes are a zigzag sized so its straight-line length is the distance asked for, and the
+/// setting that matters here is how many legs that zigzag is made of: a few long ones reach far
+/// out, many short ones fill the streets around the route instead. The distance is therefore
+/// held roughly constant while the *shape* changes, which is the whole point of the setting.
 ///
-/// * **loop** — a ring back to where the user is standing. Candidate directions are scored
-///   against the coverage grid first, without touching the network, and only the best few are
-///   actually routed. Each is three point-to-point legs (`MKDirections` knows no waypoints),
-///   stitched into one polyline.
-/// * **destination** — from here to a target. When the target is farther than the direct walk,
-///   a waypoint is pushed out to one side of the corridor and its offset is corrected until the
-///   routed length lands on the target; the two sides are the two alternatives.
+/// * **loop** — a zigzag over a square centred on the start, the route turning at each row's far
+///   end and coming home. Two rows is a long bow out and back around the start; five is a
+///   lawnmower over the streets right around it.
+/// * **destination** — a zigzag along the direct line, alternating either side of it. One
+///   excursion is the big bow off the corridor; five are side streets either side of the way
+///   there.
 ///
-/// Both are scored on how much of the finished route is new ground, how close it lands to the
-/// distance asked for, and how recently the same walk was already suggested from nearby. The
-/// last term is what keeps a user who plans the same 5 km from the same front door from being
-/// sent down the same street every time.
+/// `MKDirections` knows no waypoints, so every shape is a handful of point-to-point legs stitched
+/// into one polyline. Candidates are scored against the coverage grid *before* anything is
+/// routed, so only the best few ever reach the service.
 struct RoutePlanner {
     struct Config {
-        /// How many directions are scored before any network request.
+        /// How many shapes are scored before any network request.
         var candidates = 8
-        /// How many of them are routed for real.
-        var finalists = 3
         /// How many `MKDirections` calls run at once — the service throttles a burst
         /// (`MKError.Code.loadingThrottled`).
         var maxConcurrentLegs = 3
         /// How much of a candidate's pre-score is random, so the same request varies.
-        var noise = 0.35
+        var noise = 0.25
         /// How far off the requested distance a route may land before it is pushed to the back.
         var distanceTolerance = 0.35
-        /// How much longer a real route is than the straight line it follows, used to size a
-        /// loop's ring before anything has been routed.
-        var roadFactor = 1.18
+        /// How much longer a real route is than the straight line its shape is sized on. A
+        /// tighter shape turns more often and follows more side streets, so its real length runs
+        /// further ahead of the straight line — hence the slope on top of it.
+        var roadFactor = 1.32
+        var roadFactorSlope = 0.18
         /// How much a route is docked for heading where a recent plan already went.
         var recencyPenalty = 0.5
         /// The angular window of that dock, in degrees.
         var recencyWindowDegrees = 70.0
+        /// The most legs one route may be made of, and the most a whole plan may cost. The
+        /// second is what keeps "five routes" from turning into thirty requests.
+        var maxLegsPerRoute = 5
+        var maxLegsPerPlan = 18
+
+        /// The number of legs a shape asks for: one at the widest, five at the tightest.
+        static func steps(for shape: Double) -> Int {
+            1 + Int((min(max(shape, 0), 1) * 4).rounded())
+        }
     }
 
     var config = Config()
+    /// How many routes the settings ask for.
+    var routeCount = ExploreOptions.routeCountDefault
+    /// How tight the shape should be, 0...1 — see `ExploreOptions.shapeKey`.
+    var shape = ExploreOptions.shapeDefault
     var seed: UInt64 = UInt64.random(in: .min ... .max)
+
+    /// How much longer a real route runs than the straight line its shape is sized on, at the
+    /// shape the settings are asking for.
+    private var roadFactor: Double {
+        config.roadFactor + config.roadFactorSlope * min(max(shape, 0), 1)
+    }
 
     func plan(request: PlanRequest,
               start: CLLocationCoordinate2D,
@@ -63,20 +83,23 @@ struct RoutePlanner {
         let target = max(200, request.targetMeters)
         var generator = SplitMix64(seed: seed)
         let history = PlanHistory.load()
+        let steps = max(2, min(config.maxLegsPerRoute, Config.steps(for: shape)))
 
         var candidates: [(waypoints: [CLLocationCoordinate2D], rough: Double)] = []
         for index in 0..<config.candidates {
             let base = Double(index) / Double(config.candidates) * 360
-            let bearing = (base + Double.random(in: -20...20, using: &generator))
+            let bearing = (base + Double.random(in: -22...22, using: &generator))
                 .truncatingRemainder(dividingBy: 360)
-            // The ring's half-angle: how far the two waypoints spread either side of the
-            // direction. Perimeter = 2r + 2r·sin Δ, so r follows from the target.
-            let spread = Double.random(in: 48...74, using: &generator)
-            let radius = target / ((2 + 2 * sin(spread * .pi / 180)) * config.roadFactor)
-            let first = Geo.destination(from: start, bearing: bearing - spread, distance: radius)
-            let second = Geo.destination(from: start, bearing: bearing + spread, distance: radius)
+            // A little wobble on every turning point, so two shapes that set off the same way are
+            // still not the same walk.
+            let jitters = (0..<steps).map { _ in
+                (along: Double.random(in: -0.16...0.16, using: &generator),
+                 across: Double.random(in: -0.16...0.16, using: &generator))
+            }
+            let waypoints = loopShape(start: start, bearing: bearing, steps: steps,
+                                      target: target, roadFactor: roadFactor, jitters: jitters)
 
-            let straight = [start, first, second, start]
+            let straight = [start] + waypoints + [start]
             let length: Double = max(1, CoverageIndex.length(of: straight))
             let uncovered: Double = coverage.uncoveredMeters(of: straight)
             let fit: Double = 1 - min(1, abs(length - target) / target)
@@ -84,11 +107,12 @@ struct RoutePlanner {
                                                   meters: target, config: config)
             let noise: Double = Double.random(in: -1...1, using: &generator)
             let rough: Double = uncovered / target + 0.35 * fit - penalty + config.noise * noise
-            candidates.append(([first, second], rough))
+            candidates.append((waypoints, rough))
         }
 
-        let finalists = candidates.sorted { $0.rough > $1.rough }.prefix(max(1, config.finalists))
-        let noises = finalists.map { _ in Double.random(in: -1...1, using: &generator) }
+        let budget = max(1, config.maxLegsPerPlan / steps)
+        let wanted = max(1, min(routeCount, budget))
+        let finalists = candidates.sorted { $0.rough > $1.rough }.prefix(wanted)
 
         var routed: [PlannedRoute] = []
         for (index, candidate) in finalists.enumerated() {
@@ -100,10 +124,39 @@ struct RoutePlanner {
         }
         guard !routed.isEmpty else { return nil }
 
-        let plan = finalize(request: request, start: start, routes: routed,
-                            noises: noises, history: history)
+        let plan = finalize(request: request, start: start, routes: routed, history: history)
         record(plan, start: start, request: request)
         return plan
+    }
+
+    /// A loop as a zigzag over a square centred on the start: `steps` rows, the route turning at
+    /// each row's far end and coming home.
+    ///
+    /// The square is sized so the zigzag's straight-line length is the distance asked for — the
+    /// length is proportional to the square's half-side, so one division does it — which is what
+    /// keeps the distance roughly constant while the shape changes. `roadFactor` corrects for a
+    /// real route being longer than the straight lines it follows.
+    private func loopShape(start: CLLocationCoordinate2D,
+                           bearing: Double,
+                           steps: Int,
+                           target: Double,
+                           roadFactor: Double,
+                           jitters: [(along: Double, across: Double)]) -> [CLLocationCoordinate2D] {
+        func points(scale: Double) -> [CLLocationCoordinate2D] {
+            let radians = bearing * .pi / 180
+            let spacing = 2 * scale / Double(steps)
+            return (0..<steps).map { row in
+                let jitter = row < jitters.count ? jitters[row] : (along: 0, across: 0)
+                let along = (row.isMultiple(of: 2) ? scale : -scale) * (1 + jitter.along)
+                let across = -scale + (Double(row) + 0.5) * spacing + scale * jitter.across
+                return Geo.offset(start,
+                                  east: along * sin(radians) + across * cos(radians),
+                                  north: along * cos(radians) - across * sin(radians))
+            }
+        }
+        let unit = CoverageIndex.length(of: [start] + points(scale: 1) + [start])
+        let scale = target / max(1, unit) / roadFactor
+        return points(scale: scale)
     }
 
     // MARK: - Destination
@@ -116,88 +169,127 @@ struct RoutePlanner {
               !Geo.same(start, destination) else { return nil }
         let target = max(200, request.targetMeters)
         let history = PlanHistory.load()
+        let steps = min(config.maxLegsPerRoute, max(1, Config.steps(for: shape)))
 
         guard let directLegs = try? await client.route(from: start, to: destination),
               let direct = directLegs.first else { return nil }
 
         var routed: [PlannedRoute] = []
         if let made = makeRoute(id: 0, legs: [direct], coverage: coverage) { routed.append(made) }
-        for leg in directLegs.dropFirst().prefix(2) {
-            if let made = makeRoute(id: routed.count, legs: [leg], coverage: coverage) {
-                routed.append(made)
-            }
-        }
 
         // A detour only makes sense when the user wants to walk farther than the direct way.
-        if target > direct.distance * 1.05,
-           let detours = await detours(start: start, destination: destination, direct: direct,
-                                       target: target, client: client) {
-            for legs in detours {
-                if let made = makeRoute(id: routed.count, legs: legs, coverage: coverage) {
+        if target > direct.distance * 1.05 {
+            var generator = SplitMix64(seed: seed &+ 1)
+            let jitters = [Double.random(in: -10...10, using: &generator),
+                           Double.random(in: -10...10, using: &generator)]
+
+            var rounds: [(side: Double, jitter: Double, legs: [DirectionsLeg])] = []
+            async let left = detourRound(start: start, destination: destination, steps: steps,
+                                         side: -1, jitter: jitters[0], target: target,
+                                         offset: nil, client: client)
+            async let right = detourRound(start: start, destination: destination, steps: steps,
+                                          side: 1, jitter: jitters[1], target: target,
+                                          offset: nil, client: client)
+            if let legs = await left { rounds.append((-1, jitters[0], legs)) }
+            if let legs = await right { rounds.append((1, jitters[1], legs)) }
+
+            // One correction round on the better of the two: the shape is sized on straight
+            // lines, so the first routed length can still be a way off.
+            let error: (Int) -> Double = { abs(Geo.length(rounds[$0].legs) - target) }
+            if let best = rounds.indices.max(by: { error($0) > error($1) }),
+               error(best) > target * 0.15 {
+                let chosen = rounds[best]
+                let extra = Geo.length(chosen.legs) - direct.distance
+                if extra > 1 {
+                    let base = detourOffset(start: start, destination: destination, steps: steps,
+                                            side: chosen.side, target: target)
+                    let corrected = max(20, base * (target - direct.distance) / extra)
+                    if let legs = await detourRound(start: start, destination: destination, steps: steps,
+                                                    side: chosen.side, jitter: chosen.jitter,
+                                                    target: target, offset: corrected, client: client) {
+                        rounds[best].legs = legs
+                    }
+                }
+            }
+
+            for round in rounds {
+                if let made = makeRoute(id: routed.count, legs: round.legs, coverage: coverage) {
+                    routed.append(made)
+                }
+            }
+        } else {
+            for leg in directLegs.dropFirst().prefix(2) {
+                if let made = makeRoute(id: routed.count, legs: [leg], coverage: coverage) {
                     routed.append(made)
                 }
             }
         }
 
         guard !routed.isEmpty else { return nil }
-        let plan = finalize(request: request, start: start, routes: routed,
-                            noises: routed.map { _ in 0 }, history: history)
+        let plan = finalize(request: request, start: start, routes: routed, history: history)
         record(plan, start: start, request: request)
         return plan
     }
 
-    /// One detour to each side of the corridor, each pushed out until the routed length lands
-    /// on the target. Runs both sides at once; the leg limiter is shared.
-    private func detours(start: CLLocationCoordinate2D,
-                         destination: CLLocationCoordinate2D,
-                         direct: DirectionsLeg,
-                         target: Double,
-                         client: DirectionsClient) async -> [[DirectionsLeg]]? {
-        guard let midpoint = Geo.pointAlong(direct.coordinates, fraction: 0.5),
-              let corridor = Geo.bearingAlong(direct.coordinates, fraction: 0.5) else { return nil }
-
-        var generator = SplitMix64(seed: seed &+ 1)
-        let jitters = (0..<2).map { _ in Double.random(in: -14...14, using: &generator) }
-
-        async let left = detour(start: start, destination: destination, midpoint: midpoint,
-                                corridor: corridor, side: -1, jitter: jitters[0],
-                                target: target, directDistance: direct.distance, client: client)
-        async let right = detour(start: start, destination: destination, midpoint: midpoint,
-                                 corridor: corridor, side: 1, jitter: jitters[1],
-                                 target: target, directDistance: direct.distance, client: client)
-        let results = [await left, await right].compactMap { $0 }
-        return results.isEmpty ? nil : results
+    /// One round of a destination zigzag: builds the shape at `offset` — or at the offset the
+    /// straight line asks for — and routes it.
+    private func detourRound(start: CLLocationCoordinate2D,
+                             destination: CLLocationCoordinate2D,
+                             steps: Int,
+                             side: Double,
+                             jitter: Double,
+                             target: Double,
+                             offset: Double?,
+                             client: DirectionsClient) async -> [DirectionsLeg]? {
+        let reach = offset ?? detourOffset(start: start, destination: destination,
+                                           steps: steps, side: side, target: target)
+        guard reach > 1 else { return nil }
+        let waypoints = destinationShape(start: start, destination: destination, steps: steps,
+                                         side: side, jitter: jitter, offset: reach)
+        let points = [start] + waypoints + [destination]
+        let pairs = zip(points, points.dropFirst()).map { (from: $0, to: $1) }
+        return await route(Array(pairs), client: client)
     }
 
-    private func detour(start: CLLocationCoordinate2D,
-                        destination: CLLocationCoordinate2D,
-                        midpoint: CLLocationCoordinate2D,
-                        corridor: Double,
-                        side: Double,
-                        jitter: Double,
-                        target: Double,
-                        directDistance: Double,
-                        client: DirectionsClient) async -> [DirectionsLeg]? {
-        let perpendicular = corridor + side * 90 + jitter
-        var offset = max(50, (target - directDistance) / 2)
-        var best: [DirectionsLeg]?
-        var bestError = Double.greatestFiniteMagnitude
-
-        for _ in 0..<2 {
-            let waypoint = Geo.destination(from: midpoint, bearing: perpendicular, distance: offset)
-            guard let legs = await route([(from: start, to: waypoint),
-                                          (from: waypoint, to: destination)], client: client) else {
-                return best
-            }
-            let distance = Geo.length(legs)
-            let error = abs(distance - target)
-            if error < bestError { bestError = error; best = legs }
-            let extra = distance - directDistance
-            guard extra > 1 else { return best }
-            // Scaling the offset by how far off the extra distance is lands close in one step.
-            offset = min(max(offset * ((target - directDistance) / extra), 30), offset * 4 + 100)
+    /// The lateral reach whose *straight-line* zigzag is the distance asked for. Bisection
+    /// because the length is a sum of square roots and not linear in the reach.
+    private func detourOffset(start: CLLocationCoordinate2D,
+                              destination: CLLocationCoordinate2D,
+                              steps: Int,
+                              side: Double,
+                              target: Double) -> Double {
+        let wanted = target / roadFactor
+        func length(_ offset: Double) -> Double {
+            CoverageIndex.length(of: [start]
+                + destinationShape(start: start, destination: destination, steps: steps,
+                                   side: side, jitter: 0, offset: offset)
+                + [destination])
         }
-        return best
+        var low = 0.0
+        var high = max(200, target)
+        guard length(high) > wanted else { return high }
+        for _ in 0..<24 {
+            let mid = (low + high) / 2
+            if length(mid) < wanted { low = mid } else { high = mid }
+        }
+        return (low + high) / 2
+    }
+
+    /// The waypoints of a destination zigzag: `steps` points marching from the start to the
+    /// destination, alternating either side of the straight line between them.
+    private func destinationShape(start: CLLocationCoordinate2D,
+                                  destination: CLLocationCoordinate2D,
+                                  steps: Int,
+                                  side: Double,
+                                  jitter: Double,
+                                  offset: Double) -> [CLLocationCoordinate2D] {
+        let radians = (Geo.bearing(from: start, to: destination) + jitter + side * 90) * .pi / 180
+        return (0..<steps).map { index in
+            let base = CoverageIndex.interpolate(start, destination,
+                                                 Double(index + 1) / Double(steps + 1))
+            let reach = offset * (index.isMultiple(of: 2) ? 1 : -1)
+            return Geo.offset(base, east: reach * sin(radians), north: reach * cos(radians))
+        }
     }
 
     // MARK: - Legs
@@ -262,28 +354,28 @@ struct RoutePlanner {
                             uncoveredMeters: coverage.uncoveredMeters(of: coordinates))
     }
 
-    /// Ranks the routed candidates, keeps the best three, and numbers them so 0 is the primary.
+    /// Ranks the routed candidates, keeps the best few, and numbers them so 0 is the primary.
     private func finalize(request: PlanRequest,
                           start: CLLocationCoordinate2D,
                           routes: [PlannedRoute],
-                          noises: [Double],
                           history: PlanHistory) -> RoutePlan? {
         let target = max(200, request.targetMeters)
         var scored: [(route: PlannedRoute, score: Double)] = []
-        for (index, route) in routes.enumerated() {
+        for route in routes {
             let fit = 1 - min(1, abs(route.distance - target) / target)
             let within = abs(route.distance - target) <= target * config.distanceTolerance
             let midpoint = Geo.pointAlong(route.coordinates, fraction: 0.5) ?? start
             let penalty = history.penalty(start: start,
                                           bearing: Geo.bearing(from: start, to: midpoint),
                                           meters: target, config: config)
-            let noise = index < noises.count ? noises[index] : 0
-            let score = 0.65 * route.newFraction + 0.35 * fit - penalty
-                + config.noise * 0.5 * noise
-                - (within ? 0 : 2)
+            // The variation comes from which shapes were generated and routed, not from noise
+            // here: this is the last word on which route the user is offered first, and it
+            // should be the best of them rather than the luckiest.
+            let score = 0.6 * route.newFraction + 0.4 * fit - penalty - (within ? 0 : 2)
             scored.append((route, score))
         }
-        let ordered = scored.sorted { $0.score > $1.score }.prefix(3)
+        let limit = max(1, min(routeCount, config.maxLegsPerRoute))
+        let ordered = scored.sorted { $0.score > $1.score }.prefix(limit)
         let numbered = ordered.enumerated().map { offset, element in
             PlannedRoute(id: offset,
                          coordinates: element.route.coordinates,
@@ -306,8 +398,7 @@ struct RoutePlanner {
     }
 }
 
-/// A small, seedable generator, so a plan can be reproduced from its seed (the throwaway
-/// self test does exactly that).
+/// A small, seedable generator, so a plan can be reproduced from its seed.
 struct SplitMix64: RandomNumberGenerator {
     private var state: UInt64
 

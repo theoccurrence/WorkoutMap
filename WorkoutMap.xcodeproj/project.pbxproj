@@ -19,6 +19,7 @@
 		353CBF59F218C24F14164B12 /* RoutePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC7B9B7F0700D15D156BE5C /* RoutePlan.swift */; };
 		37D35BDBC58482AC1AA5DE0B /* PlannedRouteBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8AAD1EB3A748454CE34A23 /* PlannedRouteBar.swift */; };
 		3CF6CCD80F9883EAB6423C17 /* RoutePlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E2FFC8069B5A2B434293DAA /* RoutePlanner.swift */; };
+		3D197CBFCD46719C0AD9FE24 /* ExploreOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862641A6A5F977298C3A9AE6 /* ExploreOptions.swift */; };
 		40FC7C1B0E69ABA306759CD1 /* TimeRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0DC88292C68F483805EC0A /* TimeRange.swift */; };
 		45C3B92E84512435D6793769 /* MapModeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE76FF2591695815BDB0C5D /* MapModeSheet.swift */; };
 		5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E067599700C1579F86E5B45A /* ExportPreviewView.swift */; };
@@ -68,6 +69,7 @@
 		6E953720D2A0F7CE9EADF8FE /* AppBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppBackground.swift; sourceTree = "<group>"; };
 		6F90752D46A1FDDCFD1D51E8 /* Workout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workout.swift; sourceTree = "<group>"; };
 		7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteGeometry.swift; sourceTree = "<group>"; };
+		862641A6A5F977298C3A9AE6 /* ExploreOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploreOptions.swift; sourceTree = "<group>"; };
 		90C8374FFE8DA74D43CDF3D0 /* HealthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthStore.swift; sourceTree = "<group>"; };
 		9978FD106F794C8E5F7E61F2 /* CoverageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverageStore.swift; sourceTree = "<group>"; };
 		9FD8F0FCB97E99E926E69D9B /* RangePickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RangePickerSheet.swift; sourceTree = "<group>"; };
@@ -157,6 +159,7 @@
 		BFD64A34B3501B12432ACC86 /* Model */ = {
 			isa = PBXGroup;
 			children = (
+				862641A6A5F977298C3A9AE6 /* ExploreOptions.swift */,
 				261EAD446B5AC5B4F86D01F0 /* MapMode.swift */,
 				7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */,
 				CAC7B9B7F0700D15D156BE5C /* RoutePlan.swift */,
@@ -259,6 +262,7 @@
 				9C0464366C4261DCBC4238A4 /* DebugLaunch.swift in Sources */,
 				E955ADB8CF98796125D1E5D9 /* DebugSampleData.swift in Sources */,
 				E5E14CFB5D3EF838CC314995 /* DirectionsClient.swift in Sources */,
+				3D197CBFCD46719C0AD9FE24 /* ExploreOptions.swift in Sources */,
 				5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */,
 				860DE2C06087E6D338E4F9FF /* Formatters.swift in Sources */,
 				636020DA50D5474720DFF24F /* HealthStore.swift in Sources */,

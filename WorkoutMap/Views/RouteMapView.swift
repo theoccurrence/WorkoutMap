@@ -97,16 +97,24 @@ final class UserDotAnnotation: NSObject, MKAnnotation {
 
 /// The destination pin the user drops on the map — one at a time, as in Maps: a new pin
 /// replaces the old one.
+///
+/// `title` and `subtitle` are what the pin's own info bubble shows — the address the geocoder
+/// resolved for it, and what is there.
 final class DestinationPinAnnotation: NSObject, MKAnnotation {
     @objc dynamic var coordinate: CLLocationCoordinate2D
+    var title: String?
+    var subtitle: String?
 
-    init(coordinate: CLLocationCoordinate2D) {
+    init(coordinate: CLLocationCoordinate2D, title: String?, subtitle: String?) {
         self.coordinate = coordinate
+        self.title = title
+        self.subtitle = subtitle
         super.init()
     }
 }
 
-/// The dropped pin's own look: a red balloon with a white ring, the marker Maps drops.
+/// The dropped pin's own look: a red balloon, the marker Maps drops, with an info bubble that
+/// carries the address and a bin.
 final class DestinationPinView: MKMarkerAnnotationView {
     static let reuseIdentifier = "DestinationPinView"
 
@@ -116,10 +124,20 @@ final class DestinationPinView: MKMarkerAnnotationView {
         glyphTintColor = .white
         animatesWhenAdded = true
         displayPriority = .required
-        canShowCallout = false
+        canShowCallout = true
+        rightCalloutAccessoryView = DestinationPinView.removeButton()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private static func removeButton() -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "trash"), for: .normal)
+        button.tintColor = .systemRed
+        button.frame = CGRect(x: 0, y: 0, width: 34, height: 34)
+        button.accessibilityLabel = "Remove pin"
+        return button
+    }
 }
 
 /// The "you are here" marker: the measured dot, and — as Maps draws it — a translucent cone in
@@ -383,6 +401,11 @@ struct RouteMapView: UIViewRepresentable {
     var planned: [MapRouteLine] = []
     /// The destination pin the user dropped, if any. One at a time.
     var pin: CLLocationCoordinate2D?
+    /// What the pin's info bubble says: what the place is called, and where it is.
+    var pinTitle: String?
+    var pinSubtitle: String?
+    /// The bin in that bubble.
+    var onPinDelete: (() -> Void)?
     var camera: Camera?
     var cameraToken: Int = 0
     /// The map style — see `MapMode`. Everything but `legacy` is the map as MapKit draws it.
@@ -635,6 +658,10 @@ struct RouteMapView: UIViewRepresentable {
         /// for a tap on the map itself.
         func reportRouteTap(at point: CGPoint) {
             guard let map, map.bounds.width > 1 else { return }
+            // A tap on the pin is the pin's own business — it opens the info bubble — and not a
+            // route pick.
+            if let pinAnnotation, let pinView = map.view(for: pinAnnotation),
+               pinView.frame.contains(point) { return }
             let tapped = MKMapPoint(map.convert(point, toCoordinateFrom: map))
             // The hit radius in the map's own units, taken from the map itself rather than
             // guessed: the same 24 pt to the right of the tap, measured in map points, is the
@@ -756,6 +783,9 @@ struct RouteMapView: UIViewRepresentable {
 
         /// Adds, moves or removes the explorer's destination pin. One at a time: a new
         /// coordinate moves the pin it already has instead of adding a second one.
+        ///
+        /// The address arrives after the pin does — it is geocoded — so the bubble's text is
+        /// written here and an open bubble is refreshed rather than left stale.
         func updatePin() {
             guard let map else { return }
             guard let coordinate = parent.pin else {
@@ -766,12 +796,53 @@ struct RouteMapView: UIViewRepresentable {
                 return
             }
             if let pinAnnotation {
+                let moved = !Coordinator.matches(pinAnnotation.coordinate, coordinate)
                 pinAnnotation.coordinate = coordinate
+                if moved {
+                    pinAnnotation.title = parent.pinTitle
+                    pinAnnotation.subtitle = parent.pinSubtitle
+                } else if pinAnnotation.title != parent.pinTitle || pinAnnotation.subtitle != parent.pinSubtitle {
+                    pinAnnotation.title = parent.pinTitle
+                    pinAnnotation.subtitle = parent.pinSubtitle
+                    refreshCallout(of: pinAnnotation, in: map)
+                }
             } else {
-                let annotation = DestinationPinAnnotation(coordinate: coordinate)
+                let annotation = DestinationPinAnnotation(coordinate: coordinate,
+                                                          title: parent.pinTitle,
+                                                          subtitle: parent.pinSubtitle)
                 pinAnnotation = annotation
                 map.addAnnotation(annotation)
             }
+#if DEBUG
+            runPinProbe()
+#endif
+        }
+
+#if DEBUG
+        /// `WM_SELECT_PIN` / `WM_PIN_DELETE` — see `DebugLaunch`. The simulator has no way to
+        /// tap the map from the command line, so the bubble is opened and the bin fired from
+        /// here — the bin through the very delegate method MapKit calls for it.
+        private func runPinProbe() {
+            guard let map, let pinAnnotation else { return }
+            guard DebugLaunch.selectPin || DebugLaunch.pinDelete else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak map] in
+                guard let self, let map, let view = map.view(for: pinAnnotation) else { return }
+                if DebugLaunch.selectPin { map.selectAnnotation(pinAnnotation, animated: true) }
+                guard DebugLaunch.pinDelete else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    self.mapView(map, annotationView: view,
+                                 calloutAccessoryControlTapped: UIButton())
+                }
+            }
+        }
+#endif
+
+        /// Redraws an open bubble after its text changed: MapKit lays a callout out when it is
+        /// shown and does not watch the annotation for changes.
+        private func refreshCallout(of annotation: MKAnnotation, in map: MKMapView) {
+            guard let view = map.view(for: annotation), view.isSelected else { return }
+            map.deselectAnnotation(annotation, animated: false)
+            map.selectAnnotation(annotation, animated: false)
         }
 
         /// Moves the dot onto the newest fix.
@@ -907,6 +978,14 @@ struct RouteMapView: UIViewRepresentable {
             renderer.lineCap = .round
             renderer.lineJoin = .round
             return renderer
+        }
+
+        /// The bin in the pin's info bubble.
+        func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView,
+                     calloutAccessoryControlTapped control: UIControl) {
+            guard view.annotation is DestinationPinAnnotation else { return }
+            mapView.deselectAnnotation(view.annotation, animated: true)
+            parent.onPinDelete?()
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {

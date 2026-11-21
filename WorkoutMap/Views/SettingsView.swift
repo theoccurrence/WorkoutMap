@@ -9,6 +9,10 @@ struct SettingsView: View {
     /// How the map is drawn: the system's own light or dark style, or one pinned. The map
     /// reads it live, so a change here redraws it at once.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
+    /// How many routes the explorer offers at once, and how tight it keeps them. The map screen
+    /// reads both when it plans, so a change here applies to the next plan.
+    @AppStorage(ExploreOptions.routeCountKey) private var exploreRouteCount: Int = ExploreOptions.routeCountDefault
+    @AppStorage(ExploreOptions.shapeKey) private var exploreShape: Double = ExploreOptions.shapeDefault
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -60,6 +64,33 @@ struct SettingsView: View {
 
                     Spacer().frame(height: 33)
 
+                    Text("Explore")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.textSecondary)
+                        .padding(.leading, 2)
+                        .padding(.bottom, 8)
+
+                    VStack(spacing: 0) {
+                        Menu {
+                            Picker("Routes Suggested", selection: $exploreRouteCount) {
+                                ForEach(ExploreOptions.routeCounts, id: \.self) { count in
+                                    Text(count == 1 ? "1 route" : "\(count) routes").tag(count)
+                                }
+                            }
+                        } label: {
+                            rowContent(title: "Routes Suggested",
+                                       systemImage: "list.number",
+                                       detail: "\(exploreRouteCount)",
+                                       showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                        divider
+                        shapeRow
+                    }
+                    .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
+
+                    Spacer().frame(height: 33)
+
                     VStack(spacing: 0) {
                         row(title: "Feedback", systemImage: "square.and.pencil", detail: nil, showsChevron: true) {
                             open("mailto:feedback@theoccurrence.com?subject=WorkoutMap%20Feedback")
@@ -85,6 +116,40 @@ struct SettingsView: View {
         } message: {
             Text("Version 1.0")
         }
+    }
+
+    /// The shape slider: at *Wide* the planner makes two long legs out and back around the
+    /// start (or one big bow to a destination); at *Tight* it fills the streets around the route
+    /// in as many small steps as the request budget pays for.
+    private var shapeRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 16) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(.white)
+                    .frame(width: 24)
+                Text("Route Shape")
+                    .font(.system(size: 19))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 8)
+                Text(ExploreOptions.shapeLabel(exploreShape))
+                    .font(.system(size: 19))
+                    .foregroundStyle(Palette.textSecondary)
+            }
+            HStack(spacing: 10) {
+                Text("Wide")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.textTertiary)
+                Slider(value: $exploreShape, in: 0...1)
+                    .tint(Palette.accent)
+                Text("Tight")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.textTertiary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
     }
 
     private var divider: some View {

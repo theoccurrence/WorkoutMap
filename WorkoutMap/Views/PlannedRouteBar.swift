@@ -79,10 +79,13 @@ struct PlannedRouteBar: View {
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) { selected = index }
                 } label: {
-                    Text(Fmt.distance(item.distance))
+                    // One decimal and no more: five of these have to share the card's width.
+                    Text(Self.pillDistance(item.distance))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(index == selected ? Color.black : label)
-                        .padding(.horizontal, 12)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .padding(.horizontal, 10)
                         .frame(height: 30)
                         .background(index == selected
                                     ? Palette.accent
@@ -94,6 +97,10 @@ struct PlannedRouteBar: View {
             }
             Spacer(minLength: 0)
         }
+    }
+
+    private static func pillDistance(_ meters: Double) -> String {
+        meters < 1000 ? "\(Int(meters.rounded())) m" : String(format: "%.1f km", meters / 1000)
     }
 
     private var label: Color { isLight ? .black : .white }

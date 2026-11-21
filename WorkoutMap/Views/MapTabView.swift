@@ -63,6 +63,12 @@ struct MapTabView: View {
     @State private var planDestination: PlanDestination?
     /// The destination pin on the map. One at a time: a new press replaces it.
     @State private var droppedPin: CLLocationCoordinate2D? = DebugLaunch.fakePin
+    /// What the pin's info bubble says, once the geocoder has answered.
+    @State private var pinPlace: PinPlace?
+    /// How many routes the explorer offers at once, and how tight it keeps them — the two
+    /// things the settings let the user steer.
+    @AppStorage(ExploreOptions.routeCountKey) private var exploreRouteCount: Int = ExploreOptions.routeCountDefault
+    @AppStorage(ExploreOptions.shapeKey) private var exploreShape: Double = ExploreOptions.shapeDefault
     @State private var plan: RoutePlan?
     /// Which of the plan's routes is the one; 0 is the primary.
     @State private var selectedRoute = 0
@@ -292,7 +298,10 @@ struct MapTabView: View {
         .task {
             if let start = DebugLaunch.startMapMode { mapMode = start }
             if let start = DebugLaunch.startAppearance { mapAppearance = start }
+            if let shape = DebugLaunch.planShape { exploreShape = shape }
+            if let routes = DebugLaunch.planRoutes { exploreRouteCount = routes }
             if !DebugLaunch.skipLocation { location.start() }
+            if let pin = droppedPin { describePin(at: pin) }
             if DebugLaunch.planAutoRun { await autoPlan() }
         }
         .task(id: reloadKey) { await reload() }
@@ -369,6 +378,13 @@ struct MapTabView: View {
         barInset(Metrics.toolbarButtonSize + Metrics.pillGap, at: \.top) + Metrics.pillGap
     }
 
+    /// How far the explorer's card is held off the screen edges: at least the inset the other
+    /// overlays keep, and further wherever the window reserves a rail or a cut-out — the card is
+    /// full width, so unlike the filter column it cannot simply keep to the side the rail is not
+    /// on, and its own close button ended up under the rail.
+    private var cardLeadingInset: CGFloat { max(Metrics.screenInset, windowInsets.left) }
+    private var cardTrailingInset: CGFloat { max(Metrics.screenInset, windowInsets.right) }
+
     /// The measured bar inset, but only while it is plausible. A rotation can leave a parked
     /// copy of the bar in the window at a stale position, and following it would fling the
     /// overlays across the screen — the fallback keeps them where they belong instead.
@@ -383,6 +399,9 @@ struct MapTabView: View {
             RouteMapView(routes: mapLines,
                          planned: plannedLines,
                          pin: droppedPin,
+                         pinTitle: pinPlace?.title ?? "Dropped pin",
+                         pinSubtitle: pinPlace?.subtitle ?? "",
+                         onPinDelete: { clearPin() },
                          camera: camera,
                          cameraToken: cameraToken,
                          mode: mapMode,
@@ -422,7 +441,8 @@ struct MapTabView: View {
                                     isLight: controlsAreLight,
                                     onGo: { planActive = true },
                                     onClear: { clearPlan() })
-                        .padding(.horizontal, Metrics.screenInset)
+                        .padding(.leading, cardLeadingInset)
+                        .padding(.trailing, cardTrailingInset)
                         .padding(.top, 10)
                 }
 
@@ -730,6 +750,8 @@ struct MapTabView: View {
         planTask = Task { @MainActor in
             let index = await coverage.index(for: health.workouts)
             var planner = RoutePlanner()
+            planner.routeCount = exploreRouteCount
+            planner.shape = exploreShape
             let result = await planner.plan(request: request, start: start,
                                             coverage: index, client: client)
             guard !Task.isCancelled else { return }
@@ -756,10 +778,33 @@ struct MapTabView: View {
 
     /// Drops — or moves — the destination pin, as a long press on the map does in Maps. One pin
     /// at a time, and a destination that *was* the pin follows it.
+    ///
+    /// The address is geocoded for the pin's info bubble; it arrives a moment after the pin
+    /// itself, so the pin shows the coordinate until it does.
     private func dropPin(at coordinate: CLLocationCoordinate2D) {
         droppedPin = coordinate
-        guard planDestination?.isPin == true else { return }
-        planDestination = PlanDestination(coordinate: coordinate, name: "Pin on the map", isPin: true)
+        pinPlace = nil
+        if planDestination?.isPin == true {
+            planDestination = PlanDestination(coordinate: coordinate, name: "Pin on the map", isPin: true)
+        }
+        describePin(at: coordinate)
+    }
+
+    /// The bin in the pin's info bubble: the pin leaves the map, and a destination that was the
+    /// pin goes with it.
+    private func clearPin() {
+        droppedPin = nil
+        pinPlace = nil
+        if planDestination?.isPin == true { planDestination = nil }
+    }
+
+    private func describePin(at coordinate: CLLocationCoordinate2D) {
+        Task { @MainActor in
+            let place = await PinPlace.describe(coordinate)
+            // The pin may have been dropped somewhere else, or removed, in the meantime.
+            guard let droppedPin, Geo.same(droppedPin, coordinate) else { return }
+            pinPlace = place
+        }
     }
 
     /// `WM_PLAN_AUTORUN=1`: waits for a fix and plans straight away, so the whole path can be

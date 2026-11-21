@@ -55,11 +55,21 @@ enum DebugLaunch {
     /// WM_PLAN_GO=1 taps Go as soon as a route has been planned, so the state the route stays
     /// in can be seen without a tap.
     static var planAutoGo: Bool { env["WM_PLAN_GO"] == "1" }
+    /// WM_PLAN_SHAPE=0|0.5|1 pre-sets the explorer's shape (checks the wide/tight setting).
+    static var planShape: Double? { env["WM_PLAN_SHAPE"].flatMap(Double.init) }
+    /// WM_PLAN_ROUTES=1..5 pre-sets how many routes are offered.
+    static var planRoutes: Int? { env["WM_PLAN_ROUTES"].flatMap(Int.init) }
     /// WM_FAKE_PLAN=1 replaces MKDirections with a fixture, so the planner's UI can be
     /// exercised without a network.
     static var fakePlan: Bool { env["WM_FAKE_PLAN"] == "1" }
     /// WM_FAKE_PIN="lat,lon" drops the destination pin at launch.
     static var fakePin: CLLocationCoordinate2D? { coordinate(env["WM_FAKE_PIN"]) }
+    /// WM_SELECT_PIN=1 opens the pin's info bubble at launch — the simulator offers no way to
+    /// tap the map from the command line.
+    static var selectPin: Bool { env["WM_SELECT_PIN"] == "1" }
+    /// WM_PIN_DELETE=1 fires the bubble's bin a moment later, through the very delegate method
+    /// the bin calls.
+    static var pinDelete: Bool { env["WM_PIN_DELETE"] == "1" }
 
     /// WM_FAKE_LOCATION="lat,lon" publishes a fixed position (checks the dot).
     static var fakeLocation: CLLocationCoordinate2D? { coordinate(env["WM_FAKE_LOCATION"]) }
@@ -141,8 +151,12 @@ enum DebugLaunch {
     static var planKilometers: Double? { nil }
     static var planAutoRun: Bool { false }
     static var planAutoGo: Bool { false }
+    static var planShape: Double? { nil }
+    static var planRoutes: Int? { nil }
     static var fakePlan: Bool { false }
     static var fakePin: CLLocationCoordinate2D? { nil }
+    static var selectPin: Bool { false }
+    static var pinDelete: Bool { false }
     static var skipLocation: Bool { false }
     static var stressCopies: Int { 1 }
     static var stressSpread: Double { 0.035 }
