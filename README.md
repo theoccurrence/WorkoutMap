@@ -16,7 +16,8 @@ desaturated Apple map and lets you filter them by week / month / year.
 | **Workouts** | Chronological list of every walk / run / ride with distance, date and a small map thumbnail of the route. Tapping a row opens the detail screen. |
 | **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as circle buttons on the opposite side. The map can be panned, pinched and turned with two fingers. The share button exports the current map as an image card. The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`); tapping the map itself brings the range's label back. |
 | **Map styles** | Apple Maps' own *Map Modes* panel: **Explore**, **Driving** (live traffic), **Transit** (stations only), **Satellite** (imagery) and **Legacy** — the grey map the app shipped with, which is also what it opens with. Each tile is Maps' own artwork for the style (the grey Explore tile for **Legacy**), so the panel is complete the moment it opens. The choice is kept in the settings, and the detail screen and the export card draw the map in it as well. The map itself — and every preview of it — is drawn in the system's own light or dark style, or in the one pinned under *Map Appearance*; **Legacy** is the grey map the app shipped with and stays dark either way. |
-| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), feedback, share app, about, contact. |
+| **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a panel: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map. Tapping one of the alternates on the map picks it, the same as tapping its pill on the card. Once Go is tapped the map shows that one route alone and the Go and the cross give way to a red **Stop**; the card can be swiped up out of the way without ending anything, and the binoculars bring it back — or open the panel again to plan another one. The route stays until Stop, a new plan, or a relaunch. The pin carries an info bubble with the name the geocoder resolved, the address, **how far away it is** (live, as the user walks) and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
+| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **gps jumps** (dotted grey / hidden / solid — how a leg the receiver invented while it had no fix is drawn, see below), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered — feedback, share app, about, contact. |
 
 Detail screen: map with the route, workout type, date, weather (temperature and
 humidity from the workout metadata), then time, distance, elevation, active
@@ -74,6 +75,8 @@ variables (Debug builds only):
 | `WM_START_MODE=explore\|driving\|transit\|satellite\|legacy` | Opens the map in that style |
 | `WM_START_MODES=1` | Opens the map style picker |
 | `WM_START_APPEARANCE=system\|light\|dark` | Draws the map light or dark (checks the appearance setting) |
+| `WM_START_JUMP_STYLE=dotted\|hidden\|solid` | Draws a GPS jump as a dashed grey line, not at all, or as the straight line the data holds |
+| `WM_SAMPLE_JUMPS=1` | Splices one errant fix into the sample routes (checks the GPS-jump setting) |
 | `WM_TAP_AT="x,y"` | Fires one tap on the map at those screen points (checks the route tap and the range bubble) |
 | `WM_START_DETAIL=1` | Pushes the first workout's detail screen |
 | `WM_START_EXPORT=1` | Opens the export card |
@@ -83,6 +86,21 @@ variables (Debug builds only):
 | `WM_FAKE_LOCATION="lat,lon"` | Publishes a fixed position (checks the dot) |
 | `WM_FAKE_HEADING=<degrees\|cycle>` | Stands in for the compass (checks the cone, and that it turns while the dot stands still) |
 | `WM_FAKE_DEVICE_ORIENTATION=portrait\|upsideDown\|landscapeLeft\|landscapeRight` | Stands in for the pose the compass correction is computed from |
+| `WM_START_PLANNER=1` | Opens the explorer's panel |
+| `WM_PLAN_MODE=loop\|destination` | Pre-selects the explorer's mode |
+| `WM_PLAN_KM=5` | Pre-fills the explorer's distance |
+| `WM_PLAN_AUTORUN=1` | Plans a route straight after launch (checks the whole path without the panel) |
+| `WM_PLAN_GO=1` | Taps Go as soon as a route has been planned |
+| `WM_PLAN_SHAPE=0\|0.5\|1` | Pre-sets the explorer's route shape (checks the wide/tight setting) |
+| `WM_PLAN_ROUTES=1..5` | Pre-sets how many routes are offered |
+| `WM_PLAN_NEW=0.1..1` | Pre-sets the share of the route that should be new ground |
+| `WM_TAP_DELAY=<seconds>` | Moves the `WM_TAP_AT` tap back, so it can land after a plan has arrived |
+| `WM_HIDE_CARD=1` | Swipes the explorer's result card away a few seconds after it appears |
+| `WM_SELECT_PIN=1` | Opens the dropped pin's info bubble (the simulator cannot tap the map from the command line) |
+| `WM_FOCUS_SEARCH=1` | Focuses the explorer's search field at launch, so the room the keyboard leaves the panel can be seen |
+| `WM_PIN_DELETE=1` | Fires that bubble's bin a moment later, through the delegate method the bin calls |
+| `WM_FAKE_PLAN=1` | Replaces `MKDirections` with a fixture, so the explorer runs without a network |
+| `WM_FAKE_PIN="lat,lon"` | Drops the destination pin at launch |
 | `WM_STRESS=N` | Replicates the sample workouts N times, `WM_STRESS_SPREAD` degrees apart (map performance) |
 
 `./scripts/sim_shots.sh` builds, installs and captures every screen into
@@ -92,15 +110,19 @@ variables (Debug builds only):
 
 ```
 WorkoutMap/
-  Model/       Workout, WorkoutCategory, TimeRange (week/month/year/all), RouteGeometry,
-               MapMode (Explore / Driving / Transit / Satellite / Legacy)
+  Model/       Workout, WorkoutCategory, TimeRange (week/month/year/all), RouteGeometry (+ Geo),
+               MapMode (Explore / Driving / Transit / Satellite / Legacy), RoutePlan,
+               WorkoutRoute (a track and the legs that are GPS jumps), RouteJumpStyle,
+               ExploreOptions (the two explorer settings)
   Services/    HealthStore (HealthKit), RouteStore (route fetch + disk cache),
-               LocationProvider, MapImageRenderer (map snapshots), DebugSampleData
+               LocationProvider, MapImageRenderer (map snapshots), DebugSampleData,
+               CoverageIndex + CoverageStore (where the user has been), DirectionsClient
+               (MKDirections, behind a protocol), RoutePlanner (the explorer's algorithm)
   Theme/       Palette (measured colours), Metrics (measured geometry), Formatters,
-               SystemAppearance (the phone's own light/dark style)
+               SystemAppearance (the phone's own light/dark style), ControlAppearance
   Views/       RootView (TabView), WorkoutsListView, WorkoutCardView, WorkoutDetailView,
-               MapTabView, RouteMapView, RangePickerSheet, MapModeSheet, ExportPreviewView,
-               SettingsView
+               MapTabView, RouteMapView, RangePickerPanel, MapModePanel, ExportPreviewView,
+               SettingsView, RoutePlannerPanel, PlannedRouteBar
 ```
 
 Notes on the map rendering, all measured from the original app:
@@ -133,13 +155,12 @@ Notes on the map rendering, all measured from the original app:
   image per style and appearance: five `MKMapSnapshotter` runs per opening, arriving one by
   one while the panel sat half empty, was what the panel used to be, and the artwork is what
   Maps itself shows. `MapImageRenderer.modeThumbnail` and `MapMode.previewTone` went with it.
-  The tiles are square and take everything the sheet
+  The tiles are square and take everything the panel
   has to give up to 96 pt (a 12 pt inset and an 8 pt gap between them, so the row fills the
-  card instead of leaving wide margins). On the folded panel the sheet's *content* is laid
-  out beside the rail — measured: a 374 pt content area in a 466 pt card, 76 pt narrower —
-  and a row centred in there sits visibly off to one side (which side depending on where the
-  rail is), so the panel ignores the container's horizontal safe area: the card covers that
-  strip anyway.
+  card instead of leaving wide margins). The row is centred on the panel itself: on the folded
+  panel the window's rail takes 84 pt of the card's width (measured: a 374 pt content area in a
+  466 pt window), and a row centred in the content area beside it would sit visibly off to one
+  side — which side depending on where the rail is.
 * The **map's light/dark style** is `MapAppearance` (Setting ▸ *Map Appearance*): `system`,
   `light` or `dark`, resolved against the phone's own setting. The app itself is pinned to dark
   (`WorkoutMapApp`'s `.preferredColorScheme(.dark)`; the plist's `UIUserInterfaceStyle` was
@@ -335,6 +356,114 @@ Notes on the map rendering, all measured from the original app:
   on Walk used to deselect it and change nothing but the camera. Measured with the toggle put
   back: a second tap on Walk re-zooms and drops the circle's wash; with the guard in place the
   frame is byte-identical (0 of 3.8 M pixels differ).
+* The **explorer** plans a walk over ground the user has never covered. Two questions have to
+  be answered, and both have a boring answer: *where have I been* is a grid, *what is a real
+  route* is `MKDirections`.
+  * `CoverageIndex` rasterises every workout route into ~25 m cells — a plain `Set<Int64>` of
+    packed latitude/longitude indices. The grid is square in **degrees**, so an east-west cell
+    is narrower away from the equator (at Munich's latitude ~17 m against 25 m); the history and
+    the candidates run through the same grid, so the *share* of a route that is new is
+    unaffected and only the absolute metre figure carries the anisotropy.
+  * `CoverageStore` builds that index over **every** workout, not the range the map is filtered
+    to: "where have I never been" is not a question about the current filter. The routes already
+    on disk are read first, so the first plan is instant; the rest are pulled from Health four
+    at a time and folded in, and the panel says so while that is still running.
+  * `MKDirections` knows no waypoints, so a route is a handful of point-to-point legs stitched
+    into one polyline — and both shapes are a **zigzag sized so its straight-line length is the
+    distance asked for**. That is what the *Route Shape* setting steers: how many legs the zigzag
+    is made of, not how long it is. A **loop** is a zigzag over a square centred on the start,
+    the route turning at each row's far end and coming home; a **destination** is a zigzag along
+    the direct line, alternating either side of it. At *Wide* the loop is two long legs out and
+    back around the start and the destination is one big bow off the corridor; at *Tight* the
+    loop is a **lawnmower over the square the start sits in** and the destination is a handful of
+    side streets either side of the way there. Measured on a 5 km loop from the same spot:
+    5.87 km reaching ~1.1 km out at *Wide* against 4.81 km filling a ~1.1 km square at *Tight* —
+    the distance holds while the shape changes, which is the whole point of the setting.
+  * The **new ways** slider is what makes the planner go looking. It is a target rather than a
+    guarantee — a route that starts at the front door has to cross the streets around it, and
+    those are the ones most likely to be covered already — and it works three ways at once.
+    A loop is tried over a **ring of centres around the start**, not only at the start, because
+    the ground under the user's feet is the ground they have covered most (a centre too far away
+    to be reached and returned within the distance is pruned by the sizing itself). Every turning
+    point is then nudged across its row, in both modes, to the **least covered ground within a
+    span** — a waypoint a hundred metres to one side can be in a park while this one is on a road
+    the user runs every week — which is what a park whose little paths were never walked rewards.
+    And the shape is pulled as tight as the slider asks for, since filling the streets around the
+    route is how new ground is found. What actually came back is what the card says.
+  * Candidates are scored against the coverage grid *before* anything is routed, so only the
+    best few ever reach the service, and the routed ones are ranked on the share of the finished
+    route that is new ground, how close it lands to the distance asked for, and how recently the
+    same walk was suggested from nearby (`PlanHistory`, in `UserDefaults`). The direction, the
+    square's size and the turning points are jittered per request, so the same 5 km from the same
+    front door does not produce the same walk twice — the *ranking* carries no noise, because it
+    is the last word on which route the user is offered first and should be the best of them
+    rather than the luckiest. The generator is seedable (`SplitMix64`).
+  * A tighter shape turns more often and follows more side streets, so its real length runs
+    further ahead of the straight line it was sized on: the road factor carries a slope with the
+    setting (1.32 → 1.50). The destination's shape is sized by bisecting its lateral reach, and
+    one correction round re-routes the better of the two sides when the first attempt lands more
+    than 15 % off.
+  * The legs are the request budget. `MKDirections` throttles a burst
+    (`MKError.Code.loadingThrottled`), so at most three legs are in flight at once, a throttled
+    leg is retried twice with a growing delay, and a plan is capped at 18 legs — which is also
+    what caps *Routes Suggested* at three when the shape asks for five legs each. A leg that
+    fails outright drops its candidate: a route with a hole in it is not a route.
+  * The route is drawn by MapKit like everything else on this screen: the planned lines are
+    handed to `RouteMapView` as a second list, added **after** the workout routes (MapKit draws
+    one level's overlays in the order they were added, so a planned route always lands on top of
+    a workout's instead of disappearing into it), in Apple Maps' blue with a darker casing under
+    the selected one and the same blue at 45 % for the alternates. The result card sits **under
+    the range bubble** rather than at the foot of the screen, because the foot is where the
+    filters and the toolbar live and both have to stay usable while a route is planned. It is a
+    full-width card, so unlike the filter column — which simply keeps to the side the rail is not
+    on — it cannot dodge a rail: it is held off both screen edges by the window's own safe-area
+    insets instead, because its close button was landing under the Duo's rail. Tapping an
+    alternate **on the map** picks it — the tap is resolved against the planned lines first,
+    since they are drawn on top of the workout routes — and after Go the alternates are not
+    drawn at all: the map is the route being walked and nothing else.
+  * The card is a state machine with an escape hatch. Before Go it offers the alternates and a
+    cross that throws the plan away; after Go there is nothing left to pick between, so the pair
+    becomes one red **Stop**. Dragging it up **follows the finger**: the drag writes the card's
+    own offset — a swipe that does not keep up with the thumb does not feel like a swipe — and
+    only the release decides where it settles, leaving on a spring if it is past a third of the
+    way off or was flicked fast enough that it would have got there, and springing back with a
+    little overshoot if not. Past the end of its travel, and dragging *down* where there is
+    nothing below the resting place at all, the offset is a **rubber band** (`UIScrollView`'s own
+    `(x·d·c)/(d + c·x)`) rather than a clamp: the pull still moves the card, by less and less, so
+    the edge gives instead of stopping dead. The explorer's button brings it back down, or opens
+    the panel again when it is already up. The card clears the top of the screen by its own
+    height plus the gap it sits below, so nothing has to be clipped to hide it — clipping the
+    overlay column is what used to cut the top off the range bubble.
+  * **Every panel of the map screen is glass**, through one modifier (`View.glassPanel()`): the
+    explorer's result card, the range bubble and the screen's three menus — the explorer's input
+    panel, the calendar picker and the map-style picker. **Liquid Glass** (`glassEffect`) rather
+    than a `Material`, because over a dark map a material — even `.ultraThin` — is a grey plate
+    with a blur on it: it neither lights its own edge nor reads as glass, while the glass does
+    both and still keeps the text readable. The **menus are drawn in the map screen itself**
+    (`MapTabView.menuPanel`) rather than presented as sheets, and that is not a style choice: a
+    half-height sheet is handed a glass panel of the system's own — Apple's note on adopting
+    Liquid Glass: "half sheets are inset from the edge of the display" — and no value of
+    `presentationBackground` removes it (measured on iOS 27: the card keeps its blurred panel
+    whatever the modifier is told, and only an opaque colour painted over it hides it). That card
+    is also the full width of the window, so on the Duo it lies over the rail the screen's toolbar
+    and tab registers live in. Drawn in the map screen instead, a menu keeps the width the range
+    bubble and the result card keep — reaching the rail without touching it — and is handed the
+    room the keyboard leaves it, so it shrinks rather than pushing its own header off the screen.
+    The explorer panel's own fields (the search box, the results, the chosen destination) are
+    `.thinMaterial` over it, and every panel's close cross is **white** — black read as a hole
+    punched in the glass. The flat `Palette.sheetCard` / `Palette.pickerGlass` fills went with
+    it. The export card is the one exception: it is a full-screen viewer for the image it
+    produces rather than a panel over the map, so it still sits on black.
+  * The dropped pin's **info bubble** heads with the name MapKit's reverse geocoder resolved for
+    the coordinate, and carries the address and **how far away the pin is** under it, plus the bin.
+    The two lower lines are not the annotation's `subtitle`: MapKit drops an annotation's subtitle
+    the moment the callout has a `detailCalloutAccessoryView`, so both live in a `UIStackView`
+    there instead — which also lets them be written in place, so a bubble left open while the user
+    walks towards the pin counts down instead of flickering once a second.
+  * The explorer is **independent** of the Walk / Run / Ride filters: it neither selects nor
+    clears one, and a walk filter can be on while a planned route is on the map. That is also
+    what makes the two comparable at a glance — a filter's routes and a planned route are drawn
+    side by side, in their own colours.
 * The map view sets `insetsLayoutMarginsFromSafeArea = false`: `MKMapView` fits its camera
   (a route fit, a centred user location) into the view's layout margins, so the safe area
   would push a fitted route set and the user location off centre. MapKit's legal attribution
@@ -352,4 +481,23 @@ Notes on the map rendering, all measured from the original app:
   ink of the neighbouring SF Symbols, which is why it read small. The bitmaps are trimmed and
   scaled to fill the box (ink 23 × 21 pt at 1x/2x/3x), so the tab now matches: measured 22 pt
   of ink against the gear's 24, up from 16.7.
+* **GPS jumps** — the leg of a route the receiver invented while it had no fix, drawn
+  straight across houses, gardens and lakes as if it had been walked — are told apart from
+  ground the user covered by the only thing that can tell them apart: the fixes carry a
+  timestamp, and a leg whose applied speed beats 162 km/h cannot have been travelled
+  (`WorkoutRoute.jumps(in:)`; it also has to cover 25 m, so a duplicate fix a metre away in a
+  hundredth of a second is not one, and a plain 300 m distance is left as the test for a sample
+  with no usable timestamp). Health stores a jump as an ordinary fix — the straight line is
+  what a polyline draws between any two fixes, and the impossibility is in the time between
+  them — so nothing in the route itself marks it, and the cached route keeps one flag per fix
+  beside the coordinates (`WMR1`; a cache file without that header is fetched from Health
+  again rather than read as a route without any jumps). *Settings ▸ GPS Jumps* draws them the
+  way the Fitness app does — a grey dashed line, stroked with square ends so the dashes do not
+  close up into a solid line — hides them altogether, or leaves them solid as the app drew
+  them before. The walked stretches are split around every jump, which costs a handful of
+  polylines per workout and still one overlay — one draw call — per colour and dash pattern;
+  each jump line carries the workout's id with a suffix, which a tap cuts off again
+  (`Coordinator.baseRouteID`), so picking a route still picks that workout. Snapshots (card
+  thumbnails and the export card) stroke the same dashes into their pixels, and the thumbnail
+  cache key carries the setting so a cached image of the other one does not come back.
 * The Settings screen omits the "WorkoutMap Plus" banner.

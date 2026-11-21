@@ -159,7 +159,7 @@ struct ExportPreviewView: View {
         let width = cardWidth(containerWidth)
         let lines = routes.compactMap { line -> RouteLine? in
             guard line.coordinates.count > 1 else { return nil }
-            return RouteLine(coordinates: line.coordinates, color: line.color)
+            return RouteLine(coordinates: line.coordinates, color: line.color, dash: line.dash)
         }
         mapImage = await MapImageRenderer.shared.image(mapRect: mapRect,
                                                       size: CGSize(width: width, height: width * 0.78),

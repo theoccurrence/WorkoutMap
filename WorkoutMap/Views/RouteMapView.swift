@@ -6,8 +6,38 @@ struct MapRouteLine: Equatable {
     let id: String
     let coordinates: [CLLocationCoordinate2D]
     let color: UIColor
+    /// The stroke width. The workout routes all share the measured `Metrics.routeWidth`; a
+    /// planned route is drawn wider, with a casing under it (see `MapTabView.plannedLines`).
+    var width: CGFloat = Metrics.routeWidth
+    /// The dash pattern, in points, for a line that stands for ground the user did not cover —
+    /// a GPS jump. `nil` is a solid line.
+    var dash: [CGFloat]? = nil
 
     static func == (lhs: MapRouteLine, rhs: MapRouteLine) -> Bool { lhs.id == rhs.id }
+}
+
+extension MapRouteLine {
+    /// One workout route as the lines it is drawn as: the stretches the user walked, in the
+    /// category's colour, and — where the setting asks for it — each GPS jump as a dashed grey
+    /// line of its own.
+    ///
+    /// Every line's id is the workout's own with a suffix; `Coordinator.baseRouteID` cuts the
+    /// suffix off again, so a tap anywhere on the route picks that workout.
+    static func lines(for workout: Workout, route: WorkoutRoute, style: RouteJumpStyle) -> [MapRouteLine] {
+        let drawing = route.drawing(style)
+        var lines = drawing.walked.enumerated().map { index, coordinates in
+            MapRouteLine(id: "\(workout.id.uuidString)#\(index)",
+                         coordinates: coordinates,
+                         color: workout.category.uiColor)
+        }
+        lines += drawing.jumps.enumerated().map { index, coordinates in
+            MapRouteLine(id: "\(workout.id.uuidString)#jump\(index)",
+                         coordinates: coordinates,
+                         color: RouteJump.uiColor,
+                         dash: RouteJump.dash)
+        }
+        return lines
+    }
 }
 
 // MARK: - Map tone
@@ -68,9 +98,14 @@ final class ToneOverlayRenderer: MKOverlayRenderer {
 /// no matter how many workouts are on screen.
 final class RouteColorOverlay: MKMultiPolyline {
     let color: UIColor
+    let width: CGFloat
+    /// The dash pattern in points, or `nil` for a solid line — see `MapRouteLine.dash`.
+    let dash: [CGFloat]?
 
-    init(color: UIColor, polylines: [MKPolyline]) {
+    init(color: UIColor, width: CGFloat, dash: [CGFloat]?, polylines: [MKPolyline]) {
         self.color = color
+        self.width = width
+        self.dash = dash
         super.init(polylines)
     }
 
@@ -87,6 +122,74 @@ final class UserDotAnnotation: NSObject, MKAnnotation {
     init(coordinate: CLLocationCoordinate2D) {
         self.coordinate = coordinate
         super.init()
+    }
+}
+
+/// The destination pin the user drops on the map — one at a time, as in Maps: a new pin
+/// replaces the old one.
+///
+/// `title` is what the pin's info bubble heads with — the name the geocoder resolved for it.
+/// The address and the distance are not here: MapKit drops an annotation's subtitle once the
+/// callout has a `detailCalloutAccessoryView`, so both live in that instead.
+final class DestinationPinAnnotation: NSObject, MKAnnotation {
+    @objc dynamic var coordinate: CLLocationCoordinate2D
+    var title: String?
+
+    init(coordinate: CLLocationCoordinate2D, title: String?) {
+        self.coordinate = coordinate
+        self.title = title
+        super.init()
+    }
+}
+
+/// The dropped pin's own look: a red balloon, the marker Maps drops, with an info bubble that
+/// carries the address, how far away it is, and a bin.
+final class DestinationPinView: MKMarkerAnnotationView {
+    static let reuseIdentifier = "DestinationPinView"
+
+    /// The bubble's two lines under the place name. Written in place rather than by re-laying the
+    /// callout out, so walking towards the pin does not make the bubble flicker once a second.
+    private let addressLabel = UILabel()
+    private let distanceLabel = UILabel()
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        markerTintColor = .systemRed
+        glyphTintColor = .white
+        animatesWhenAdded = true
+        displayPriority = .required
+        canShowCallout = true
+        rightCalloutAccessoryView = DestinationPinView.removeButton()
+        for label in [addressLabel, distanceLabel] {
+            label.font = .preferredFont(forTextStyle: .subheadline)
+            label.adjustsFontForContentSizeCategory = true
+            // A dynamic colour, so it follows the callout's own light or dark bubble.
+            label.textColor = .secondaryLabel
+        }
+        let lines = UIStackView(arrangedSubviews: [addressLabel, distanceLabel])
+        lines.axis = .vertical
+        lines.spacing = 2
+        detailCalloutAccessoryView = lines
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// Where the pin is, and how far away that is right now — `nil` distance while there is no
+    /// fix, `nil` address while the geocoder has not answered yet.
+    func apply(address: String?, distance: Double?) {
+        addressLabel.text = address
+        addressLabel.isHidden = (address ?? "").isEmpty
+        distanceLabel.text = distance.map(Fmt.distanceAway)
+        distanceLabel.isHidden = distance == nil
+    }
+
+    private static func removeButton() -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "trash"), for: .normal)
+        button.tintColor = .systemRed
+        button.frame = CGRect(x: 0, y: 0, width: 34, height: 34)
+        button.accessibilityLabel = "Remove pin"
+        return button
     }
 }
 
@@ -346,6 +449,16 @@ struct RouteMapView: UIViewRepresentable {
     }
 
     var routes: [MapRouteLine] = []
+    /// The explorer's planned route and its alternates. Drawn **after** the workout routes, so
+    /// a planned route is never hidden under one, and with the width each line carries.
+    var planned: [MapRouteLine] = []
+    /// The destination pin the user dropped, if any. One at a time.
+    var pin: CLLocationCoordinate2D?
+    /// What the pin's info bubble says: what the place is called, and where it is.
+    var pinTitle: String?
+    var pinSubtitle: String?
+    /// The bin in that bubble.
+    var onPinDelete: (() -> Void)?
     var camera: Camera?
     var cameraToken: Int = 0
     /// The map style — see `MapMode`. Everything but `legacy` is the map as MapKit draws it.
@@ -366,6 +479,12 @@ struct RouteMapView: UIViewRepresentable {
     /// map itself. The routes are MapKit overlays with no tap target of their own, so the tap is
     /// resolved against the route geometry (see `Coordinator.routeID(near:within:)`).
     var onRouteTap: ((String?) -> Void)?
+    /// A long press on the map: where it landed, so the explorer can drop its destination pin
+    /// there, as Maps does.
+    var onLongPress: ((CLLocationCoordinate2D) -> Void)?
+    /// A tap that landed on one of the planned routes: which one, so tapping a washed-out
+    /// alternate on the map makes it the one — as tapping an alternate card does in Maps.
+    var onPlannedTap: ((Int) -> Void)?
     /// The window's safe-area insets, reported after layout and on orientation or
     /// fold changes.
     var onSafeAreaChange: ((UIEdgeInsets) -> Void)?
@@ -398,6 +517,8 @@ struct RouteMapView: UIViewRepresentable {
         map.showsUserLocation = false
         map.showsBuildings = false
         map.register(UserDotView.self, forAnnotationViewWithReuseIdentifier: UserDotView.reuseIdentifier)
+        map.register(DestinationPinView.self,
+                     forAnnotationViewWithReuseIdentifier: DestinationPinView.reuseIdentifier)
         map.onLayout = { [weak coordinator = context.coordinator] in
             coordinator?.applyPendingCamera()
             // A layout pass means the window may have turned, and the device heading is
@@ -421,7 +542,7 @@ struct RouteMapView: UIViewRepresentable {
         // WM_TAP_AT — see `DebugLaunch.tapAt`. The tap goes through the path the recognizer
         // uses, so the hit-test and the reporting are the ones that ship.
         if let point = DebugLaunch.tapAt {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak coordinator = context.coordinator] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + DebugLaunch.tapDelay) { [weak coordinator = context.coordinator] in
                 coordinator?.reportRouteTap(at: point)
             }
         }
@@ -434,6 +555,7 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.updateAppearance()
         context.coordinator.updateMode()
         context.coordinator.updateRoutes()
+        context.coordinator.updatePin()
         context.coordinator.updateUserDot()
         if context.coordinator.appliedCameraToken != cameraToken {
             context.coordinator.appliedCameraToken = cameraToken
@@ -462,6 +584,7 @@ struct RouteMapView: UIViewRepresentable {
         private var polylines: [String: MKPolyline] = [:]
         private var signature = ""
         private var dotAnnotation: UserDotAnnotation?
+        private var pinAnnotation: DestinationPinAnnotation?
         /// The dot's own animation — see `updateUserDot`.
         private lazy var dotProxy = DotProxy(coordinator: self)
         private var dotLink: CADisplayLink?
@@ -554,6 +677,19 @@ struct RouteMapView: UIViewRepresentable {
             tap.cancelsTouchesInView = false
             tap.delegate = self
             map.addGestureRecognizer(tap)
+            // A long press, for dropping the explorer's destination pin — Maps' own gesture
+            // for the same thing. It reports where it landed, once, as it begins.
+            let press = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+            press.cancelsTouchesInView = false
+            press.minimumPressDuration = 0.4
+            press.delegate = self
+            map.addGestureRecognizer(press)
+        }
+
+        @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
+            guard let map, recognizer.state == .began else { return }
+            let coordinate = map.convert(recognizer.location(in: map), toCoordinateFrom: map)
+            parent.onLongPress?(coordinate)
         }
 
         @objc private func handleGesture(_ recognizer: UIGestureRecognizer) {
@@ -578,6 +714,10 @@ struct RouteMapView: UIViewRepresentable {
         /// for a tap on the map itself.
         func reportRouteTap(at point: CGPoint) {
             guard let map, map.bounds.width > 1 else { return }
+            // A tap on the pin is the pin's own business — it opens the info bubble — and not a
+            // route pick.
+            if let pinAnnotation, let pinView = map.view(for: pinAnnotation),
+               pinView.frame.contains(point) { return }
             let tapped = MKMapPoint(map.convert(point, toCoordinateFrom: map))
             // The hit radius in the map's own units, taken from the map itself rather than
             // guessed: the same 24 pt to the right of the tap, measured in map points, is the
@@ -586,7 +726,41 @@ struct RouteMapView: UIViewRepresentable {
                                                 toCoordinateFrom: map))
             let radius = abs(beside.x - tapped.x)
             guard radius > 0 else { return }
+            // A planned route comes first: it is drawn on top of the workout routes, so a tap
+            // that lands on one is meant for it.
+            if let index = plannedIndex(near: tapped, within: radius) {
+                parent.onPlannedTap?(index)
+                return
+            }
             parent.onRouteTap?(routeID(near: tapped, within: radius))
+        }
+
+        /// The planned route whose stroke passes within `threshold` map points of `point`, or
+        /// `nil` when the tap missed every one of them.
+        private func plannedIndex(near point: MKMapPoint, within threshold: Double) -> Int? {
+            var best: (index: Int, distance: Double)?
+            let limit = threshold * threshold
+            for line in parent.planned where line.coordinates.count > 1 {
+                guard let index = Coordinator.plannedIndex(of: line.id) else { continue }
+                var nearest = Double.greatestFiniteMagnitude
+                var previous: MKMapPoint?
+                for coordinate in line.coordinates {
+                    let current = MKMapPoint(coordinate)
+                    if let previous {
+                        nearest = min(nearest, Coordinator.distanceSquared(from: point, to: previous, current))
+                    }
+                    previous = current
+                }
+                guard nearest <= limit else { continue }
+                if best == nil || nearest < best!.distance { best = (index, nearest) }
+            }
+            return best?.index
+        }
+
+        /// `plan-2` and `plan-2-casing` are both route 2.
+        private static func plannedIndex(of id: String) -> Int? {
+            guard id.hasPrefix("plan-") else { return nil }
+            return Int(id.dropFirst(5).prefix { $0 != "-" })
         }
 
         /// The id of the nearest route whose stroke passes within `threshold` map points of
@@ -605,9 +779,16 @@ struct RouteMapView: UIViewRepresentable {
                     previous = current
                 }
                 guard nearest <= limit else { continue }
-                if best == nil || nearest < best!.distance { best = (line.id, nearest) }
+                if best == nil || nearest < best!.distance { best = (Coordinator.baseRouteID(line.id), nearest) }
             }
             return best?.id
+        }
+
+        /// `abc#jump1` is a jump leg of route `abc` and `abc#2` its second walked stretch, so a
+        /// tap on either is a tap on the workout `abc`.
+        static func baseRouteID(_ id: String) -> String {
+            guard let cut = id.firstIndex(of: "#") else { return id }
+            return String(id[id.startIndex..<cut])
         }
 
         /// How close to a route a tap counts as landing on it. The routes are ~3 pt wide; 24 pt
@@ -650,18 +831,28 @@ struct RouteMapView: UIViewRepresentable {
         // MARK: routes
 
         /// Rebuilds the overlays, and only when the route set changes.
+        ///
+        /// The workout routes come first and the explorer's planned ones after them: MapKit
+        /// draws the overlays of one level in the order they were added, so a planned route
+        /// always lands on top of the routes underneath it instead of disappearing into them.
         func updateRoutes() {
             guard let map else { return }
             var next = ""
             for line in parent.routes {
                 next += line.id
-                next += "|\(line.coordinates.count)|\(line.color.hashValue);"
+                next += "|\(line.coordinates.count)|\(line.color.hashValue)|\(line.dash?.description ?? "-");"
+            }
+            next += "/"
+            for line in parent.planned {
+                next += line.id
+                next += "|\(line.coordinates.count)|\(line.color.hashValue)|\(line.width)|\(line.dash?.description ?? "-");"
             }
             guard next != signature else { return }
             signature = next
 
+            let lines = parent.routes + parent.planned
             var wanted: Set<String> = []
-            for line in parent.routes where line.coordinates.count > 1 {
+            for line in lines where line.coordinates.count > 1 {
                 wanted.insert(line.id)
                 if polylines[line.id] == nil {
                     polylines[line.id] = MKPolyline(coordinates: line.coordinates,
@@ -670,19 +861,95 @@ struct RouteMapView: UIViewRepresentable {
             }
             polylines = polylines.filter { wanted.contains($0.key) }
 
-            var grouped: [(color: UIColor, polylines: [MKPolyline])] = []
-            for line in parent.routes {
+            var grouped: [(color: UIColor, width: CGFloat, dash: [CGFloat]?, polylines: [MKPolyline])] = []
+            for line in lines {
                 guard let polyline = polylines[line.id] else { continue }
-                if let index = grouped.firstIndex(where: { $0.color == line.color }) {
+                if let index = grouped.firstIndex(where: { $0.color == line.color && $0.width == line.width
+                                                           && $0.dash == line.dash }) {
                     grouped[index].polylines.append(polyline)
                 } else {
-                    grouped.append((line.color, [polyline]))
+                    grouped.append((line.color, line.width, line.dash, [polyline]))
                 }
             }
 
             map.removeOverlays(routeOverlays)
-            routeOverlays = grouped.map { RouteColorOverlay(color: $0.color, polylines: $0.polylines) }
+            routeOverlays = grouped.map {
+                RouteColorOverlay(color: $0.color, width: $0.width, dash: $0.dash, polylines: $0.polylines)
+            }
             map.addOverlays(routeOverlays, level: .aboveLabels)
+        }
+
+        /// Adds, moves or removes the explorer's destination pin. One at a time: a new
+        /// coordinate moves the pin it already has instead of adding a second one.
+        ///
+        /// The address arrives after the pin does — it is geocoded — so the bubble's text is
+        /// written here and an open bubble is refreshed rather than left stale.
+        func updatePin() {
+            guard let map else { return }
+            guard let coordinate = parent.pin else {
+                if let pinAnnotation {
+                    map.removeAnnotation(pinAnnotation)
+                    self.pinAnnotation = nil
+                }
+                return
+            }
+            if let pinAnnotation {
+                let moved = !Coordinator.matches(pinAnnotation.coordinate, coordinate)
+                pinAnnotation.coordinate = coordinate
+                if moved || pinAnnotation.title != parent.pinTitle {
+                    pinAnnotation.title = parent.pinTitle
+                    // The callout is laid out when it is shown and does not watch the annotation,
+                    // so an open one is redrawn when the place name finally arrives.
+                    if !moved { refreshCallout(of: pinAnnotation, in: map) }
+                }
+            } else {
+                let annotation = DestinationPinAnnotation(coordinate: coordinate,
+                                                          title: parent.pinTitle)
+                pinAnnotation = annotation
+                map.addAnnotation(annotation)
+            }
+            updatePinAccessory(in: map)
+#if DEBUG
+            runPinProbe()
+#endif
+        }
+
+        /// Keeps the pin's bubble saying where it is and how far away that is — the bubble is the
+        /// one place the user is standing when they ask, and the distance changes as they walk.
+        private func updatePinAccessory(in map: MKMapView) {
+            guard let pinAnnotation,
+                  let view = map.view(for: pinAnnotation) as? DestinationPinView else { return }
+            view.apply(address: parent.pinSubtitle,
+                       distance: parent.userLocation.map {
+                           CoverageIndex.meters(from: $0, to: pinAnnotation.coordinate)
+                       })
+        }
+
+#if DEBUG
+        /// `WM_SELECT_PIN` / `WM_PIN_DELETE` — see `DebugLaunch`. The simulator has no way to
+        /// tap the map from the command line, so the bubble is opened and the bin fired from
+        /// here — the bin through the very delegate method MapKit calls for it.
+        private func runPinProbe() {
+            guard let map, let pinAnnotation else { return }
+            guard DebugLaunch.selectPin || DebugLaunch.pinDelete else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self, weak map] in
+                guard let self, let map, let view = map.view(for: pinAnnotation) else { return }
+                if DebugLaunch.selectPin { map.selectAnnotation(pinAnnotation, animated: true) }
+                guard DebugLaunch.pinDelete else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    self.mapView(map, annotationView: view,
+                                 calloutAccessoryControlTapped: UIButton())
+                }
+            }
+        }
+#endif
+
+        /// Redraws an open bubble after its text changed: MapKit lays a callout out when it is
+        /// shown and does not watch the annotation for changes.
+        private func refreshCallout(of annotation: MKAnnotation, in map: MKMapView) {
+            guard let view = map.view(for: annotation), view.isSelected else { return }
+            map.deselectAnnotation(annotation, animated: false)
+            map.selectAnnotation(annotation, animated: false)
         }
 
         /// Moves the dot onto the newest fix.
@@ -795,6 +1062,19 @@ struct RouteMapView: UIViewRepresentable {
         // MARK: delegate
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if annotation is DestinationPinAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: DestinationPinView.reuseIdentifier,
+                                                                 for: annotation)
+                // Set here as well as in `updatePinAccessory`, so a bubble opened before the next
+                // update already has its lines rather than empty ones.
+                if let pin = view as? DestinationPinView {
+                    pin.apply(address: parent.pinSubtitle,
+                              distance: parent.userLocation.map {
+                                  CoverageIndex.meters(from: $0, to: annotation.coordinate)
+                              })
+                }
+                return view
+            }
             guard annotation is UserDotAnnotation else { return nil }
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: UserDotView.reuseIdentifier,
                                                              for: annotation)
@@ -810,10 +1090,25 @@ struct RouteMapView: UIViewRepresentable {
             guard let group = overlay as? RouteColorOverlay else { return MKOverlayRenderer(overlay: overlay) }
             let renderer = MKMultiPolylineRenderer(multiPolyline: group)
             renderer.strokeColor = group.color
-            renderer.lineWidth = Metrics.routeWidth
-            renderer.lineCap = .round
+            renderer.lineWidth = group.width
             renderer.lineJoin = .round
+            if let dash = group.dash {
+                // Square ends: a round cap would grow every dash by the line's width at each end
+                // and the gaps would close up, so the line would read as solid again.
+                renderer.lineCap = .butt
+                renderer.lineDashPattern = dash.map { NSNumber(value: $0) }
+            } else {
+                renderer.lineCap = .round
+            }
             return renderer
+        }
+
+        /// The bin in the pin's info bubble.
+        func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView,
+                     calloutAccessoryControlTapped control: UIControl) {
+            guard view.annotation is DestinationPinAnnotation else { return }
+            mapView.deselectAnnotation(view.annotation, animated: true)
+            parent.onPinDelete?()
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {

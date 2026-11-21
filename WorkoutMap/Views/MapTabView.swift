@@ -11,7 +11,7 @@ struct MapTabView: View {
         ?? MapTabView.defaultSelection(for: RangeKind.storedDefault)
     /// Walk is selected on open, so its pill reads as active from the start.
     @State private var category: WorkoutCategory? = DebugLaunch.startCategory ?? .walk
-    @State private var loaded: [(Workout, [CLLocationCoordinate2D])] = []
+    @State private var loaded: [(Workout, WorkoutRoute)] = []
     /// The camera move the map should perform; every `cameraToken` bump re-runs it.
     @State private var camera: RouteMapView.Camera?
     @State private var cameraToken = 0
@@ -23,13 +23,16 @@ struct MapTabView: View {
     /// settings.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance =
         DebugLaunch.startAppearance ?? MapAppearance.stored
+    /// What the map does with a GPS jump: the dashed grey line of the Fitness app, or nothing at
+    /// all. Read live, so a change in the settings redraws the routes at once.
+    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
     /// The system's own style, for `MapAppearance.system` — read from the screen, since the app
     /// itself is pinned to dark (see `SystemAppearance`).
     @ObservedObject private var systemAppearance = SystemAppearance.shared
     /// The route the user last tapped. While one is selected the range bubble shows its own
     /// date and time instead of the range's label.
     @State private var tappedRouteID: String?
-    @State private var showSheet = DebugLaunch.openSheet
+    @State private var showRange = DebugLaunch.openSheet
     @State private var showModes = DebugLaunch.openModes
     @State private var showExport = DebugLaunch.openExport
     @State private var visibleMapRect: MKMapRect?
@@ -51,6 +54,42 @@ struct MapTabView: View {
     /// The floating tab bar's capsule as insets from the window's bottom edge to its own
     /// bottom and top edges, measured from the bar so the overlays can line up with it.
     @State private var tabBarInsets: (bottom: CGFloat, top: CGFloat)?
+
+    // MARK: - Explorer
+
+    /// The "where have I never been" index, built over **every** workout rather than the range
+    /// the map is filtered to.
+    @StateObject private var coverage = CoverageStore()
+    @State private var showPlanner = DebugLaunch.openPlanner
+    @State private var planMode: PlanMode = DebugLaunch.planMode ?? .loop
+    @State private var planKilometers: Double = DebugLaunch.planKilometers ?? 5
+    @State private var planDestination: PlanDestination?
+    /// The destination pin on the map. One at a time: a new press replaces it.
+    @State private var droppedPin: CLLocationCoordinate2D? = DebugLaunch.fakePin
+    /// What the pin's info bubble says, once the geocoder has answered.
+    @State private var pinPlace: PinPlace?
+    /// How many routes the explorer offers at once, and how tight it keeps them — the two
+    /// things the settings let the user steer.
+    @AppStorage(ExploreOptions.routeCountKey) private var exploreRouteCount: Int = ExploreOptions.routeCountDefault
+    @AppStorage(ExploreOptions.shapeKey) private var exploreShape: Double = ExploreOptions.shapeDefault
+    /// How much of the route should be new ground — see `ExploreOptions.minimumNewKey`.
+    @AppStorage(ExploreOptions.minimumNewKey) private var exploreMinimumNew: Double = ExploreOptions.minimumNewDefault
+    @State private var plan: RoutePlan?
+    /// Which of the plan's routes is the one; 0 is the primary.
+    @State private var selectedRoute = 0
+    @State private var isPlanning = false
+    /// True once Go was tapped: the route stays on the map until a new plan is started or the
+    /// app is relaunched.
+    @State private var planActive = false
+    /// How far up the result card is being pulled right now, and how far it is parked once it has
+    /// been flicked away. The card follows the thumb rather than running a fixed animation on
+    /// release — a swipe that does not keep up with the finger does not feel like a swipe — so
+    /// both live in one offset that the drag writes and the release animates.
+    @State private var cardOffset: CGFloat = 0
+    @State private var cardParked = false
+    /// How far the card has to travel to be clear of the screen, measured from the card itself.
+    @State private var cardTravel: CGFloat = 200
+    @State private var planTask: Task<Void, Never>?
 
     private var kind: RangeKind { selection.kind }
 
@@ -86,9 +125,59 @@ struct MapTabView: View {
     }
 
     private var mapLines: [MapRouteLine] {
-        loaded
-            .filter { $0.1.count > 1 }
-            .map { MapRouteLine(id: $0.0.id.uuidString, coordinates: $0.1, color: $0.0.category.uiColor) }
+        loaded.flatMap { MapRouteLine.lines(for: $0.0, route: $0.1, style: jumpStyle) }
+    }
+
+    /// The explorer's planned route and its alternates, as map lines: the selected one in the
+    /// bright blue with a casing under it, the others washed out — the way Maps draws them.
+    private var plannedLines: [MapRouteLine] {
+        guard let plan else { return [] }
+        var lines: [MapRouteLine] = []
+        for (index, route) in plan.routes.enumerated() where route.coordinates.count > 1 {
+            if index == selectedRoute {
+                lines.append(MapRouteLine(id: "plan-\(index)-casing",
+                                          coordinates: route.coordinates,
+                                          color: RouteBlue.uiCasing,
+                                          width: 8))
+                lines.append(MapRouteLine(id: "plan-\(index)",
+                                          coordinates: route.coordinates,
+                                          color: RouteBlue.uiPrimary,
+                                          width: 5))
+            } else if !planActive {
+                // Once Go has been tapped the map is the route being walked and nothing else:
+                // the alternates were a choice, and the choice has been made.
+                lines.append(MapRouteLine(id: "plan-\(index)",
+                                          coordinates: route.coordinates,
+                                          color: RouteBlue.uiAlternate,
+                                          width: 4))
+            }
+        }
+        return lines
+    }
+
+    /// Whether the explorer reads as on: its sheet is open, it is planning, or it has a route
+    /// on the map. The button carries its own colour then, independent of Walk / Run / Ride.
+    private var exploreIsOn: Bool { showPlanner || isPlanning || plan != nil }
+
+    /// Where a plan starts: the current fix, the middle of the map, or the newest route's own
+    /// start — whichever there is.
+    private var planStart: CLLocationCoordinate2D? {
+        if let coordinate = location.location?.coordinate { return coordinate }
+        if let rect = visibleMapRect {
+            return MKMapPoint(x: rect.midX, y: rect.midY).coordinate
+        }
+        return centersOn
+    }
+
+    /// The map's own area, so the destination search is biased to what the user is looking at.
+    private var currentRegion: MKCoordinateRegion? {
+        guard let rect = visibleMapRect else { return nil }
+        let center = MKMapPoint(x: rect.midX, y: rect.midY).coordinate
+        let perMeter = MKMapPointsPerMeterAtLatitude(center.latitude)
+        guard perMeter > 0 else { return nil }
+        return MKCoordinateRegion(center: center,
+                                  latitudinalMeters: rect.size.height / perMeter,
+                                  longitudinalMeters: rect.size.width / perMeter)
     }
 
     private var hasData: Bool { !filtered.isEmpty }
@@ -152,7 +241,7 @@ struct MapTabView: View {
 
     private var centersOn: CLLocationCoordinate2D? {
         if let loc = location.location?.coordinate { return loc }
-        return loaded.first?.1.first
+        return loaded.first?.1.coordinates.first
     }
 
     private var mostRecentInFilter: Workout? {
@@ -222,17 +311,28 @@ struct MapTabView: View {
         .task {
             if let start = DebugLaunch.startMapMode { mapMode = start }
             if let start = DebugLaunch.startAppearance { mapAppearance = start }
+            if let style = DebugLaunch.startJumpStyle { jumpStyle = style }
+            if let shape = DebugLaunch.planShape { exploreShape = shape }
+            if let routes = DebugLaunch.planRoutes { exploreRouteCount = routes }
+            if let minimum = DebugLaunch.planMinimumNew { exploreMinimumNew = minimum }
             if !DebugLaunch.skipLocation { location.start() }
+            if let pin = droppedPin { describePin(at: pin) }
+            if DebugLaunch.planAutoRun { await autoPlan() }
+            if DebugLaunch.hideCard {
+                try? await Task.sleep(for: .seconds(12))
+                parkCard()
+                try? await Task.sleep(for: .seconds(8))
+                showCard()
+            }
         }
         .task(id: reloadKey) { await reload() }
-        .sheet(isPresented: $showSheet) {
-            RangePickerSheet(selection: $selection, workouts: health.workouts)
-        }
-        .sheet(isPresented: $showModes) {
-            MapModeSheet(mode: $mapMode,
-                         appearance: mapAppearance,
-                         systemStyle: systemAppearance.style)
-        }
+        // The explorer's index covers every workout, so it is rebuilt when the workout set
+        // changes rather than when the map's range does.
+        .task(id: health.workouts.count) { coverage.update(workouts: health.workouts) }
+        // The screen's menus are drawn in the map screen itself (`menuPanel`), not presented as
+        // sheets: see `View.glassPanel()` for what a half-height sheet's card does to the Duo's
+        // rail. The export preview is the one cover: a full-screen viewer for the image it
+        // produces rather than a panel over the map.
         .fullScreenCover(isPresented: $showExport) {
             ExportPreviewView(workout: mostRecentInFilter,
                               rangeLabel: rangeBubbleText,
@@ -244,7 +344,7 @@ struct MapTabView: View {
     }
 
     private var exportRect: MKMapRect? {
-        visibleMapRect ?? RouteGeometry.fittedRect(routes: loaded.map { $0.1 })
+        visibleMapRect ?? RouteGeometry.fittedRect(routes: loaded.map { $0.1.coordinates })
     }
 
     /// True on a screen whose system chrome lives in a side rail (the iPhone Duo, inner
@@ -260,8 +360,9 @@ struct MapTabView: View {
     /// cut-out's side, which is the left one when the phone is folded and turned that way.
     private var filtersOnTrailingEdge: Bool { windowInsets.left > windowInsets.right }
 
-    /// The distance from the screen's bottom edge to the filters' bottom edge.
-    private var filterBottomInset: CGFloat {
+    /// The distance from the screen's bottom edge to the bottom edge of the overlays that keep to it
+    /// — the filter column, and the menu panels, which sit where the filters do.
+    private var overlayBottomInset: CGFloat {
         // Sideways on the folded panel the rail's own edge is the one to keep to: it sits
         // at the rail's normal 23 pt in the rotation with the rail on the left, and the
         // camera cut-out pushes it far up in the other one. The bar cannot be measured
@@ -286,6 +387,13 @@ struct MapTabView: View {
         barInset(Metrics.toolbarButtonSize + Metrics.pillGap, at: \.top) + Metrics.pillGap
     }
 
+    /// How far the explorer's card is held off the screen edges: at least the inset the other
+    /// overlays keep, and further wherever the window reserves a rail or a cut-out — the card is
+    /// full width, so unlike the filter column it cannot simply keep to the side the rail is not
+    /// on, and its own close button ended up under the rail.
+    private var cardLeadingInset: CGFloat { max(Metrics.screenInset, windowInsets.left) }
+    private var cardTrailingInset: CGFloat { max(Metrics.screenInset, windowInsets.right) }
+
     /// The measured bar inset, but only while it is plausible. A rotation can leave a parked
     /// copy of the bar in the window at a stale position, and following it would fling the
     /// overlays across the screen — the fallback keeps them where they belong instead.
@@ -298,6 +406,11 @@ struct MapTabView: View {
     private var map: some View {
         ZStack(alignment: .top) {
             RouteMapView(routes: mapLines,
+                         planned: plannedLines,
+                         pin: droppedPin,
+                         pinTitle: pinPlace?.title ?? "Dropped pin",
+                         pinSubtitle: pinPlace?.subtitle ?? "",
+                         onPinDelete: { clearPin() },
                          camera: camera,
                          cameraToken: cameraToken,
                          mode: mapMode,
@@ -309,6 +422,8 @@ struct MapTabView: View {
                          onRegionChange: { visibleMapRect = $0 },
                          onUserInteraction: { userMoved = true },
                          onRouteTap: { tappedRouteID = $0 },
+                         onLongPress: { dropPin(at: $0) },
+                         onPlannedTap: { select(route: $0) },
                          onSafeAreaChange: { if windowInsets != $0 { windowInsets = $0 } },
                          onTabBarInsets: { bottom, top in
                              if tabBarInsets == nil || tabBarInsets! != (bottom, top) {
@@ -323,6 +438,35 @@ struct MapTabView: View {
                     // that it had below the grey bar, in every layout.
                     .padding(.top, 18)
 
+                // The explorer's card sits under the bubble rather than at the foot of the
+                // screen: the foot is where the filters and the toolbar live, and both have to
+                // stay usable while a route is planned.
+                if isPlanning {
+                    planningBubble
+                        .padding(.top, 10)
+                } else if let plan {
+                    PlannedRouteBar(plan: plan,
+                                    selected: $selectedRoute,
+                                    isActive: planActive,
+                                    isLight: controlsAreLight,
+                                    onGo: { planActive = true },
+                                    onClear: { clearPlan() })
+                        .environment(\.colorScheme, controlsAreLight ? .light : .dark)
+                        .padding(.leading, cardLeadingInset)
+                        .padding(.trailing, cardTrailingInset)
+                        .padding(.top, 10)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                            // The card sits below the range bubble, so it has to travel its own
+                            // height plus that gap to be clear of the top of the screen.
+                            cardTravel = height + 90
+                        }
+                        .offset(y: cardOffset)
+                        .gesture(cardDrag)
+                        // Off the top of the screen it is still laid out, so it must not keep
+                        // taking taps.
+                        .allowsHitTesting(!cardParked)
+                }
+
                 Spacer(minLength: 0)
 
                 HStack(spacing: 0) {
@@ -333,7 +477,7 @@ struct MapTabView: View {
                     if !filtersOnTrailingEdge { Spacer(minLength: 0) }
                 }
                 .padding(.horizontal, Metrics.screenInset)
-                .padding(.bottom, filterBottomInset)
+                .padding(.bottom, overlayBottomInset)
             }
             // Measured against the display edges rather than the safe area: the bubble keeps
             // the gap below the top of the screen that it has below the grey bar in the
@@ -353,17 +497,101 @@ struct MapTabView: View {
                     .ignoresSafeArea()
             }
 
+            // The explorer's input, the calendar and the map-style picker, as the screen's own
+            // panels — above the controls, the way the sheets they used to be sat above them.
+            if showPlanner {
+                menuPanel { room in
+                    RoutePlannerPanel(mode: $planMode,
+                                      kilometers: $planKilometers,
+                                      destination: $planDestination,
+                                      droppedPin: droppedPin,
+                                      region: currentRegion,
+                                      isReadingRoutes: coverage.isFilling,
+                                      room: room,
+                                      onClose: { showPlanner = false },
+                                      onPlan: { request in
+                                          showPlanner = false
+                                          startPlanning(request)
+                                      })
+                }
+            }
+            if showRange {
+                menuPanel { room in
+                    RangePickerPanel(selection: $selection,
+                                     workouts: health.workouts,
+                                     room: room,
+                                     onClose: { showRange = false })
+                }
+            }
+            if showModes {
+                menuPanel { room in
+                    MapModePanel(mode: $mapMode,
+                                 appearance: mapAppearance,
+                                 systemStyle: systemAppearance.style,
+                                 room: room,
+                                 onClose: { showModes = false })
+                }
+            }
         }
+    }
+
+    /// Where a menu panel of the map screen sits: the width the range bubble and the result card
+    /// keep, so the panel reaches the rail the Duo's toolbar and tab registers live in without
+    /// touching it, and clear of the tab bar's own top edge.
+    ///
+    /// The panel is handed the room it has to work with rather than a height of its own, so a
+    /// keyboard — which pushes the panel up but cannot make the screen taller — cannot take its
+    /// header and its close cross off the top. The container's own safe area is ignored (the panel
+    /// measures itself from the screen's edges, like the card does, instead of from the region left
+    /// over beside the rail); the keyboard's inset is what does the pushing, and it has to keep
+    /// doing it.
+    private func menuPanel<Content: View>(@ViewBuilder _ content: @escaping (CGFloat) -> Content) -> some View {
+        GeometryReader { proxy in
+            content(proxy.size.height - overlayBottomInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.leading, cardLeadingInset)
+                .padding(.trailing, cardTrailingInset)
+                .padding(.bottom, overlayBottomInset)
+        }
+        .ignoresSafeArea(.container)
     }
 
     /// Walk / Run / Ride as toolbar circles — symbol only, walk at the top, the selected
     /// one carrying its own colour. They sit opposite the toolbar.
+    ///
+    /// The explorer stands above them with twice the gap between the three, so it reads as a
+    /// group of its own. It is **independent** of the three: it neither selects nor deselects
+    /// one, and a walk filter can be on while an explorer route is on the map.
     private var categoryFilters: some View {
         VStack(spacing: Metrics.pillGap) {
+            exploreButton
+                .padding(.bottom, Metrics.pillGap)
             ForEach(WorkoutCategory.allCases) { item in
                 filterButton(item)
             }
         }
+    }
+
+    /// The explorer's button: binoculars, its own blue while it is on, the same glass circle as
+    /// the filters otherwise.
+    ///
+    /// It opens the input sheet when there is nothing planned, brings the result card back down
+    /// when that has been swiped away, and opens the sheet again when the card is already up —
+    /// so the route can be stopped and another one started from anywhere.
+    private var exploreButton: some View {
+        Button {
+            if (plan != nil || isPlanning) && cardParked {
+                showCard()
+            } else {
+                showPlanner = true
+            }
+        } label: {
+            toolbarGlyph("binoculars.fill", tint: exploreIsOn ? RouteBlue.primary : controlGlyph)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(exploreIsOn ? .regular.tint(RouteBlue.primary.opacity(0.25)) : .regular,
+                     in: .circle)
+        .accessibilityLabel("Explore")
     }
 
     private func filterButton(_ item: WorkoutCategory) -> some View {
@@ -388,7 +616,7 @@ struct MapTabView: View {
             VStack(spacing: 0) {
                 toolbarButton("square.and.arrow.up", label: "Share") { showExport = true }
                 toolbarButton("calendar", label: "Pick a period") {
-                    if kind != .all { showSheet = true }
+                    if kind != .all { showRange = true }
                 }
                 .disabled(kind == .all)
                 Menu {
@@ -454,7 +682,26 @@ struct MapTabView: View {
             .lineLimit(1)
             .padding(.horizontal, 13)
             .frame(height: Metrics.controlHeight)
-            .background(controlsAreLight ? Palette.surfaceLight : Palette.surface, in: Capsule())
+            // The same frosted glass as the explorer's own card, so the map shows through the
+            // pill rather than sitting under a grey plate.
+            .background(.regularMaterial, in: Capsule())
+            .environment(\.colorScheme, controlsAreLight ? .light : .dark)
+    }
+
+    /// What the screen shows while a route is being planned: `MKDirections` answers in about a
+    /// second per leg, and a plan is a handful of them.
+    private var planningBubble: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(controlGlyph)
+            Text("Finding new ways\u{2026}")
+                .font(.system(size: 14))
+                .foregroundStyle(controlsAreLight ? Palette.rangeLabelLight : Palette.rangeLabel)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: Metrics.controlHeight)
+        .background(.regularMaterial, in: Capsule())
     }
 
     /// True while the window sits on the Duo's folded cover panel. Its content column is
@@ -516,7 +763,7 @@ struct MapTabView: View {
 
     private var calendarToolbarItem: some View {
         Button {
-            if kind != .all { showSheet = true }
+            if kind != .all { showRange = true }
         } label: {
             Label("Pick a period", systemImage: "calendar")
         }
@@ -568,6 +815,164 @@ struct MapTabView: View {
         withAnimation(.easeInOut(duration: 0.15)) { category = item }
     }
 
+    // MARK: - Explorer
+
+    /// Dragging the result card up puts it away without touching the route.
+    ///
+    /// The card tracks the finger the whole way, and the release only decides which end it
+    /// settles at: past a third of the way off, or flicked fast enough that it *would* have got
+    /// there, it leaves; otherwise it springs back. The animation is a spring so the flick lands
+    /// with some weight instead of stopping dead.
+    private var cardDrag: some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                cardOffset = cardOffset(for: value.translation.height)
+            }
+            .onEnded { value in
+                let projected = min(value.translation.height, value.predictedEndTranslation.height)
+                let leaves = projected < -cardTravel / 3
+                cardParked = leaves
+                // A bouncier spring than a plain ease: the snap-back is the part that has to
+                // feel like a piece of iOS, and it overshoots a little on the way home.
+                withAnimation(.spring(response: 0.36, dampingFraction: leaves ? 0.9 : 0.76)) {
+                    cardOffset = leaves ? -cardTravel : 0
+                }
+            }
+    }
+
+    /// The card's offset for a pull of the finger: one to one while there is somewhere to go,
+    /// and past that the rubber band iOS puts on a drag that has run out of room — the pull
+    /// still moves it, by less and less, so the edge gives instead of stopping dead. Dragging
+    /// *down* is all rubber band, because there is nothing below the resting place at all.
+    private func cardOffset(for pull: CGFloat) -> CGFloat {
+        guard pull < 0 else { return rubberBand(pull, limit: cardTravel * 0.20) }
+        let travelled = min(-pull, cardTravel)
+        let past = max(0, -pull - cardTravel)
+        return -travelled - rubberBand(past, limit: cardTravel * 0.20)
+    }
+
+    /// `UIScrollView`'s own rubber band: the displacement approaches `limit` as the pull grows,
+    /// and a small pull moves it about half as far as the finger.
+    private func rubberBand(_ distance: CGFloat, limit: CGFloat) -> CGFloat {
+        guard distance > 0, limit > 0 else { return 0 }
+        let constant: CGFloat = 0.55
+        return (distance * limit * constant) / (limit + constant * distance)
+    }
+
+    /// Brings the result card back down from wherever it is parked.
+    private func showCard() {
+        cardParked = false
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.74)) { cardOffset = 0 }
+    }
+
+    /// Puts it away again — the debug hook and the flicked-away state share this.
+    private func parkCard() {
+        cardParked = true
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.9)) { cardOffset = -cardTravel }
+    }
+
+    /// Picking one of the planned routes by tapping it on the map — the same choice the pills on
+    /// the card make.
+    private func select(route index: Int) {
+        guard let plan, plan.routes.indices.contains(index) else { return }
+        withAnimation(.easeInOut(duration: 0.15)) { selectedRoute = index }
+    }
+
+    /// Plans a route for the request the sheet handed over, and fits the map to the result.
+    ///
+    /// The planner is given the coverage index for **all** workouts, so "new ways" means new to
+    /// the user and not just new to the range the map happens to be showing.
+    private func startPlanning(_ request: PlanRequest) {
+        planTask?.cancel()
+        guard let start = planStart else { return }
+        isPlanning = true
+        planActive = false
+        plan = nil
+        selectedRoute = 0
+        cardParked = false
+        cardOffset = 0
+#if DEBUG
+        let client: DirectionsClient = DebugLaunch.fakePlan
+            ? FixtureDirectionsClient()
+            : MapKitDirectionsClient()
+#else
+        let client: DirectionsClient = MapKitDirectionsClient()
+#endif
+        planTask = Task { @MainActor in
+            let index = await coverage.index(for: health.workouts)
+            var planner = RoutePlanner()
+            planner.routeCount = exploreRouteCount
+            planner.shape = exploreShape
+            planner.minimumNew = exploreMinimumNew
+            let result = await planner.plan(request: request, start: start,
+                                            coverage: index, client: client)
+            guard !Task.isCancelled else { return }
+            isPlanning = false
+            plan = result
+            selectedRoute = 0
+            if DebugLaunch.planAutoGo, result != nil { planActive = true }
+            if let rect = RouteGeometry.fittedRect(routes: result?.routes.map(\.coordinates) ?? []) {
+                camera = .fit(rect)
+                cameraToken += 1
+            }
+        }
+    }
+
+    /// Clears the planned route: it leaves the map and the explorer's button goes back to its
+    /// default look.
+    private func clearPlan() {
+        planTask?.cancel()
+        isPlanning = false
+        planActive = false
+        plan = nil
+        selectedRoute = 0
+    }
+
+    /// Drops — or moves — the destination pin, as a long press on the map does in Maps. One pin
+    /// at a time, and a destination that *was* the pin follows it.
+    ///
+    /// The address is geocoded for the pin's info bubble; it arrives a moment after the pin
+    /// itself, so the pin shows the coordinate until it does.
+    private func dropPin(at coordinate: CLLocationCoordinate2D) {
+        droppedPin = coordinate
+        pinPlace = nil
+        if planDestination?.isPin == true {
+            planDestination = PlanDestination(coordinate: coordinate, name: "Pin on the map", isPin: true)
+        }
+        describePin(at: coordinate)
+    }
+
+    /// The bin in the pin's info bubble: the pin leaves the map, and a destination that was the
+    /// pin goes with it.
+    private func clearPin() {
+        droppedPin = nil
+        pinPlace = nil
+        if planDestination?.isPin == true { planDestination = nil }
+    }
+
+    private func describePin(at coordinate: CLLocationCoordinate2D) {
+        Task { @MainActor in
+            let place = await PinPlace.describe(coordinate)
+            // The pin may have been dropped somewhere else, or removed, in the meantime.
+            guard let droppedPin, Geo.same(droppedPin, coordinate) else { return }
+            pinPlace = place
+        }
+    }
+
+    /// `WM_PLAN_AUTORUN=1`: waits for a fix and plans straight away, so the whole path can be
+    /// exercised from the command line without touching the sheet.
+    private func autoPlan() async {
+        if planMode == .destination, let pin = droppedPin {
+            planDestination = PlanDestination(coordinate: pin, name: "Pin on the map", isPin: true)
+        }
+        try? await Task.sleep(for: .seconds(3))
+        let request = PlanRequest(mode: planMode,
+                                  targetMeters: planKilometers * 1000,
+                                  destination: planMode == .destination ? planDestination?.coordinate : nil,
+                                  destinationName: planMode == .destination ? planDestination?.name : nil)
+        startPlanning(request)
+    }
+
     /// The locate button: centre on the current position. Without a fix there is
     /// nothing to focus, so it falls back to the route fit.
     private func locate() {
@@ -581,7 +986,7 @@ struct MapTabView: View {
     }
 
     private func fitContent() {
-        if let rect = RouteGeometry.fittedRect(routes: loaded.map { $0.1 }) {
+        if let rect = RouteGeometry.fittedRect(routes: loaded.map { $0.1.coordinates }) {
             camera = .fit(rect)
         } else if let coordinate = centersOn {
             camera = .center(coordinate, spanMeters: Self.emptySpanMeters)
@@ -602,14 +1007,14 @@ struct MapTabView: View {
         let missing = list.filter { cached[$0.id] == nil }
         guard !missing.isEmpty else { return }
 
-        await withTaskGroup(of: (Workout, [CLLocationCoordinate2D]).self) { group in
+        await withTaskGroup(of: (Workout, WorkoutRoute).self) { group in
             for workout in missing {
                 group.addTask { (workout, await RouteStore.shared.route(for: workout.hk)) }
             }
             // Applying every arrival on its own re-tessellates all the routes already
             // on screen once per arrival — that is what made the Year and All ranges
             // crawl while they loaded. They are applied in batches instead.
-            var arrived: [(Workout, [CLLocationCoordinate2D])] = []
+            var arrived: [(Workout, WorkoutRoute)] = []
             for await result in group {
                 guard !result.1.isEmpty else { continue }
                 arrived.append(result)
@@ -625,7 +1030,7 @@ struct MapTabView: View {
         }
     }
 
-    private func merge(_ batch: [(Workout, [CLLocationCoordinate2D])]) {
+    private func merge(_ batch: [(Workout, WorkoutRoute)]) {
         let ids = Set(batch.map { $0.0.id })
         loaded.removeAll { ids.contains($0.0.id) }
         loaded.append(contentsOf: batch)

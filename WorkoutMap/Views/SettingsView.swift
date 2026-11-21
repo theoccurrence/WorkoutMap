@@ -9,6 +9,15 @@ struct SettingsView: View {
     /// How the map is drawn: the system's own light or dark style, or one pinned. The map
     /// reads it live, so a change here redraws it at once.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
+    /// What the map does with a GPS jump: the dashed grey line the Fitness app draws across
+    /// ground the workout never measured, or nothing at all. The map screens read it live.
+    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
+    /// How many routes the explorer offers at once, and how tight it keeps them. The map screen
+    /// reads both when it plans, so a change here applies to the next plan.
+    @AppStorage(ExploreOptions.routeCountKey) private var exploreRouteCount: Int = ExploreOptions.routeCountDefault
+    @AppStorage(ExploreOptions.shapeKey) private var exploreShape: Double = ExploreOptions.shapeDefault
+    /// How much of the route should be new ground.
+    @AppStorage(ExploreOptions.minimumNewKey) private var exploreMinimumNew: Double = ExploreOptions.minimumNewDefault
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -55,6 +64,49 @@ struct SettingsView: View {
                                        showsChevron: true)
                         }
                         .buttonStyle(.plain)
+                        divider
+                        Menu {
+                            Picker("GPS Jumps", selection: $jumpStyle) {
+                                ForEach(RouteJumpStyle.allCases) { style in
+                                    Text(style.title).tag(style)
+                                }
+                            }
+                        } label: {
+                            rowContent(title: "GPS Jumps",
+                                       systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                                       detail: jumpStyle.title,
+                                       showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
+
+                    Spacer().frame(height: 33)
+
+                    Text("Explore")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.textSecondary)
+                        .padding(.leading, 2)
+                        .padding(.bottom, 8)
+
+                    VStack(spacing: 0) {
+                        Menu {
+                            Picker("Routes Suggested", selection: $exploreRouteCount) {
+                                ForEach(ExploreOptions.routeCounts, id: \.self) { count in
+                                    Text(count == 1 ? "1 route" : "\(count) routes").tag(count)
+                                }
+                            }
+                        } label: {
+                            rowContent(title: "Routes Suggested",
+                                       systemImage: "list.number",
+                                       detail: "\(exploreRouteCount)",
+                                       showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                        divider
+                        shapeRow
+                        divider
+                        newWaysRow
                     }
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
 
@@ -85,6 +137,68 @@ struct SettingsView: View {
         } message: {
             Text("Version 1.0")
         }
+    }
+
+    /// The shape slider: at *Wide* the planner makes two long legs out and back around the
+    /// start (or one big bow to a destination); at *Tight* it fills the streets around the route
+    /// in as many small steps as the request budget pays for.
+    private var shapeRow: some View {
+        sliderRow(title: "Route Shape",
+                  systemImage: "slider.horizontal.3",
+                  value: $exploreShape,
+                  range: 0...1,
+                  low: "Wide",
+                  high: "Tight",
+                  detail: ExploreOptions.shapeLabel(exploreShape))
+    }
+
+    /// The new-ways slider: how much of the route the planner should try to keep on ground the
+    /// user has never covered. A target rather than a guarantee — see `ExploreOptions`.
+    private var newWaysRow: some View {
+        sliderRow(title: "New Ways",
+                  systemImage: "sparkles",
+                  value: $exploreMinimumNew,
+                  range: ExploreOptions.minimumNewRange,
+                  low: "10%",
+                  high: "100%",
+                  detail: ExploreOptions.percentLabel(exploreMinimumNew))
+    }
+
+    private func sliderRow(title: String,
+                           systemImage: String,
+                           value: Binding<Double>,
+                           range: ClosedRange<Double>,
+                           low: String,
+                           high: String,
+                           detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 16) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(.white)
+                    .frame(width: 24)
+                Text(title)
+                    .font(.system(size: 19))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 8)
+                Text(detail)
+                    .font(.system(size: 19))
+                    .foregroundStyle(Palette.textSecondary)
+            }
+            HStack(spacing: 10) {
+                Text(low)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.textTertiary)
+                Slider(value: value, in: range)
+                    .tint(Palette.accent)
+                Text(high)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.textTertiary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
     }
 
     private var divider: some View {

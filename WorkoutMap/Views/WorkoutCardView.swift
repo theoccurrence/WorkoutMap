@@ -12,6 +12,8 @@ struct WorkoutCardView: View {
 
     @State private var thumbnail: UIImage?
     @State private var size: CGSize = .zero
+    /// What the map does with a GPS jump — the same setting the map screen reads.
+    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
 
     private var thumbnailWidth: CGFloat { Metrics.thumbnailWidth }
 
@@ -49,7 +51,7 @@ struct WorkoutCardView: View {
                     .onChange(of: proxy.size) { _, newValue in size = newValue }
             }
         )
-        .task(id: size) { await loadThumbnail() }
+        .task(id: loadKey) { await loadThumbnail() }
     }
 
     @ViewBuilder
@@ -73,13 +75,18 @@ struct WorkoutCardView: View {
         if let image = await MapImageRenderer.shared.thumbnail(for: workout.id,
                                                               route: route,
                                                               color: workout.category.uiColor,
+                                                              style: jumpStyle,
                                                               size: target,
                                                               scale: displayScale) {
             withAnimation(.easeOut(duration: 0.2)) { thumbnail = image }
         }
     }
 
-    private func route() async -> [CLLocationCoordinate2D] {
+    /// What the thumbnail is drawn from: the card's own size and the jump setting, so a change to
+    /// either draws it again.
+    private var loadKey: String { "\(size.width)x\(size.height)-\(jumpStyle.rawValue)" }
+
+    private func route() async -> WorkoutRoute {
         if let cached = RouteStore.shared.cached(workout.id) { return cached }
         return await RouteStore.shared.route(for: workout.hk)
     }
