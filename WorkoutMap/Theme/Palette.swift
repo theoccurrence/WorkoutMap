@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 extension Color {
     init(hex: UInt32) {
@@ -36,4 +37,18 @@ enum Palette {
     /// blue, the one Apple Maps' own panel uses.
     static let modeSelection = Color(hex: 0x0A84FF)
     static let pickerGlass   = Color(hex: 0x2C2C2F)
+    /// The destination pin the explorer drops, and its row in the sheet — the system red Maps
+    /// drops its own pin in.
+    static let pin           = Color(hex: 0xFF3B30)
+}
+
+/// The blue a planned route is drawn in, as Apple Maps draws its own: a bright blue with a
+/// darker blue casing for the selected route, and the same blue washed out for the alternates.
+enum RouteBlue {
+    static let primary   = Color(hex: 0x0A84FF)
+    static let alternate = Color(hex: 0x0A84FF).opacity(0.45)
+
+    static let uiPrimary   = UIColor(red: 10.0 / 255, green: 132.0 / 255, blue: 1, alpha: 1)
+    static let uiAlternate = UIColor(red: 10.0 / 255, green: 132.0 / 255, blue: 1, alpha: 0.45)
+    static let uiCasing    = UIColor(red: 3.0 / 255, green: 61.0 / 255, blue: 138.0 / 255, alpha: 1)
 }

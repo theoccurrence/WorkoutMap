@@ -1,0 +1,380 @@
+import Foundation
+import CoreLocation
+
+/// Plans a walk that covers as much ground as possible the user has never covered.
+///
+/// Two shapes:
+///
+/// * **loop** — a ring back to where the user is standing. Candidate directions are scored
+///   against the coverage grid first, without touching the network, and only the best few are
+///   actually routed. Each is three point-to-point legs (`MKDirections` knows no waypoints),
+///   stitched into one polyline.
+/// * **destination** — from here to a target. When the target is farther than the direct walk,
+///   a waypoint is pushed out to one side of the corridor and its offset is corrected until the
+///   routed length lands on the target; the two sides are the two alternatives.
+///
+/// Both are scored on how much of the finished route is new ground, how close it lands to the
+/// distance asked for, and how recently the same walk was already suggested from nearby. The
+/// last term is what keeps a user who plans the same 5 km from the same front door from being
+/// sent down the same street every time.
+struct RoutePlanner {
+    struct Config {
+        /// How many directions are scored before any network request.
+        var candidates = 8
+        /// How many of them are routed for real.
+        var finalists = 3
+        /// How many `MKDirections` calls run at once — the service throttles a burst
+        /// (`MKError.Code.loadingThrottled`).
+        var maxConcurrentLegs = 3
+        /// How much of a candidate's pre-score is random, so the same request varies.
+        var noise = 0.35
+        /// How far off the requested distance a route may land before it is pushed to the back.
+        var distanceTolerance = 0.35
+        /// How much longer a real route is than the straight line it follows, used to size a
+        /// loop's ring before anything has been routed.
+        var roadFactor = 1.18
+        /// How much a route is docked for heading where a recent plan already went.
+        var recencyPenalty = 0.5
+        /// The angular window of that dock, in degrees.
+        var recencyWindowDegrees = 70.0
+    }
+
+    var config = Config()
+    var seed: UInt64 = UInt64.random(in: .min ... .max)
+
+    func plan(request: PlanRequest,
+              start: CLLocationCoordinate2D,
+              coverage: CoverageIndex,
+              client: DirectionsClient) async -> RoutePlan? {
+        switch request.mode {
+        case .loop:
+            return await planLoop(request: request, start: start, coverage: coverage, client: client)
+        case .destination:
+            return await planDestination(request: request, start: start, coverage: coverage, client: client)
+        }
+    }
+
+    // MARK: - Loop
+
+    private func planLoop(request: PlanRequest,
+                          start: CLLocationCoordinate2D,
+                          coverage: CoverageIndex,
+                          client: DirectionsClient) async -> RoutePlan? {
+        let target = max(200, request.targetMeters)
+        var generator = SplitMix64(seed: seed)
+        let history = PlanHistory.load()
+
+        var candidates: [(waypoints: [CLLocationCoordinate2D], rough: Double)] = []
+        for index in 0..<config.candidates {
+            let base = Double(index) / Double(config.candidates) * 360
+            let bearing = (base + Double.random(in: -20...20, using: &generator))
+                .truncatingRemainder(dividingBy: 360)
+            // The ring's half-angle: how far the two waypoints spread either side of the
+            // direction. Perimeter = 2r + 2r·sin Δ, so r follows from the target.
+            let spread = Double.random(in: 48...74, using: &generator)
+            let radius = target / ((2 + 2 * sin(spread * .pi / 180)) * config.roadFactor)
+            let first = Geo.destination(from: start, bearing: bearing - spread, distance: radius)
+            let second = Geo.destination(from: start, bearing: bearing + spread, distance: radius)
+
+            let straight = [start, first, second, start]
+            let length: Double = max(1, CoverageIndex.length(of: straight))
+            let uncovered: Double = coverage.uncoveredMeters(of: straight)
+            let fit: Double = 1 - min(1, abs(length - target) / target)
+            let penalty: Double = history.penalty(start: start, bearing: bearing,
+                                                  meters: target, config: config)
+            let noise: Double = Double.random(in: -1...1, using: &generator)
+            let rough: Double = uncovered / target + 0.35 * fit - penalty + config.noise * noise
+            candidates.append(([first, second], rough))
+        }
+
+        let finalists = candidates.sorted { $0.rough > $1.rough }.prefix(max(1, config.finalists))
+        let noises = finalists.map { _ in Double.random(in: -1...1, using: &generator) }
+
+        var routed: [PlannedRoute] = []
+        for (index, candidate) in finalists.enumerated() {
+            let points = [start] + candidate.waypoints + [start]
+            let pairs = zip(points, points.dropFirst()).map { (from: $0, to: $1) }
+            guard let legs = await route(Array(pairs), client: client),
+                  let made = makeRoute(id: index, legs: legs, coverage: coverage) else { continue }
+            routed.append(made)
+        }
+        guard !routed.isEmpty else { return nil }
+
+        let plan = finalize(request: request, start: start, routes: routed,
+                            noises: noises, history: history)
+        record(plan, start: start, request: request)
+        return plan
+    }
+
+    // MARK: - Destination
+
+    private func planDestination(request: PlanRequest,
+                                 start: CLLocationCoordinate2D,
+                                 coverage: CoverageIndex,
+                                 client: DirectionsClient) async -> RoutePlan? {
+        guard let destination = request.destination,
+              !Geo.same(start, destination) else { return nil }
+        let target = max(200, request.targetMeters)
+        let history = PlanHistory.load()
+
+        guard let directLegs = try? await client.route(from: start, to: destination),
+              let direct = directLegs.first else { return nil }
+
+        var routed: [PlannedRoute] = []
+        if let made = makeRoute(id: 0, legs: [direct], coverage: coverage) { routed.append(made) }
+        for leg in directLegs.dropFirst().prefix(2) {
+            if let made = makeRoute(id: routed.count, legs: [leg], coverage: coverage) {
+                routed.append(made)
+            }
+        }
+
+        // A detour only makes sense when the user wants to walk farther than the direct way.
+        if target > direct.distance * 1.05,
+           let detours = await detours(start: start, destination: destination, direct: direct,
+                                       target: target, client: client) {
+            for legs in detours {
+                if let made = makeRoute(id: routed.count, legs: legs, coverage: coverage) {
+                    routed.append(made)
+                }
+            }
+        }
+
+        guard !routed.isEmpty else { return nil }
+        let plan = finalize(request: request, start: start, routes: routed,
+                            noises: routed.map { _ in 0 }, history: history)
+        record(plan, start: start, request: request)
+        return plan
+    }
+
+    /// One detour to each side of the corridor, each pushed out until the routed length lands
+    /// on the target. Runs both sides at once; the leg limiter is shared.
+    private func detours(start: CLLocationCoordinate2D,
+                         destination: CLLocationCoordinate2D,
+                         direct: DirectionsLeg,
+                         target: Double,
+                         client: DirectionsClient) async -> [[DirectionsLeg]]? {
+        guard let midpoint = Geo.pointAlong(direct.coordinates, fraction: 0.5),
+              let corridor = Geo.bearingAlong(direct.coordinates, fraction: 0.5) else { return nil }
+
+        var generator = SplitMix64(seed: seed &+ 1)
+        let jitters = (0..<2).map { _ in Double.random(in: -14...14, using: &generator) }
+
+        async let left = detour(start: start, destination: destination, midpoint: midpoint,
+                                corridor: corridor, side: -1, jitter: jitters[0],
+                                target: target, directDistance: direct.distance, client: client)
+        async let right = detour(start: start, destination: destination, midpoint: midpoint,
+                                 corridor: corridor, side: 1, jitter: jitters[1],
+                                 target: target, directDistance: direct.distance, client: client)
+        let results = [await left, await right].compactMap { $0 }
+        return results.isEmpty ? nil : results
+    }
+
+    private func detour(start: CLLocationCoordinate2D,
+                        destination: CLLocationCoordinate2D,
+                        midpoint: CLLocationCoordinate2D,
+                        corridor: Double,
+                        side: Double,
+                        jitter: Double,
+                        target: Double,
+                        directDistance: Double,
+                        client: DirectionsClient) async -> [DirectionsLeg]? {
+        let perpendicular = corridor + side * 90 + jitter
+        var offset = max(50, (target - directDistance) / 2)
+        var best: [DirectionsLeg]?
+        var bestError = Double.greatestFiniteMagnitude
+
+        for _ in 0..<2 {
+            let waypoint = Geo.destination(from: midpoint, bearing: perpendicular, distance: offset)
+            guard let legs = await route([(from: start, to: waypoint),
+                                          (from: waypoint, to: destination)], client: client) else {
+                return best
+            }
+            let distance = Geo.length(legs)
+            let error = abs(distance - target)
+            if error < bestError { bestError = error; best = legs }
+            let extra = distance - directDistance
+            guard extra > 1 else { return best }
+            // Scaling the offset by how far off the extra distance is lands close in one step.
+            offset = min(max(offset * ((target - directDistance) / extra), 30), offset * 4 + 100)
+        }
+        return best
+    }
+
+    // MARK: - Legs
+
+    /// Routes a list of point-to-point legs, a few at a time, and returns them in order — or
+    /// `nil` if any one of them failed, since a route with a hole in it is not a route.
+    private func route(_ pairs: [(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D)],
+                       client: DirectionsClient) async -> [DirectionsLeg]? {
+        guard !pairs.isEmpty else { return [] }
+        let limit = max(1, config.maxConcurrentLegs)
+        var results = [DirectionsLeg?](repeating: nil, count: pairs.count)
+
+        await withTaskGroup(of: (Int, DirectionsLeg?).self) { group in
+            var next = 0
+            func addNext() {
+                guard next < pairs.count else { return }
+                let index = next
+                next += 1
+                let pair = pairs[index]
+                group.addTask { (index, await RoutePlanner.leg(from: pair.from, to: pair.to,
+                                                               client: client)) }
+            }
+            for _ in 0..<min(limit, pairs.count) { addNext() }
+            for await (index, leg) in group {
+                results[index] = leg
+                addNext()
+            }
+        }
+
+        guard results.allSatisfy({ $0 != nil }) else { return nil }
+        return results.compactMap { $0 }
+    }
+
+    /// One leg, retried a couple of times when the service asks us to slow down.
+    private static func leg(from: CLLocationCoordinate2D,
+                            to: CLLocationCoordinate2D,
+                            client: DirectionsClient) async -> DirectionsLeg? {
+        for attempt in 0..<3 {
+            do {
+                let legs = try await client.route(from: from, to: to)
+                guard let first = legs.first, first.coordinates.count > 1 else { return nil }
+                return first
+            } catch DirectionsError.throttled {
+                try? await Task.sleep(for: .milliseconds(400 << attempt))
+            } catch {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Scoring
+
+    private func makeRoute(id: Int, legs: [DirectionsLeg], coverage: CoverageIndex) -> PlannedRoute? {
+        let coordinates = Geo.stitch(legs.map(\.coordinates))
+        guard coordinates.count > 1 else { return nil }
+        let reported = legs.reduce(0) { $0 + $1.distance }
+        return PlannedRoute(id: id,
+                            coordinates: coordinates,
+                            distance: reported > 0 ? reported : CoverageIndex.length(of: coordinates),
+                            travelTime: legs.reduce(0) { $0 + $1.travelTime },
+                            uncoveredMeters: coverage.uncoveredMeters(of: coordinates))
+    }
+
+    /// Ranks the routed candidates, keeps the best three, and numbers them so 0 is the primary.
+    private func finalize(request: PlanRequest,
+                          start: CLLocationCoordinate2D,
+                          routes: [PlannedRoute],
+                          noises: [Double],
+                          history: PlanHistory) -> RoutePlan? {
+        let target = max(200, request.targetMeters)
+        var scored: [(route: PlannedRoute, score: Double)] = []
+        for (index, route) in routes.enumerated() {
+            let fit = 1 - min(1, abs(route.distance - target) / target)
+            let within = abs(route.distance - target) <= target * config.distanceTolerance
+            let midpoint = Geo.pointAlong(route.coordinates, fraction: 0.5) ?? start
+            let penalty = history.penalty(start: start,
+                                          bearing: Geo.bearing(from: start, to: midpoint),
+                                          meters: target, config: config)
+            let noise = index < noises.count ? noises[index] : 0
+            let score = 0.65 * route.newFraction + 0.35 * fit - penalty
+                + config.noise * 0.5 * noise
+                - (within ? 0 : 2)
+            scored.append((route, score))
+        }
+        let ordered = scored.sorted { $0.score > $1.score }.prefix(3)
+        let numbered = ordered.enumerated().map { offset, element in
+            PlannedRoute(id: offset,
+                         coordinates: element.route.coordinates,
+                         distance: element.route.distance,
+                         travelTime: element.route.travelTime,
+                         uncoveredMeters: element.route.uncoveredMeters)
+        }
+        guard !numbered.isEmpty else { return nil }
+        return RoutePlan(request: request, start: start, routes: Array(numbered))
+    }
+
+    private func record(_ plan: RoutePlan?, start: CLLocationCoordinate2D, request: PlanRequest) {
+        guard let primary = plan?.primary,
+              let midpoint = Geo.pointAlong(primary.coordinates, fraction: 0.5) else { return }
+        var history = PlanHistory.load()
+        history.record(start: start,
+                       bearing: Geo.bearing(from: start, to: midpoint),
+                       meters: max(200, request.targetMeters))
+        history.save()
+    }
+}
+
+/// A small, seedable generator, so a plan can be reproduced from its seed (the throwaway
+/// self test does exactly that).
+struct SplitMix64: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64) { state = seed }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+/// The walks the explorer has recently suggested from somewhere near here, kept between
+/// launches, so the same start and distance do not keep producing the same route.
+struct PlanHistory {
+    struct Entry: Codable {
+        var latitude: Double
+        var longitude: Double
+        var bearing: Double
+        var meters: Double
+    }
+
+    private static let key = "explorePlanHistory"
+    private static let limit = 12
+    /// How close a start has to be for a past plan to count as "from here".
+    private static let nearbyMeters: Double = 60
+    /// How close the distance has to be, as a share of the requested one.
+    private static let similarDistance = 0.3
+
+    private var entries: [Entry] = []
+
+    static func load() -> PlanHistory {
+        var history = PlanHistory()
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([Entry].self, from: data) else { return history }
+        history.entries = decoded
+        return history
+    }
+
+    /// How much a candidate should be docked for repeating a recent plan's direction.
+    func penalty(start: CLLocationCoordinate2D,
+                 bearing: Double,
+                 meters: Double,
+                 config: RoutePlanner.Config) -> Double {
+        var worst = 0.0
+        for entry in entries {
+            let entryStart = CLLocationCoordinate2D(latitude: entry.latitude,
+                                                    longitude: entry.longitude)
+            guard CoverageIndex.meters(from: entryStart, to: start) < Self.nearbyMeters else { continue }
+            guard abs(entry.meters - meters) <= meters * Self.similarDistance else { continue }
+            let delta = abs(((bearing - entry.bearing + 540).truncatingRemainder(dividingBy: 360)) - 180)
+            let closeness = max(0, 1 - delta / config.recencyWindowDegrees)
+            worst = max(worst, closeness * config.recencyPenalty)
+        }
+        return worst
+    }
+
+    mutating func record(start: CLLocationCoordinate2D, bearing: Double, meters: Double) {
+        entries.append(Entry(latitude: start.latitude, longitude: start.longitude,
+                             bearing: bearing, meters: meters))
+        if entries.count > Self.limit { entries.removeFirst(entries.count - Self.limit) }
+    }
+
+    func save() {
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        UserDefaults.standard.set(data, forKey: Self.key)
+    }
+}

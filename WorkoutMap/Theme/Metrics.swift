@@ -9,6 +9,9 @@ enum Metrics {
     static let cardRadius: CGFloat = 12
     static let controlHeight: CGFloat = 42        // range bubble
     static let pillGap: CGFloat = 12
+    /// The explorer button stands above the Walk / Run / Ride filters with twice the gap
+    /// between the three of them, so it reads as a group of its own.
+    static let exploreGap: CGFloat = pillGap * 2
     static let statCardRadius: CGFloat = 12
     /// The side inset the system reserves for its own rail on a screen whose chrome lives
     /// in a vertical bar (84 pt on the iPhone Duo, 62 pt on a notched iPhone held sideways,

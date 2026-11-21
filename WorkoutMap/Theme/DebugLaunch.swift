@@ -43,9 +43,29 @@ enum DebugLaunch {
     /// the pose the compass correction is computed from (checks that the cone stays on the
     /// user's facing when the phone is turned in the hand).
     static var fakeDeviceOrientation: String? { env["WM_FAKE_DEVICE_ORIENTATION"] }
+    /// WM_START_PLANNER=1 opens the explorer's input sheet on launch.
+    static var openPlanner: Bool { env["WM_START_PLANNER"] == "1" }
+    /// WM_PLAN_MODE=loop|destination pre-selects the planner's mode.
+    static var planMode: PlanMode? { env["WM_PLAN_MODE"].flatMap(PlanMode.init(rawValue:)) }
+    /// WM_PLAN_KM=5 pre-fills the planner's distance.
+    static var planKilometers: Double? { env["WM_PLAN_KM"].flatMap(Double.init) }
+    /// WM_PLAN_AUTORUN=1 plans a route straight after launch (checks the whole path without
+    /// touching the sheet).
+    static var planAutoRun: Bool { env["WM_PLAN_AUTORUN"] == "1" }
+    /// WM_PLAN_GO=1 taps Go as soon as a route has been planned, so the state the route stays
+    /// in can be seen without a tap.
+    static var planAutoGo: Bool { env["WM_PLAN_GO"] == "1" }
+    /// WM_FAKE_PLAN=1 replaces MKDirections with a fixture, so the planner's UI can be
+    /// exercised without a network.
+    static var fakePlan: Bool { env["WM_FAKE_PLAN"] == "1" }
+    /// WM_FAKE_PIN="lat,lon" drops the destination pin at launch.
+    static var fakePin: CLLocationCoordinate2D? { coordinate(env["WM_FAKE_PIN"]) }
+
     /// WM_FAKE_LOCATION="lat,lon" publishes a fixed position (checks the dot).
-    static var fakeLocation: CLLocationCoordinate2D? {
-        guard let raw = env["WM_FAKE_LOCATION"] else { return nil }
+    static var fakeLocation: CLLocationCoordinate2D? { coordinate(env["WM_FAKE_LOCATION"]) }
+
+    private static func coordinate(_ raw: String?) -> CLLocationCoordinate2D? {
+        guard let raw else { return nil }
         let parts = raw.split(separator: ",").compactMap { Double($0) }
         guard parts.count == 2 else { return nil }
         return CLLocationCoordinate2D(latitude: parts[0], longitude: parts[1])
@@ -116,6 +136,13 @@ enum DebugLaunch {
     static var tapAt: CGPoint? { nil }
     static var fakeHeading: String? { nil }
     static var fakeDeviceOrientation: String? { nil }
+    static var openPlanner: Bool { false }
+    static var planMode: PlanMode? { nil }
+    static var planKilometers: Double? { nil }
+    static var planAutoRun: Bool { false }
+    static var planAutoGo: Bool { false }
+    static var fakePlan: Bool { false }
+    static var fakePin: CLLocationCoordinate2D? { nil }
     static var skipLocation: Bool { false }
     static var stressCopies: Int { 1 }
     static var stressSpread: Double { 0.035 }

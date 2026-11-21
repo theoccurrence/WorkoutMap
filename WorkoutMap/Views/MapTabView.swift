@@ -52,6 +52,26 @@ struct MapTabView: View {
     /// bottom and top edges, measured from the bar so the overlays can line up with it.
     @State private var tabBarInsets: (bottom: CGFloat, top: CGFloat)?
 
+    // MARK: - Explorer
+
+    /// The "where have I never been" index, built over **every** workout rather than the range
+    /// the map is filtered to.
+    @StateObject private var coverage = CoverageStore()
+    @State private var showPlanner = DebugLaunch.openPlanner
+    @State private var planMode: PlanMode = DebugLaunch.planMode ?? .loop
+    @State private var planKilometers: Double = DebugLaunch.planKilometers ?? 5
+    @State private var planDestination: PlanDestination?
+    /// The destination pin on the map. One at a time: a new press replaces it.
+    @State private var droppedPin: CLLocationCoordinate2D? = DebugLaunch.fakePin
+    @State private var plan: RoutePlan?
+    /// Which of the plan's routes is the one; 0 is the primary.
+    @State private var selectedRoute = 0
+    @State private var isPlanning = false
+    /// True once Go was tapped: the route stays on the map until a new plan is started or the
+    /// app is relaunched.
+    @State private var planActive = false
+    @State private var planTask: Task<Void, Never>?
+
     private var kind: RangeKind { selection.kind }
 
     /// Focus zoom for the locate button, and the much wider fallback zoom for a
@@ -89,6 +109,56 @@ struct MapTabView: View {
         loaded
             .filter { $0.1.count > 1 }
             .map { MapRouteLine(id: $0.0.id.uuidString, coordinates: $0.1, color: $0.0.category.uiColor) }
+    }
+
+    /// The explorer's planned route and its alternates, as map lines: the selected one in the
+    /// bright blue with a casing under it, the others washed out — the way Maps draws them.
+    private var plannedLines: [MapRouteLine] {
+        guard let plan else { return [] }
+        var lines: [MapRouteLine] = []
+        for (index, route) in plan.routes.enumerated() where route.coordinates.count > 1 {
+            if index == selectedRoute {
+                lines.append(MapRouteLine(id: "plan-\(index)-casing",
+                                          coordinates: route.coordinates,
+                                          color: RouteBlue.uiCasing,
+                                          width: 8))
+                lines.append(MapRouteLine(id: "plan-\(index)",
+                                          coordinates: route.coordinates,
+                                          color: RouteBlue.uiPrimary,
+                                          width: 5))
+            } else {
+                lines.append(MapRouteLine(id: "plan-\(index)",
+                                          coordinates: route.coordinates,
+                                          color: RouteBlue.uiAlternate,
+                                          width: 4))
+            }
+        }
+        return lines
+    }
+
+    /// Whether the explorer reads as on: its sheet is open, it is planning, or it has a route
+    /// on the map. The button carries its own colour then, independent of Walk / Run / Ride.
+    private var exploreIsOn: Bool { showPlanner || isPlanning || plan != nil }
+
+    /// Where a plan starts: the current fix, the middle of the map, or the newest route's own
+    /// start — whichever there is.
+    private var planStart: CLLocationCoordinate2D? {
+        if let coordinate = location.location?.coordinate { return coordinate }
+        if let rect = visibleMapRect {
+            return MKMapPoint(x: rect.midX, y: rect.midY).coordinate
+        }
+        return centersOn
+    }
+
+    /// The map's own area, so the destination search is biased to what the user is looking at.
+    private var currentRegion: MKCoordinateRegion? {
+        guard let rect = visibleMapRect else { return nil }
+        let center = MKMapPoint(x: rect.midX, y: rect.midY).coordinate
+        let perMeter = MKMapPointsPerMeterAtLatitude(center.latitude)
+        guard perMeter > 0 else { return nil }
+        return MKCoordinateRegion(center: center,
+                                  latitudinalMeters: rect.size.height / perMeter,
+                                  longitudinalMeters: rect.size.width / perMeter)
     }
 
     private var hasData: Bool { !filtered.isEmpty }
@@ -223,8 +293,21 @@ struct MapTabView: View {
             if let start = DebugLaunch.startMapMode { mapMode = start }
             if let start = DebugLaunch.startAppearance { mapAppearance = start }
             if !DebugLaunch.skipLocation { location.start() }
+            if DebugLaunch.planAutoRun { await autoPlan() }
         }
         .task(id: reloadKey) { await reload() }
+        // The explorer's index covers every workout, so it is rebuilt when the workout set
+        // changes rather than when the map's range does.
+        .task(id: health.workouts.count) { coverage.update(workouts: health.workouts) }
+        .sheet(isPresented: $showPlanner) {
+            RoutePlannerSheet(mode: $planMode,
+                              kilometers: $planKilometers,
+                              destination: $planDestination,
+                              droppedPin: droppedPin,
+                              region: currentRegion,
+                              isReadingRoutes: coverage.isFilling,
+                              onPlan: { startPlanning($0) })
+        }
         .sheet(isPresented: $showSheet) {
             RangePickerSheet(selection: $selection, workouts: health.workouts)
         }
@@ -298,6 +381,8 @@ struct MapTabView: View {
     private var map: some View {
         ZStack(alignment: .top) {
             RouteMapView(routes: mapLines,
+                         planned: plannedLines,
+                         pin: droppedPin,
                          camera: camera,
                          cameraToken: cameraToken,
                          mode: mapMode,
@@ -309,6 +394,7 @@ struct MapTabView: View {
                          onRegionChange: { visibleMapRect = $0 },
                          onUserInteraction: { userMoved = true },
                          onRouteTap: { tappedRouteID = $0 },
+                         onLongPress: { dropPin(at: $0) },
                          onSafeAreaChange: { if windowInsets != $0 { windowInsets = $0 } },
                          onTabBarInsets: { bottom, top in
                              if tabBarInsets == nil || tabBarInsets! != (bottom, top) {
@@ -322,6 +408,23 @@ struct MapTabView: View {
                     // Pinned to the display edge: the same 18 pt below the top of the screen
                     // that it had below the grey bar, in every layout.
                     .padding(.top, 18)
+
+                // The explorer's card sits under the bubble rather than at the foot of the
+                // screen: the foot is where the filters and the toolbar live, and both have to
+                // stay usable while a route is planned.
+                if isPlanning {
+                    planningBubble
+                        .padding(.top, 10)
+                } else if let plan {
+                    PlannedRouteBar(plan: plan,
+                                    selected: $selectedRoute,
+                                    isActive: planActive,
+                                    isLight: controlsAreLight,
+                                    onGo: { planActive = true },
+                                    onClear: { clearPlan() })
+                        .padding(.horizontal, Metrics.screenInset)
+                        .padding(.top, 10)
+                }
 
                 Spacer(minLength: 0)
 
@@ -358,12 +461,32 @@ struct MapTabView: View {
 
     /// Walk / Run / Ride as toolbar circles — symbol only, walk at the top, the selected
     /// one carrying its own colour. They sit opposite the toolbar.
+    ///
+    /// The explorer stands above them with twice the gap between the three, so it reads as a
+    /// group of its own. It is **independent** of the three: it neither selects nor deselects
+    /// one, and a walk filter can be on while an explorer route is on the map.
     private var categoryFilters: some View {
         VStack(spacing: Metrics.pillGap) {
+            exploreButton
+                .padding(.bottom, Metrics.pillGap)
             ForEach(WorkoutCategory.allCases) { item in
                 filterButton(item)
             }
         }
+    }
+
+    /// The explorer's button: binoculars, its own blue while it is on, the same glass circle as
+    /// the filters otherwise.
+    private var exploreButton: some View {
+        Button {
+            showPlanner = true
+        } label: {
+            toolbarGlyph("binoculars.fill", tint: exploreIsOn ? RouteBlue.primary : controlGlyph)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(exploreIsOn ? .regular.tint(RouteBlue.primary.opacity(0.25)) : .regular,
+                     in: .circle)
+        .accessibilityLabel("Explore")
     }
 
     private func filterButton(_ item: WorkoutCategory) -> some View {
@@ -455,6 +578,22 @@ struct MapTabView: View {
             .padding(.horizontal, 13)
             .frame(height: Metrics.controlHeight)
             .background(controlsAreLight ? Palette.surfaceLight : Palette.surface, in: Capsule())
+    }
+
+    /// What the screen shows while a route is being planned: `MKDirections` answers in about a
+    /// second per leg, and a plan is a handful of them.
+    private var planningBubble: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(controlGlyph)
+            Text("Finding new ways\u{2026}")
+                .font(.system(size: 14))
+                .foregroundStyle(controlsAreLight ? Palette.rangeLabelLight : Palette.rangeLabel)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: Metrics.controlHeight)
+        .background(controlsAreLight ? Palette.surfaceLight : Palette.surface, in: Capsule())
     }
 
     /// True while the window sits on the Duo's folded cover panel. Its content column is
@@ -566,6 +705,75 @@ struct MapTabView: View {
     private func toggle(_ item: WorkoutCategory) {
         guard category != item else { return }
         withAnimation(.easeInOut(duration: 0.15)) { category = item }
+    }
+
+    // MARK: - Explorer
+
+    /// Plans a route for the request the sheet handed over, and fits the map to the result.
+    ///
+    /// The planner is given the coverage index for **all** workouts, so "new ways" means new to
+    /// the user and not just new to the range the map happens to be showing.
+    private func startPlanning(_ request: PlanRequest) {
+        planTask?.cancel()
+        guard let start = planStart else { return }
+        isPlanning = true
+        planActive = false
+        plan = nil
+        selectedRoute = 0
+#if DEBUG
+        let client: DirectionsClient = DebugLaunch.fakePlan
+            ? FixtureDirectionsClient()
+            : MapKitDirectionsClient()
+#else
+        let client: DirectionsClient = MapKitDirectionsClient()
+#endif
+        planTask = Task { @MainActor in
+            let index = await coverage.index(for: health.workouts)
+            var planner = RoutePlanner()
+            let result = await planner.plan(request: request, start: start,
+                                            coverage: index, client: client)
+            guard !Task.isCancelled else { return }
+            isPlanning = false
+            plan = result
+            selectedRoute = 0
+            if DebugLaunch.planAutoGo, result != nil { planActive = true }
+            if let rect = RouteGeometry.fittedRect(routes: result?.routes.map(\.coordinates) ?? []) {
+                camera = .fit(rect)
+                cameraToken += 1
+            }
+        }
+    }
+
+    /// Clears the planned route: it leaves the map and the explorer's button goes back to its
+    /// default look.
+    private func clearPlan() {
+        planTask?.cancel()
+        isPlanning = false
+        planActive = false
+        plan = nil
+        selectedRoute = 0
+    }
+
+    /// Drops — or moves — the destination pin, as a long press on the map does in Maps. One pin
+    /// at a time, and a destination that *was* the pin follows it.
+    private func dropPin(at coordinate: CLLocationCoordinate2D) {
+        droppedPin = coordinate
+        guard planDestination?.isPin == true else { return }
+        planDestination = PlanDestination(coordinate: coordinate, name: "Pin on the map", isPin: true)
+    }
+
+    /// `WM_PLAN_AUTORUN=1`: waits for a fix and plans straight away, so the whole path can be
+    /// exercised from the command line without touching the sheet.
+    private func autoPlan() async {
+        if planMode == .destination, let pin = droppedPin {
+            planDestination = PlanDestination(coordinate: pin, name: "Pin on the map", isPin: true)
+        }
+        try? await Task.sleep(for: .seconds(3))
+        let request = PlanRequest(mode: planMode,
+                                  targetMeters: planKilometers * 1000,
+                                  destination: planMode == .destination ? planDestination?.coordinate : nil,
+                                  destinationName: planMode == .destination ? planDestination?.name : nil)
+        startPlanning(request)
     }
 
     /// The locate button: centre on the current position. Without a fix there is

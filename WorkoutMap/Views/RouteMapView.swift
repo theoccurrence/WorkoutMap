@@ -6,6 +6,9 @@ struct MapRouteLine: Equatable {
     let id: String
     let coordinates: [CLLocationCoordinate2D]
     let color: UIColor
+    /// The stroke width. The workout routes all share the measured `Metrics.routeWidth`; a
+    /// planned route is drawn wider, with a casing under it (see `MapTabView.plannedLines`).
+    var width: CGFloat = Metrics.routeWidth
 
     static func == (lhs: MapRouteLine, rhs: MapRouteLine) -> Bool { lhs.id == rhs.id }
 }
@@ -68,9 +71,11 @@ final class ToneOverlayRenderer: MKOverlayRenderer {
 /// no matter how many workouts are on screen.
 final class RouteColorOverlay: MKMultiPolyline {
     let color: UIColor
+    let width: CGFloat
 
-    init(color: UIColor, polylines: [MKPolyline]) {
+    init(color: UIColor, width: CGFloat, polylines: [MKPolyline]) {
         self.color = color
+        self.width = width
         super.init(polylines)
     }
 
@@ -88,6 +93,33 @@ final class UserDotAnnotation: NSObject, MKAnnotation {
         self.coordinate = coordinate
         super.init()
     }
+}
+
+/// The destination pin the user drops on the map — one at a time, as in Maps: a new pin
+/// replaces the old one.
+final class DestinationPinAnnotation: NSObject, MKAnnotation {
+    @objc dynamic var coordinate: CLLocationCoordinate2D
+
+    init(coordinate: CLLocationCoordinate2D) {
+        self.coordinate = coordinate
+        super.init()
+    }
+}
+
+/// The dropped pin's own look: a red balloon with a white ring, the marker Maps drops.
+final class DestinationPinView: MKMarkerAnnotationView {
+    static let reuseIdentifier = "DestinationPinView"
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        markerTintColor = .systemRed
+        glyphTintColor = .white
+        animatesWhenAdded = true
+        displayPriority = .required
+        canShowCallout = false
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 /// The "you are here" marker: the measured dot, and — as Maps draws it — a translucent cone in
@@ -346,6 +378,11 @@ struct RouteMapView: UIViewRepresentable {
     }
 
     var routes: [MapRouteLine] = []
+    /// The explorer's planned route and its alternates. Drawn **after** the workout routes, so
+    /// a planned route is never hidden under one, and with the width each line carries.
+    var planned: [MapRouteLine] = []
+    /// The destination pin the user dropped, if any. One at a time.
+    var pin: CLLocationCoordinate2D?
     var camera: Camera?
     var cameraToken: Int = 0
     /// The map style — see `MapMode`. Everything but `legacy` is the map as MapKit draws it.
@@ -366,6 +403,9 @@ struct RouteMapView: UIViewRepresentable {
     /// map itself. The routes are MapKit overlays with no tap target of their own, so the tap is
     /// resolved against the route geometry (see `Coordinator.routeID(near:within:)`).
     var onRouteTap: ((String?) -> Void)?
+    /// A long press on the map: where it landed, so the explorer can drop its destination pin
+    /// there, as Maps does.
+    var onLongPress: ((CLLocationCoordinate2D) -> Void)?
     /// The window's safe-area insets, reported after layout and on orientation or
     /// fold changes.
     var onSafeAreaChange: ((UIEdgeInsets) -> Void)?
@@ -398,6 +438,8 @@ struct RouteMapView: UIViewRepresentable {
         map.showsUserLocation = false
         map.showsBuildings = false
         map.register(UserDotView.self, forAnnotationViewWithReuseIdentifier: UserDotView.reuseIdentifier)
+        map.register(DestinationPinView.self,
+                     forAnnotationViewWithReuseIdentifier: DestinationPinView.reuseIdentifier)
         map.onLayout = { [weak coordinator = context.coordinator] in
             coordinator?.applyPendingCamera()
             // A layout pass means the window may have turned, and the device heading is
@@ -434,6 +476,7 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.updateAppearance()
         context.coordinator.updateMode()
         context.coordinator.updateRoutes()
+        context.coordinator.updatePin()
         context.coordinator.updateUserDot()
         if context.coordinator.appliedCameraToken != cameraToken {
             context.coordinator.appliedCameraToken = cameraToken
@@ -462,6 +505,7 @@ struct RouteMapView: UIViewRepresentable {
         private var polylines: [String: MKPolyline] = [:]
         private var signature = ""
         private var dotAnnotation: UserDotAnnotation?
+        private var pinAnnotation: DestinationPinAnnotation?
         /// The dot's own animation — see `updateUserDot`.
         private lazy var dotProxy = DotProxy(coordinator: self)
         private var dotLink: CADisplayLink?
@@ -554,6 +598,19 @@ struct RouteMapView: UIViewRepresentable {
             tap.cancelsTouchesInView = false
             tap.delegate = self
             map.addGestureRecognizer(tap)
+            // A long press, for dropping the explorer's destination pin — Maps' own gesture
+            // for the same thing. It reports where it landed, once, as it begins.
+            let press = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+            press.cancelsTouchesInView = false
+            press.minimumPressDuration = 0.4
+            press.delegate = self
+            map.addGestureRecognizer(press)
+        }
+
+        @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
+            guard let map, recognizer.state == .began else { return }
+            let coordinate = map.convert(recognizer.location(in: map), toCoordinateFrom: map)
+            parent.onLongPress?(coordinate)
         }
 
         @objc private func handleGesture(_ recognizer: UIGestureRecognizer) {
@@ -650,6 +707,10 @@ struct RouteMapView: UIViewRepresentable {
         // MARK: routes
 
         /// Rebuilds the overlays, and only when the route set changes.
+        ///
+        /// The workout routes come first and the explorer's planned ones after them: MapKit
+        /// draws the overlays of one level in the order they were added, so a planned route
+        /// always lands on top of the routes underneath it instead of disappearing into them.
         func updateRoutes() {
             guard let map else { return }
             var next = ""
@@ -657,11 +718,17 @@ struct RouteMapView: UIViewRepresentable {
                 next += line.id
                 next += "|\(line.coordinates.count)|\(line.color.hashValue);"
             }
+            next += "/"
+            for line in parent.planned {
+                next += line.id
+                next += "|\(line.coordinates.count)|\(line.color.hashValue)|\(line.width);"
+            }
             guard next != signature else { return }
             signature = next
 
+            let lines = parent.routes + parent.planned
             var wanted: Set<String> = []
-            for line in parent.routes where line.coordinates.count > 1 {
+            for line in lines where line.coordinates.count > 1 {
                 wanted.insert(line.id)
                 if polylines[line.id] == nil {
                     polylines[line.id] = MKPolyline(coordinates: line.coordinates,
@@ -670,19 +737,41 @@ struct RouteMapView: UIViewRepresentable {
             }
             polylines = polylines.filter { wanted.contains($0.key) }
 
-            var grouped: [(color: UIColor, polylines: [MKPolyline])] = []
-            for line in parent.routes {
+            var grouped: [(color: UIColor, width: CGFloat, polylines: [MKPolyline])] = []
+            for line in lines {
                 guard let polyline = polylines[line.id] else { continue }
-                if let index = grouped.firstIndex(where: { $0.color == line.color }) {
+                if let index = grouped.firstIndex(where: { $0.color == line.color && $0.width == line.width }) {
                     grouped[index].polylines.append(polyline)
                 } else {
-                    grouped.append((line.color, [polyline]))
+                    grouped.append((line.color, line.width, [polyline]))
                 }
             }
 
             map.removeOverlays(routeOverlays)
-            routeOverlays = grouped.map { RouteColorOverlay(color: $0.color, polylines: $0.polylines) }
+            routeOverlays = grouped.map {
+                RouteColorOverlay(color: $0.color, width: $0.width, polylines: $0.polylines)
+            }
             map.addOverlays(routeOverlays, level: .aboveLabels)
+        }
+
+        /// Adds, moves or removes the explorer's destination pin. One at a time: a new
+        /// coordinate moves the pin it already has instead of adding a second one.
+        func updatePin() {
+            guard let map else { return }
+            guard let coordinate = parent.pin else {
+                if let pinAnnotation {
+                    map.removeAnnotation(pinAnnotation)
+                    self.pinAnnotation = nil
+                }
+                return
+            }
+            if let pinAnnotation {
+                pinAnnotation.coordinate = coordinate
+            } else {
+                let annotation = DestinationPinAnnotation(coordinate: coordinate)
+                pinAnnotation = annotation
+                map.addAnnotation(annotation)
+            }
         }
 
         /// Moves the dot onto the newest fix.
@@ -795,6 +884,10 @@ struct RouteMapView: UIViewRepresentable {
         // MARK: delegate
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if annotation is DestinationPinAnnotation {
+                return mapView.dequeueReusableAnnotationView(withIdentifier: DestinationPinView.reuseIdentifier,
+                                                             for: annotation)
+            }
             guard annotation is UserDotAnnotation else { return nil }
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: UserDotView.reuseIdentifier,
                                                              for: annotation)
@@ -810,7 +903,7 @@ struct RouteMapView: UIViewRepresentable {
             guard let group = overlay as? RouteColorOverlay else { return MKOverlayRenderer(overlay: overlay) }
             let renderer = MKMultiPolylineRenderer(multiPolyline: group)
             renderer.strokeColor = group.color
-            renderer.lineWidth = Metrics.routeWidth
+            renderer.lineWidth = group.width
             renderer.lineCap = .round
             renderer.lineJoin = .round
             return renderer
