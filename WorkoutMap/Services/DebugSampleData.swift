@@ -71,7 +71,7 @@ enum SampleData {
              latSpan: 0.0060, lonSpan: 0.0160, shape: 1, centerName: "Sendling"),
     ]
 
-    static func route(for spec: Spec) -> [CLLocationCoordinate2D] {
+    static func track(for spec: Spec) -> [CLLocationCoordinate2D] {
         var rng = SystemRandomNumberGenerator()
         let count = spec.shape == 5 ? 80 : 240
         var points: [CLLocationCoordinate2D] = []
@@ -121,6 +121,31 @@ enum SampleData {
                                                  longitude: spec.center.longitude + lon))
         }
         return points
+    }
+
+    /// The sample route, with one errant fix spliced in when `WM_SAMPLE_JUMPS=1` asks for it.
+    ///
+    /// The errant fix goes through the same detection the app puts a real route through
+    /// (`WorkoutRoute.jumps(in:)`): the fixes carry the one-second spacing Health gives them, so
+    /// the spliced jump is found the way a real one is. It shows as the spike a real jump makes —
+    /// out to somewhere the user never was, and back.
+    static func route(for spec: Spec) -> WorkoutRoute {
+        let coordinates = track(for: spec)
+        guard DebugLaunch.sampleJumps, coordinates.count > 4 else {
+            return WorkoutRoute(coordinates: coordinates)
+        }
+        let start = date(spec)
+        let errant = coordinates.count / 2
+        let locations = coordinates.enumerated().map { index, coordinate in
+            CLLocation(coordinate: index == errant ? Geo.offset(coordinate, east: 900, north: 700) : coordinate,
+                       altitude: 0,
+                       horizontalAccuracy: 5,
+                       verticalAccuracy: 5,
+                       course: -1,
+                       speed: -1,
+                       timestamp: start.addingTimeInterval(Double(index)))
+        }
+        return WorkoutRoute(locations: locations)
     }
 
     static let calendar = AppCalendar.calendar
@@ -180,6 +205,6 @@ enum SampleData {
         return made
     }
 
-    static var routes: [UUID: [CLLocationCoordinate2D]] = [:]
+    static var routes: [UUID: WorkoutRoute] = [:]
 }
 #endif

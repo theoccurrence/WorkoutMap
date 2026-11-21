@@ -49,3 +49,11 @@ enum RouteBlue {
     static let uiAlternate = UIColor(red: 10.0 / 255, green: 132.0 / 255, blue: 1, alpha: 0.45)
     static let uiCasing    = UIColor(red: 3.0 / 255, green: 61.0 / 255, blue: 138.0 / 255, alpha: 1)
 }
+
+/// How a GPS jump is drawn when the setting asks for it: the grey the Fitness app dashes across
+/// ground the workout never measured, and the dash pattern in points. The dashes are stroked
+/// with square ends, so a dash does not grow into the gap beside it.
+enum RouteJump {
+    static let uiColor = UIColor(red: 174.0 / 255, green: 174.0 / 255, blue: 178.0 / 255, alpha: 1)
+    static let dash: [CGFloat] = [3, 5]
+}

@@ -6,16 +6,18 @@ struct WorkoutDetailView: View {
     let workout: Workout
 
     @Environment(\.dismiss) private var dismiss
-    @State private var route: [CLLocationCoordinate2D] = []
+    @State private var route = WorkoutRoute(coordinates: [])
     @State private var showExport = DebugLaunch.openExport
     @State private var visibleMapRect: MKMapRect?
     /// How the map is drawn, matching the map screen: the appearance setting against the
     /// system's own style.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
+    /// What the map does with a GPS jump — the same setting the map screen reads.
+    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
     @ObservedObject private var systemAppearance = SystemAppearance.shared
 
     private var lines: [MapRouteLine] {
-        [MapRouteLine(id: workout.id.uuidString, coordinates: route, color: workout.category.uiColor)]
+        MapRouteLine.lines(for: workout, route: route, style: jumpStyle)
     }
 
     /// The style the map is drawn in — `legacy`, the stored style, stays dark.
@@ -45,14 +47,14 @@ struct WorkoutDetailView: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .task(id: workout.id) {
-            route = RouteStore.shared.cached(workout.id) ?? []
+            route = RouteStore.shared.cached(workout.id) ?? WorkoutRoute(coordinates: [])
             let full = await RouteStore.shared.route(for: workout.hk)
             if !full.isEmpty { route = full }
         }
         .fullScreenCover(isPresented: $showExport) {
             ExportPreviewView(workout: workout,
                               rangeLabel: workout.listDateText,
-                              mapRect: visibleMapRect ?? RouteGeometry.fittedRect(routes: [route]),
+                              mapRect: visibleMapRect ?? RouteGeometry.fittedRect(routes: [route.coordinates]),
                               routes: lines,
                               mode: MapMode.stored,
                               interfaceStyle: mapInterfaceStyle)
@@ -61,7 +63,7 @@ struct WorkoutDetailView: View {
 
     private func mapSection(height: CGFloat) -> some View {
         RouteMapView(routes: lines,
-                     camera: RouteGeometry.fittedRect(routes: [route]).map { .fit($0) },
+                     camera: RouteGeometry.fittedRect(routes: [route.coordinates]).map { .fit($0) },
                      cameraToken: route.count,
                      mode: MapMode.stored,
                      interfaceStyle: mapInterfaceStyle,

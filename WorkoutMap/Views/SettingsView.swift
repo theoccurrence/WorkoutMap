@@ -9,6 +9,9 @@ struct SettingsView: View {
     /// How the map is drawn: the system's own light or dark style, or one pinned. The map
     /// reads it live, so a change here redraws it at once.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
+    /// What the map does with a GPS jump: the dashed grey line the Fitness app draws across
+    /// ground the workout never measured, or nothing at all. The map screens read it live.
+    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
     /// How many routes the explorer offers at once, and how tight it keeps them. The map screen
     /// reads both when it plans, so a change here applies to the next plan.
     @AppStorage(ExploreOptions.routeCountKey) private var exploreRouteCount: Int = ExploreOptions.routeCountDefault
@@ -58,6 +61,20 @@ struct SettingsView: View {
                             rowContent(title: "Map Appearance",
                                        systemImage: "circle.lefthalf.filled",
                                        detail: mapAppearance.title,
+                                       showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                        divider
+                        Menu {
+                            Picker("GPS Jumps", selection: $jumpStyle) {
+                                ForEach(RouteJumpStyle.allCases) { style in
+                                    Text(style.title).tag(style)
+                                }
+                            }
+                        } label: {
+                            rowContent(title: "GPS Jumps",
+                                       systemImage: "point.topleft.down.to.point.bottomright.curvepath",
+                                       detail: jumpStyle.title,
                                        showsChevron: true)
                         }
                         .buttonStyle(.plain)

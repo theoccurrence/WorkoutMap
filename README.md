@@ -17,7 +17,7 @@ desaturated Apple map and lets you filter them by week / month / year.
 | **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as circle buttons on the opposite side. The map can be panned, pinched and turned with two fingers. The share button exports the current map as an image card. The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`); tapping the map itself brings the range's label back. |
 | **Map styles** | Apple Maps' own *Map Modes* panel: **Explore**, **Driving** (live traffic), **Transit** (stations only), **Satellite** (imagery) and **Legacy** — the grey map the app shipped with, which is also what it opens with. Each tile is Maps' own artwork for the style (the grey Explore tile for **Legacy**), so the panel is complete the moment it opens. The choice is kept in the settings, and the detail screen and the export card draw the map in it as well. The map itself — and every preview of it — is drawn in the system's own light or dark style, or in the one pinned under *Map Appearance*; **Legacy** is the grey map the app shipped with and stays dark either way. |
 | **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a panel: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map. Tapping one of the alternates on the map picks it, the same as tapping its pill on the card. Once Go is tapped the map shows that one route alone and the Go and the cross give way to a red **Stop**; the card can be swiped up out of the way without ending anything, and the binoculars bring it back — or open the panel again to plan another one. The route stays until Stop, a new plan, or a relaunch. The pin carries an info bubble with the name the geocoder resolved, the address, **how far away it is** (live, as the user walks) and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
-| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered — feedback, share app, about, contact. |
+| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **gps jumps** (dotted grey / hidden / solid — how a leg the receiver invented while it had no fix is drawn, see below), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered — feedback, share app, about, contact. |
 
 Detail screen: map with the route, workout type, date, weather (temperature and
 humidity from the workout metadata), then time, distance, elevation, active
@@ -75,6 +75,8 @@ variables (Debug builds only):
 | `WM_START_MODE=explore\|driving\|transit\|satellite\|legacy` | Opens the map in that style |
 | `WM_START_MODES=1` | Opens the map style picker |
 | `WM_START_APPEARANCE=system\|light\|dark` | Draws the map light or dark (checks the appearance setting) |
+| `WM_START_JUMP_STYLE=dotted\|hidden\|solid` | Draws a GPS jump as a dashed grey line, not at all, or as the straight line the data holds |
+| `WM_SAMPLE_JUMPS=1` | Splices one errant fix into the sample routes (checks the GPS-jump setting) |
 | `WM_TAP_AT="x,y"` | Fires one tap on the map at those screen points (checks the route tap and the range bubble) |
 | `WM_START_DETAIL=1` | Pushes the first workout's detail screen |
 | `WM_START_EXPORT=1` | Opens the export card |
@@ -110,6 +112,7 @@ variables (Debug builds only):
 WorkoutMap/
   Model/       Workout, WorkoutCategory, TimeRange (week/month/year/all), RouteGeometry (+ Geo),
                MapMode (Explore / Driving / Transit / Satellite / Legacy), RoutePlan,
+               WorkoutRoute (a track and the legs that are GPS jumps), RouteJumpStyle,
                ExploreOptions (the two explorer settings)
   Services/    HealthStore (HealthKit), RouteStore (route fetch + disk cache),
                LocationProvider, MapImageRenderer (map snapshots), DebugSampleData,
@@ -478,4 +481,23 @@ Notes on the map rendering, all measured from the original app:
   ink of the neighbouring SF Symbols, which is why it read small. The bitmaps are trimmed and
   scaled to fill the box (ink 23 × 21 pt at 1x/2x/3x), so the tab now matches: measured 22 pt
   of ink against the gear's 24, up from 16.7.
+* **GPS jumps** — the leg of a route the receiver invented while it had no fix, drawn
+  straight across houses, gardens and lakes as if it had been walked — are told apart from
+  ground the user covered by the only thing that can tell them apart: the fixes carry a
+  timestamp, and a leg whose applied speed beats 162 km/h cannot have been travelled
+  (`WorkoutRoute.jumps(in:)`; it also has to cover 25 m, so a duplicate fix a metre away in a
+  hundredth of a second is not one, and a plain 300 m distance is left as the test for a sample
+  with no usable timestamp). Health stores a jump as an ordinary fix — the straight line is
+  what a polyline draws between any two fixes, and the impossibility is in the time between
+  them — so nothing in the route itself marks it, and the cached route keeps one flag per fix
+  beside the coordinates (`WMR1`; a cache file without that header is fetched from Health
+  again rather than read as a route without any jumps). *Settings ▸ GPS Jumps* draws them the
+  way the Fitness app does — a grey dashed line, stroked with square ends so the dashes do not
+  close up into a solid line — hides them altogether, or leaves them solid as the app drew
+  them before. The walked stretches are split around every jump, which costs a handful of
+  polylines per workout and still one overlay — one draw call — per colour and dash pattern;
+  each jump line carries the workout's id with a suffix, which a tap cuts off again
+  (`Coordinator.baseRouteID`), so picking a route still picks that workout. Snapshots (card
+  thumbnails and the export card) stroke the same dashes into their pixels, and the thumbnail
+  cache key carries the setting so a cached image of the other one does not come back.
 * The Settings screen omits the "WorkoutMap Plus" banner.

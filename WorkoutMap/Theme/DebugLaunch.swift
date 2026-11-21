@@ -18,6 +18,11 @@ enum DebugLaunch {
     static var startMapMode: MapMode? { env["WM_START_MODE"].flatMap(MapMode.init(rawValue:)) }
     /// WM_START_APPEARANCE=system|light|dark picks how the map is drawn.
     static var startAppearance: MapAppearance? { env["WM_START_APPEARANCE"].flatMap(MapAppearance.init(rawValue:)) }
+    /// WM_START_JUMP_STYLE=dotted|hidden|solid picks what the map does with a GPS jump.
+    static var startJumpStyle: RouteJumpStyle? { env["WM_START_JUMP_STYLE"].flatMap(RouteJumpStyle.init(rawValue:)) }
+    /// WM_SAMPLE_JUMPS=1 splices one errant fix into the sample routes, so the jump setting can
+    /// be exercised without a workout whose receiver actually jumped.
+    static var sampleJumps: Bool { env["WM_SAMPLE_JUMPS"] == "1" }
     /// WM_START_MODES=1 opens the map style picker.
     static var openModes: Bool { env["WM_START_MODES"] == "1" }
     /// WM_TAP_AT="x,y" fires one tap on the map at those screen points, once the routes are on
@@ -154,6 +159,8 @@ enum DebugLaunch {
     static var startCategory: WorkoutCategory? { nil }
     static var startMapMode: MapMode? { nil }
     static var startAppearance: MapAppearance? { nil }
+    static var startJumpStyle: RouteJumpStyle? { nil }
+    static var sampleJumps: Bool { false }
     static var openModes: Bool { false }
     static var tapAt: CGPoint? { nil }
     static var fakeHeading: String? { nil }

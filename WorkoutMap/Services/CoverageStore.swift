@@ -43,7 +43,7 @@ final class CoverageStore: ObservableObject {
         let build = Task {
             let cached = await RouteStore.shared.cachedRoutes(for: ids)
             var built = CoverageIndex()
-            for (_, coordinates) in cached { built.insert(coordinates) }
+            for (_, route) in cached { built.insert(route.coordinates) }
             return (index: built, ids: Set(cached.keys))
         }
         cachedBuild = build
@@ -75,7 +75,7 @@ final class CoverageStore: ObservableObject {
             var iterator = missing.makeIterator()
             func addNext() {
                 guard let workout = iterator.next() else { return }
-                group.addTask { (workout.id, await RouteStore.shared.route(for: workout.hk)) }
+                group.addTask { (workout.id, await RouteStore.shared.route(for: workout.hk).coordinates) }
             }
             for _ in 0..<Self.fillConcurrency { addNext() }
 

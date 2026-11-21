@@ -5,6 +5,12 @@ import CoreLocation
 struct RouteLine {
     let coordinates: [CLLocationCoordinate2D]
     let color: UIColor
+    /// The dash pattern, in points, for a line that stands for ground the user did not cover — a
+    /// GPS jump. `nil` is a solid line. The dashes are stroked with square ends so one does not
+    /// grow into the gap beside it.
+    var dash: [CGFloat]? = nil
+    /// Overrides the shared `lineWidth`, for a jump drawn thinner than the route it interrupts.
+    var width: CGFloat? = nil
 }
 
 /// Renders MapKit snapshots with the app's dark muted style and optional route overlays.
@@ -101,11 +107,17 @@ final class MapImageRenderer {
         return renderer.image { context in
             base.draw(in: CGRect(x: 0, y: -attributionBand, width: size.width, height: snapshotSize.height))
             let cg = context.cgContext
-            cg.setLineCap(.round)
             cg.setLineJoin(.round)
             for route in routes where route.coordinates.count > 1 {
                 cg.setStrokeColor(route.color.cgColor)
-                cg.setLineWidth(lineWidth)
+                cg.setLineWidth(route.width ?? lineWidth)
+                if let dash = route.dash {
+                    cg.setLineCap(.butt)
+                    cg.setLineDash(phase: 0, lengths: dash)
+                } else {
+                    cg.setLineCap(.round)
+                    cg.setLineDash(phase: 0, lengths: [])
+                }
                 let path = CGMutablePath()
                 for (index, coordinate) in route.coordinates.enumerated() {
                     let raw = snapshot.point(for: coordinate)
@@ -140,18 +152,28 @@ final class MapImageRenderer {
 
     /// Card thumbnail: the workout route over a heavily dimmed map.
     func thumbnail(for id: UUID,
-                   route: [CLLocationCoordinate2D],
+                   route: WorkoutRoute,
                    color: UIColor,
+                   style: RouteJumpStyle,
                    size: CGSize,
                    scale: CGFloat) async -> UIImage? {
-        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))" as NSString
+        // The style is part of the key: the same workout is drawn differently once the setting
+        // changes, and a cached image of the other style must not come back.
+        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))-\(style.rawValue)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
 
         let aspect = size.height > 1 ? size.width / size.height : 4
-        let rect = MapImageRenderer.thumbnailMapRect(route: route, aspect: aspect)
-            ?? RouteGeometry.fitted(RouteGeometry.mapRect(for: route.first ?? CLLocationCoordinate2D()))
+        let rect = MapImageRenderer.thumbnailMapRect(route: route.coordinates, aspect: aspect)
+            ?? RouteGeometry.fitted(RouteGeometry.mapRect(for: route.coordinates.first ?? CLLocationCoordinate2D()))
+        // A jump is drawn a touch thinner than the route: 2.4 pt is what a thumbnail has room
+        // for, and the grey dashes stay legible beside it.
+        let drawing = route.drawing(style)
+        var lines = drawing.walked.map { RouteLine(coordinates: $0, color: color) }
+        lines += drawing.jumps.map {
+            RouteLine(coordinates: $0, color: RouteJump.uiColor, dash: RouteJump.dash, width: 1.8)
+        }
         let image = await image(mapRect: rect, size: size, scale: scale,
-                                routes: [RouteLine(coordinates: route, color: color)],
+                                routes: lines,
                                 lineWidth: 2.4,
                                 toneChroma: 0,
                                 toneScale: 0.29,

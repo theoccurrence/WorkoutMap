@@ -9,8 +9,35 @@ struct MapRouteLine: Equatable {
     /// The stroke width. The workout routes all share the measured `Metrics.routeWidth`; a
     /// planned route is drawn wider, with a casing under it (see `MapTabView.plannedLines`).
     var width: CGFloat = Metrics.routeWidth
+    /// The dash pattern, in points, for a line that stands for ground the user did not cover —
+    /// a GPS jump. `nil` is a solid line.
+    var dash: [CGFloat]? = nil
 
     static func == (lhs: MapRouteLine, rhs: MapRouteLine) -> Bool { lhs.id == rhs.id }
+}
+
+extension MapRouteLine {
+    /// One workout route as the lines it is drawn as: the stretches the user walked, in the
+    /// category's colour, and — where the setting asks for it — each GPS jump as a dashed grey
+    /// line of its own.
+    ///
+    /// Every line's id is the workout's own with a suffix; `Coordinator.baseRouteID` cuts the
+    /// suffix off again, so a tap anywhere on the route picks that workout.
+    static func lines(for workout: Workout, route: WorkoutRoute, style: RouteJumpStyle) -> [MapRouteLine] {
+        let drawing = route.drawing(style)
+        var lines = drawing.walked.enumerated().map { index, coordinates in
+            MapRouteLine(id: "\(workout.id.uuidString)#\(index)",
+                         coordinates: coordinates,
+                         color: workout.category.uiColor)
+        }
+        lines += drawing.jumps.enumerated().map { index, coordinates in
+            MapRouteLine(id: "\(workout.id.uuidString)#jump\(index)",
+                         coordinates: coordinates,
+                         color: RouteJump.uiColor,
+                         dash: RouteJump.dash)
+        }
+        return lines
+    }
 }
 
 // MARK: - Map tone
@@ -72,10 +99,13 @@ final class ToneOverlayRenderer: MKOverlayRenderer {
 final class RouteColorOverlay: MKMultiPolyline {
     let color: UIColor
     let width: CGFloat
+    /// The dash pattern in points, or `nil` for a solid line — see `MapRouteLine.dash`.
+    let dash: [CGFloat]?
 
-    init(color: UIColor, width: CGFloat, polylines: [MKPolyline]) {
+    init(color: UIColor, width: CGFloat, dash: [CGFloat]?, polylines: [MKPolyline]) {
         self.color = color
         self.width = width
+        self.dash = dash
         super.init(polylines)
     }
 
@@ -749,9 +779,16 @@ struct RouteMapView: UIViewRepresentable {
                     previous = current
                 }
                 guard nearest <= limit else { continue }
-                if best == nil || nearest < best!.distance { best = (line.id, nearest) }
+                if best == nil || nearest < best!.distance { best = (Coordinator.baseRouteID(line.id), nearest) }
             }
             return best?.id
+        }
+
+        /// `abc#jump1` is a jump leg of route `abc` and `abc#2` its second walked stretch, so a
+        /// tap on either is a tap on the workout `abc`.
+        static func baseRouteID(_ id: String) -> String {
+            guard let cut = id.firstIndex(of: "#") else { return id }
+            return String(id[id.startIndex..<cut])
         }
 
         /// How close to a route a tap counts as landing on it. The routes are ~3 pt wide; 24 pt
@@ -803,12 +840,12 @@ struct RouteMapView: UIViewRepresentable {
             var next = ""
             for line in parent.routes {
                 next += line.id
-                next += "|\(line.coordinates.count)|\(line.color.hashValue);"
+                next += "|\(line.coordinates.count)|\(line.color.hashValue)|\(line.dash?.description ?? "-");"
             }
             next += "/"
             for line in parent.planned {
                 next += line.id
-                next += "|\(line.coordinates.count)|\(line.color.hashValue)|\(line.width);"
+                next += "|\(line.coordinates.count)|\(line.color.hashValue)|\(line.width)|\(line.dash?.description ?? "-");"
             }
             guard next != signature else { return }
             signature = next
@@ -824,19 +861,20 @@ struct RouteMapView: UIViewRepresentable {
             }
             polylines = polylines.filter { wanted.contains($0.key) }
 
-            var grouped: [(color: UIColor, width: CGFloat, polylines: [MKPolyline])] = []
+            var grouped: [(color: UIColor, width: CGFloat, dash: [CGFloat]?, polylines: [MKPolyline])] = []
             for line in lines {
                 guard let polyline = polylines[line.id] else { continue }
-                if let index = grouped.firstIndex(where: { $0.color == line.color && $0.width == line.width }) {
+                if let index = grouped.firstIndex(where: { $0.color == line.color && $0.width == line.width
+                                                           && $0.dash == line.dash }) {
                     grouped[index].polylines.append(polyline)
                 } else {
-                    grouped.append((line.color, line.width, [polyline]))
+                    grouped.append((line.color, line.width, line.dash, [polyline]))
                 }
             }
 
             map.removeOverlays(routeOverlays)
             routeOverlays = grouped.map {
-                RouteColorOverlay(color: $0.color, width: $0.width, polylines: $0.polylines)
+                RouteColorOverlay(color: $0.color, width: $0.width, dash: $0.dash, polylines: $0.polylines)
             }
             map.addOverlays(routeOverlays, level: .aboveLabels)
         }
@@ -1053,8 +1091,15 @@ struct RouteMapView: UIViewRepresentable {
             let renderer = MKMultiPolylineRenderer(multiPolyline: group)
             renderer.strokeColor = group.color
             renderer.lineWidth = group.width
-            renderer.lineCap = .round
             renderer.lineJoin = .round
+            if let dash = group.dash {
+                // Square ends: a round cap would grow every dash by the line's width at each end
+                // and the gaps would close up, so the line would read as solid again.
+                renderer.lineCap = .butt
+                renderer.lineDashPattern = dash.map { NSNumber(value: $0) }
+            } else {
+                renderer.lineCap = .round
+            }
             return renderer
         }
 

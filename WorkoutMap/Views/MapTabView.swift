@@ -11,7 +11,7 @@ struct MapTabView: View {
         ?? MapTabView.defaultSelection(for: RangeKind.storedDefault)
     /// Walk is selected on open, so its pill reads as active from the start.
     @State private var category: WorkoutCategory? = DebugLaunch.startCategory ?? .walk
-    @State private var loaded: [(Workout, [CLLocationCoordinate2D])] = []
+    @State private var loaded: [(Workout, WorkoutRoute)] = []
     /// The camera move the map should perform; every `cameraToken` bump re-runs it.
     @State private var camera: RouteMapView.Camera?
     @State private var cameraToken = 0
@@ -23,6 +23,9 @@ struct MapTabView: View {
     /// settings.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance =
         DebugLaunch.startAppearance ?? MapAppearance.stored
+    /// What the map does with a GPS jump: the dashed grey line of the Fitness app, or nothing at
+    /// all. Read live, so a change in the settings redraws the routes at once.
+    @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
     /// The system's own style, for `MapAppearance.system` — read from the screen, since the app
     /// itself is pinned to dark (see `SystemAppearance`).
     @ObservedObject private var systemAppearance = SystemAppearance.shared
@@ -122,9 +125,7 @@ struct MapTabView: View {
     }
 
     private var mapLines: [MapRouteLine] {
-        loaded
-            .filter { $0.1.count > 1 }
-            .map { MapRouteLine(id: $0.0.id.uuidString, coordinates: $0.1, color: $0.0.category.uiColor) }
+        loaded.flatMap { MapRouteLine.lines(for: $0.0, route: $0.1, style: jumpStyle) }
     }
 
     /// The explorer's planned route and its alternates, as map lines: the selected one in the
@@ -240,7 +241,7 @@ struct MapTabView: View {
 
     private var centersOn: CLLocationCoordinate2D? {
         if let loc = location.location?.coordinate { return loc }
-        return loaded.first?.1.first
+        return loaded.first?.1.coordinates.first
     }
 
     private var mostRecentInFilter: Workout? {
@@ -310,6 +311,7 @@ struct MapTabView: View {
         .task {
             if let start = DebugLaunch.startMapMode { mapMode = start }
             if let start = DebugLaunch.startAppearance { mapAppearance = start }
+            if let style = DebugLaunch.startJumpStyle { jumpStyle = style }
             if let shape = DebugLaunch.planShape { exploreShape = shape }
             if let routes = DebugLaunch.planRoutes { exploreRouteCount = routes }
             if let minimum = DebugLaunch.planMinimumNew { exploreMinimumNew = minimum }
@@ -342,7 +344,7 @@ struct MapTabView: View {
     }
 
     private var exportRect: MKMapRect? {
-        visibleMapRect ?? RouteGeometry.fittedRect(routes: loaded.map { $0.1 })
+        visibleMapRect ?? RouteGeometry.fittedRect(routes: loaded.map { $0.1.coordinates })
     }
 
     /// True on a screen whose system chrome lives in a side rail (the iPhone Duo, inner
@@ -984,7 +986,7 @@ struct MapTabView: View {
     }
 
     private func fitContent() {
-        if let rect = RouteGeometry.fittedRect(routes: loaded.map { $0.1 }) {
+        if let rect = RouteGeometry.fittedRect(routes: loaded.map { $0.1.coordinates }) {
             camera = .fit(rect)
         } else if let coordinate = centersOn {
             camera = .center(coordinate, spanMeters: Self.emptySpanMeters)
@@ -1005,14 +1007,14 @@ struct MapTabView: View {
         let missing = list.filter { cached[$0.id] == nil }
         guard !missing.isEmpty else { return }
 
-        await withTaskGroup(of: (Workout, [CLLocationCoordinate2D]).self) { group in
+        await withTaskGroup(of: (Workout, WorkoutRoute).self) { group in
             for workout in missing {
                 group.addTask { (workout, await RouteStore.shared.route(for: workout.hk)) }
             }
             // Applying every arrival on its own re-tessellates all the routes already
             // on screen once per arrival — that is what made the Year and All ranges
             // crawl while they loaded. They are applied in batches instead.
-            var arrived: [(Workout, [CLLocationCoordinate2D])] = []
+            var arrived: [(Workout, WorkoutRoute)] = []
             for await result in group {
                 guard !result.1.isEmpty else { continue }
                 arrived.append(result)
@@ -1028,7 +1030,7 @@ struct MapTabView: View {
         }
     }
 
-    private func merge(_ batch: [(Workout, [CLLocationCoordinate2D])]) {
+    private func merge(_ batch: [(Workout, WorkoutRoute)]) {
         let ids = Set(batch.map { $0.0.id })
         loaded.removeAll { ids.contains($0.0.id) }
         loaded.append(contentsOf: batch)
