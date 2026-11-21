@@ -47,6 +47,9 @@ enum Fmt {
         return (String(format: "%.2f", meters / 1000), "km")
     }
 
+    /// How far away something is, for the dropped pin's info bubble.
+    static func distanceAway(_ meters: Double) -> String { "\(distance(meters)) away" }
+
     static func duration(_ seconds: TimeInterval) -> String {
         let t = Int(seconds.rounded())
         return String(format: "%02d:%02d:%02d", t / 3600, (t % 3600) / 60, t % 60)

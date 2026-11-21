@@ -98,25 +98,29 @@ final class UserDotAnnotation: NSObject, MKAnnotation {
 /// The destination pin the user drops on the map — one at a time, as in Maps: a new pin
 /// replaces the old one.
 ///
-/// `title` and `subtitle` are what the pin's own info bubble shows — the address the geocoder
-/// resolved for it, and what is there.
+/// `title` is what the pin's info bubble heads with — the name the geocoder resolved for it.
+/// The address and the distance are not here: MapKit drops an annotation's subtitle once the
+/// callout has a `detailCalloutAccessoryView`, so both live in that instead.
 final class DestinationPinAnnotation: NSObject, MKAnnotation {
     @objc dynamic var coordinate: CLLocationCoordinate2D
     var title: String?
-    var subtitle: String?
 
-    init(coordinate: CLLocationCoordinate2D, title: String?, subtitle: String?) {
+    init(coordinate: CLLocationCoordinate2D, title: String?) {
         self.coordinate = coordinate
         self.title = title
-        self.subtitle = subtitle
         super.init()
     }
 }
 
 /// The dropped pin's own look: a red balloon, the marker Maps drops, with an info bubble that
-/// carries the address and a bin.
+/// carries the address, how far away it is, and a bin.
 final class DestinationPinView: MKMarkerAnnotationView {
     static let reuseIdentifier = "DestinationPinView"
+
+    /// The bubble's two lines under the place name. Written in place rather than by re-laying the
+    /// callout out, so walking towards the pin does not make the bubble flicker once a second.
+    private let addressLabel = UILabel()
+    private let distanceLabel = UILabel()
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
@@ -126,9 +130,28 @@ final class DestinationPinView: MKMarkerAnnotationView {
         displayPriority = .required
         canShowCallout = true
         rightCalloutAccessoryView = DestinationPinView.removeButton()
+        for label in [addressLabel, distanceLabel] {
+            label.font = .preferredFont(forTextStyle: .subheadline)
+            label.adjustsFontForContentSizeCategory = true
+            // A dynamic colour, so it follows the callout's own light or dark bubble.
+            label.textColor = .secondaryLabel
+        }
+        let lines = UIStackView(arrangedSubviews: [addressLabel, distanceLabel])
+        lines.axis = .vertical
+        lines.spacing = 2
+        detailCalloutAccessoryView = lines
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// Where the pin is, and how far away that is right now — `nil` distance while there is no
+    /// fix, `nil` address while the geocoder has not answered yet.
+    func apply(address: String?, distance: Double?) {
+        addressLabel.text = address
+        addressLabel.isHidden = (address ?? "").isEmpty
+        distanceLabel.text = distance.map(Fmt.distanceAway)
+        distanceLabel.isHidden = distance == nil
+    }
 
     private static func removeButton() -> UIButton {
         let button = UIButton(type: .system)
@@ -835,24 +858,33 @@ struct RouteMapView: UIViewRepresentable {
             if let pinAnnotation {
                 let moved = !Coordinator.matches(pinAnnotation.coordinate, coordinate)
                 pinAnnotation.coordinate = coordinate
-                if moved {
+                if moved || pinAnnotation.title != parent.pinTitle {
                     pinAnnotation.title = parent.pinTitle
-                    pinAnnotation.subtitle = parent.pinSubtitle
-                } else if pinAnnotation.title != parent.pinTitle || pinAnnotation.subtitle != parent.pinSubtitle {
-                    pinAnnotation.title = parent.pinTitle
-                    pinAnnotation.subtitle = parent.pinSubtitle
-                    refreshCallout(of: pinAnnotation, in: map)
+                    // The callout is laid out when it is shown and does not watch the annotation,
+                    // so an open one is redrawn when the place name finally arrives.
+                    if !moved { refreshCallout(of: pinAnnotation, in: map) }
                 }
             } else {
                 let annotation = DestinationPinAnnotation(coordinate: coordinate,
-                                                          title: parent.pinTitle,
-                                                          subtitle: parent.pinSubtitle)
+                                                          title: parent.pinTitle)
                 pinAnnotation = annotation
                 map.addAnnotation(annotation)
             }
+            updatePinAccessory(in: map)
 #if DEBUG
             runPinProbe()
 #endif
+        }
+
+        /// Keeps the pin's bubble saying where it is and how far away that is — the bubble is the
+        /// one place the user is standing when they ask, and the distance changes as they walk.
+        private func updatePinAccessory(in map: MKMapView) {
+            guard let pinAnnotation,
+                  let view = map.view(for: pinAnnotation) as? DestinationPinView else { return }
+            view.apply(address: parent.pinSubtitle,
+                       distance: parent.userLocation.map {
+                           CoverageIndex.meters(from: $0, to: pinAnnotation.coordinate)
+                       })
         }
 
 #if DEBUG
@@ -993,8 +1025,17 @@ struct RouteMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if annotation is DestinationPinAnnotation {
-                return mapView.dequeueReusableAnnotationView(withIdentifier: DestinationPinView.reuseIdentifier,
-                                                             for: annotation)
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: DestinationPinView.reuseIdentifier,
+                                                                 for: annotation)
+                // Set here as well as in `updatePinAccessory`, so a bubble opened before the next
+                // update already has its lines rather than empty ones.
+                if let pin = view as? DestinationPinView {
+                    pin.apply(address: parent.pinSubtitle,
+                              distance: parent.userLocation.map {
+                                  CoverageIndex.meters(from: $0, to: annotation.coordinate)
+                              })
+                }
+                return view
             }
             guard annotation is UserDotAnnotation else { return nil }
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: UserDotView.reuseIdentifier,
