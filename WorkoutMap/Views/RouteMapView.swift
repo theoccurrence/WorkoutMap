@@ -29,10 +29,16 @@ enum MapTone {
 final class ToneOverlay: NSObject, MKOverlay {
     let fill: UIColor
     let blend: CGBlendMode
+    /// Off in every map mode but `legacy`. The overlay stays installed and its renderer
+    /// simply draws nothing: MapKit draws the overlays of one level in the order they were
+    /// added, so a tone pass re-added after a mode change would land *above* the routes and
+    /// grey those out with it.
+    var active: Bool
 
-    init(fill: UIColor, blend: CGBlendMode) {
+    init(fill: UIColor, blend: CGBlendMode, active: Bool) {
         self.fill = fill
         self.blend = blend
+        self.active = active
         super.init()
     }
 
@@ -50,7 +56,7 @@ final class ToneOverlayRenderer: MKOverlayRenderer {
     }
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        guard let tone = overlay as? ToneOverlay else { return }
+        guard let tone = overlay as? ToneOverlay, tone.active else { return }
         context.setFillColor(tone.fill.cgColor)
         context.fill(rect(for: mapRect))
     }
@@ -84,22 +90,156 @@ final class UserDotAnnotation: NSObject, MKAnnotation {
     }
 }
 
+/// The "you are here" marker: the measured dot, and — as Maps draws it — a translucent cone in
+/// front of it showing which way the user is facing, in the colour of the selected category.
 final class UserDotView: MKAnnotationView {
     static let reuseIdentifier = "UserDotView"
+    /// The dot itself, measured from the original app: 22 pt with a 3.5 pt ring.
     private static let diameter: CGFloat = 22
+    private static let ringColor = UIColor(red: 199.0 / 255, green: 199.0 / 255, blue: 204.0 / 255, alpha: 1)
+    /// The cone: long enough to read as a direction at a glance, narrow enough not to look
+    /// like a slice of pie, and fading out instead of stopping at a hard edge.
+    private static let coneLength: CGFloat = 34
+    private static let coneHalfAngle: CGFloat = 26
+    private static let coneAlpha: CGFloat = 0.45
+    /// The view is as large as the cone needs. MapKit keeps its *centre* on the coordinate, so
+    /// the dot itself does not move by a pixel.
+    private static let box: CGFloat = (coneLength + diameter / 2) * 2
+
+    private let coneHolder = CALayer()
+    private let cone = CAGradientLayer()
+    private let dot = CALayer()
+    /// The angle the cone is drawn at and the angle it is heading for, both unwrapped: 350° to
+    /// 10° has to turn 20° and not 340.
+    private var drawnAngle: CGFloat = 0
+    private var targetAngle: CGFloat = 0
+    private var coneShown = false
+    /// The cone is turned on the display's own clock instead of in one animation per heading.
+    /// The compass reports in steps and a quick turn arrives in a handful of them; restarting a
+    /// fixed 0.2 s animation per step is what made it look choppy. This walks the drawn angle
+    /// towards the target every frame instead, so a step is caught up with smoothly and a late
+    /// one is still reached.
+    private var coneLink: CADisplayLink?
+    /// 63 % of the remaining angle is covered in this long; short enough to feel immediate.
+    private static let coneTau: CGFloat = 0.12
 
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
-        frame = CGRect(x: 0, y: 0, width: Self.diameter, height: Self.diameter)
+        frame = CGRect(x: 0, y: 0, width: Self.box, height: Self.box)
         isUserInteractionEnabled = false
-        layer.cornerRadius = Self.diameter / 2
-        layer.borderWidth = 3.5
-        layer.borderColor = UIColor(red: 199.0 / 255, green: 199.0 / 255, blue: 204.0 / 255, alpha: 1).cgColor
+
+        // The cone: a radial gradient from the dot outwards, clipped to a sector that points up
+        // at zero rotation and is then turned by `apply(direction:cameraHeading:)`.
+        coneHolder.frame = bounds
+        coneHolder.isHidden = true
+        cone.type = .radial
+        cone.frame = bounds
+        cone.startPoint = CGPoint(x: 0.5, y: 0.5)
+        let radius = Self.coneLength / Self.box
+        cone.endPoint = CGPoint(x: 0.5 + radius, y: 0.5)
+        let centre = CGPoint(x: Self.box / 2, y: Self.box / 2)
+        let sector = UIBezierPath()
+        sector.move(to: centre)
+        sector.addArc(withCenter: centre,
+                      radius: Self.coneLength,
+                      startAngle: -.pi / 2 - Self.coneHalfAngle * .pi / 180,
+                      endAngle: -.pi / 2 + Self.coneHalfAngle * .pi / 180,
+                      clockwise: true)
+        sector.close()
+        let mask = CAShapeLayer()
+        mask.path = sector.cgPath
+        mask.fillColor = UIColor.black.cgColor
+        cone.mask = mask
+        coneHolder.addSublayer(cone)
+
+        dot.frame = CGRect(x: (Self.box - Self.diameter) / 2,
+                           y: (Self.box - Self.diameter) / 2,
+                           width: Self.diameter,
+                           height: Self.diameter)
+        dot.cornerRadius = Self.diameter / 2
+        dot.borderWidth = 3.5
+        dot.borderColor = Self.ringColor.cgColor
+
+        layer.addSublayer(coneHolder)
+        layer.addSublayer(dot)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func apply(color: UIColor) { backgroundColor = color }
+    func apply(color: UIColor) {
+        dot.backgroundColor = color.cgColor
+        cone.colors = [color.withAlphaComponent(Self.coneAlpha).cgColor,
+                       color.withAlphaComponent(0).cgColor]
+    }
+
+    /// Points the cone the way the user faces, on screen: `direction` is degrees from true
+    /// North, the camera's own heading turns it with the map. `nil` — the direction is not
+    /// known — takes the cone off the screen.
+    func apply(direction: CLLocationDirection?, cameraHeading: CLLocationDirection) {
+        guard let direction else {
+            if coneShown {
+                coneShown = false
+                coneHolder.isHidden = true
+            }
+            stopConeLink()
+            return
+        }
+        let target = CGFloat((direction - cameraHeading) * .pi / 180)
+        var delta = target - targetAngle
+        while delta > .pi { delta -= 2 * .pi }
+        while delta < -.pi { delta += 2 * .pi }
+        targetAngle += delta
+        if !coneShown {
+            coneShown = true
+            coneHolder.isHidden = false
+            // The first appearance is placed, not turned: there is no angle to come from.
+            drawnAngle = targetAngle
+            applyConeAngle()
+        }
+        // A standing heading jitters by a fraction of a degree; a link for that is wasted work.
+        if abs(delta) > 0.0005 { startConeLink() }
+    }
+
+    /// One frame of the turn: the drawn angle covers a fixed share of what is left of the way
+    /// to the target, so the cone moves at the display's rate whatever the compass does.
+    @objc private func stepCone(_ link: CADisplayLink) {
+        let dt = link.targetTimestamp - link.timestamp
+        let share = 1 - exp(-CGFloat(dt) / Self.coneTau)
+        drawnAngle += (targetAngle - drawnAngle) * share
+        if abs(targetAngle - drawnAngle) < 0.0015 {
+            drawnAngle = targetAngle
+            applyConeAngle()
+            stopConeLink()
+            return
+        }
+        applyConeAngle()
+    }
+
+    private func applyConeAngle() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        coneHolder.transform = CATransform3DMakeRotation(drawnAngle, 0, 0, 1)
+        CATransaction.commit()
+    }
+
+    private func startConeLink() {
+        guard coneLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(stepCone(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        coneLink = link
+    }
+
+    private func stopConeLink() {
+        coneLink?.invalidate()
+        coneLink = nil
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        // A display link retains its target; one left scheduled would keep this view alive.
+        if superview == nil { stopConeLink() }
+    }
 }
 
 // MARK: - Map view
@@ -114,16 +254,76 @@ final class FittableMapView: MKMapView {
     /// bottom and top edges, so the SwiftUI overlays can line up with the bar itself
     /// rather than with the safe area.
     var onTabBarInsets: ((_ bottom: CGFloat, _ top: CGFloat) -> Void)?
+    /// How many of the screen's rail items the system is showing, and where the topmost one
+    /// starts, so the SwiftUI side can tell that part of the rail has been folded into an
+    /// overflow of the system's own, and that the room it lost has come back.
+    var onRailItems: ((_ count: Int, _ top: CGFloat) -> Void)?
+
+    /// A Live Activity can take the rail's room away without any layout change reaching this
+    /// view, so the rail is measured again on a slow poll while the screen has one. The
+    /// interval is what the screen's answer to a Live Activity costs in time — see
+    /// `MapTabView.noteRailItems` — and the walk it drives is a few hundred microseconds.
+    private static let railPollInterval: TimeInterval = 0.15
+    private var railPoll: Timer?
 
     override func layoutSubviews() {
         super.layoutSubviews()
         onLayout?()
         reportWindow()
+        updateRailPoll()
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        guard window != nil else {
+            railPoll?.invalidate()
+            railPoll = nil
+            return
+        }
         reportWindow()
+        updateRailPoll()
+    }
+
+    /// What the system put in the window's rail: how many items it is showing, and where the
+    /// topmost one starts.
+    ///
+    /// Counted by class name — the bar's own buttons are `_UIButtonBarButton` and
+    /// `_UIModernBarButton`, while the tab bar's are `_UITabButton` — and only the outermost
+    /// one of each item, so the inner modern button of a bar button is not counted twice.
+    /// Their accessibility labels are nil, so they cannot be told apart by label; the count is
+    /// what says that the system has folded part of the declared set away, because it drops
+    /// those items out of the hierarchy. (An overflow button of the system's own cannot be told
+    /// from one of ours by the view it lives in — measured, it is hosted the same way — so only
+    /// the count is read.)
+    static func railItems(in root: UIView) -> (count: Int, top: CGFloat) {
+        var count = 0
+        var top = CGFloat.greatestFiniteMagnitude
+        func isBarButton(_ view: UIView) -> Bool {
+            String(describing: type(of: view)).contains("BarButton")
+        }
+        func walk(_ view: UIView, inside: Bool) {
+            let isButton = isBarButton(view)
+            if isButton, !inside, !view.isHidden, view.alpha > 0.01 {
+                let frame = view.convert(view.bounds, to: root)
+                if frame.width > 8, frame.height > 8 {
+                    count += 1
+                    top = min(top, frame.minY)
+                }
+            }
+            for sub in view.subviews { walk(sub, inside: inside || isButton) }
+        }
+        walk(root, inside: false)
+        return (count, top == .greatestFiniteMagnitude ? 0 : top)
+    }
+
+    private func updateRailPoll() {
+        guard let window, max(window.safeAreaInsets.left, window.safeAreaInsets.right) >= Metrics.railInset,
+              railPoll == nil else { return }
+        let timer = Timer(timeInterval: Self.railPollInterval, repeats: true) { [weak self] _ in
+            self?.reportWindow()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        railPoll = timer
     }
 
     /// Reported on every layout pass rather than on change: SwiftUI rebuilds this screen's
@@ -133,13 +333,20 @@ final class FittableMapView: MKMapView {
     private func reportWindow() {
         guard let window else { return }
         onSafeAreaChange?(window.safeAreaInsets)
-        guard let bar = FittableMapView.tabBar(in: window) else { return }
-        let frame = bar.convert(bar.bounds, to: window)
-        let foot = window.bounds.maxY
-        let bottom = foot - frame.maxY
-        let top = foot - frame.minY
-        guard bottom.isFinite, top.isFinite else { return }
-        onTabBarInsets?(bottom, top)
+        let items = FittableMapView.railItems(in: window)
+        if let bar = FittableMapView.tabBar(in: window) {
+            let frame = bar.convert(bar.bounds, to: window)
+            let foot = window.bounds.maxY
+            let bottom = foot - frame.maxY
+            let top = foot - frame.minY
+            guard bottom.isFinite, top.isFinite else { return }
+            onTabBarInsets?(bottom, top)
+            // A rail item can only sit above the tab bar. A report that puts the topmost one
+            // below it is the system mid-move — a parked copy of the pill at the position it
+            // had before the window turned — and nothing to read.
+            if items.top > 0, items.top > foot - top - 4 { return }
+        }
+        onRailItems?(items.count, items.top)
     }
 
     /// The floating bar is drawn by a private `UITabBar` subclass; its capsule container is
@@ -206,29 +413,51 @@ struct RouteMapView: UIViewRepresentable {
     var routes: [MapRouteLine] = []
     var camera: Camera?
     var cameraToken: Int = 0
+    /// The map style — see `MapMode`. Everything but `legacy` is the map as MapKit draws it.
+    var mode: MapMode = .legacy
+    /// The style the map draws in: light or dark, resolved from the settings (`MapAppearance`).
+    /// `legacy` is drawn dark whatever this says, since it is the grey map the app shipped with.
+    var interfaceStyle: UIUserInterfaceStyle = .dark
     var userLocation: CLLocationCoordinate2D?
+    /// The way the device faces, in degrees from true North *as measured from the top of the
+    /// device* — the map turns it to match the screen. `nil` when the receiver has no heading.
+    var userHeading: CLLocationDirection?
+    /// The direction the last fix travelled in, when the receiver reports one.
+    var userCourse: CLLocationDirection?
     var userDotColor: UIColor = UIColor(red: 1, green: 199.0 / 255, blue: 3.0 / 255, alpha: 1)
     var onRegionChange: ((MKMapRect) -> Void)?
     var onUserInteraction: (() -> Void)?
+    /// A tap on the map: the id of the route the tap landed on, or `nil` when it landed on the
+    /// map itself. The routes are MapKit overlays with no tap target of their own, so the tap is
+    /// resolved against the route geometry (see `Coordinator.routeID(near:within:)`).
+    var onRouteTap: ((String?) -> Void)?
     /// The window's safe-area insets, reported after layout and on orientation or
     /// fold changes.
     var onSafeAreaChange: ((UIEdgeInsets) -> Void)?
     /// The floating tab bar's capsule, as insets from the window's bottom edge to its own
     /// bottom and top edges.
     var onTabBarInsets: ((_ bottom: CGFloat, _ top: CGFloat) -> Void)?
+    /// How many of the map screen's rail items the system is actually showing, and where the
+    /// topmost one starts. Fewer than the screen declares means the system folded some of them
+    /// into an overflow of its own.
+    var onRailItems: ((_ count: Int, _ top: CGFloat) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> FittableMapView {
         let map = FittableMapView()
         map.delegate = context.coordinator
-        map.preferredConfiguration = MapImageRenderer.configuration()
-        map.overrideUserInterfaceStyle = .dark
+        map.preferredConfiguration = mode.configuration()
+        // MapKit draws its standard map (and its imagery labels) in the interface style it is
+        // handed; the app is pinned to dark, so the map carries its own.
+        map.overrideUserInterfaceStyle = interfaceStyle
         // The camera fits into the view's layout margins, so the safe area would push a
         // fitted route set and a centred user location off centre — this screen draws the
         // map edge to edge and centres on the full view instead.
         map.insetsLayoutMarginsFromSafeArea = false
-        map.backgroundColor = .black
+        // The colour the tiles are laid on while they load, resolved against the map's own
+        // style: black for the dark map, white for the light one.
+        map.backgroundColor = .systemBackground
         // Rotation on, tilt off: a two-finger turn keeps the routes aligned because
         // MapKit draws them, pitch would only fight the layout of the toolbar.
         map.isRotateEnabled = true
@@ -238,7 +467,12 @@ struct RouteMapView: UIViewRepresentable {
         map.showsUserLocation = false
         map.showsBuildings = false
         map.register(UserDotView.self, forAnnotationViewWithReuseIdentifier: UserDotView.reuseIdentifier)
-        map.onLayout = { [weak coordinator = context.coordinator] in coordinator?.applyPendingCamera() }
+        map.onLayout = { [weak coordinator = context.coordinator] in
+            coordinator?.applyPendingCamera()
+            // A layout pass means the window may have turned, and the device heading is
+            // measured from the top of the device — what it means on screen has changed.
+            coordinator?.applyDotDirection()
+        }
         map.onSafeAreaChange = { [weak coordinator = context.coordinator] insets in
             // Deferred: the report arrives from a layout pass, and the receiver writes
             // SwiftUI state.
@@ -248,14 +482,30 @@ struct RouteMapView: UIViewRepresentable {
             // Deferred like the safe-area report: this arrives from a layout pass.
             DispatchQueue.main.async { coordinator?.parent.onTabBarInsets?(bottom, top) }
         }
+        map.onRailItems = { [weak coordinator = context.coordinator] count, top in
+            // Deferred like the others: the report arrives from a layout pass or the poll.
+            DispatchQueue.main.async { coordinator?.parent.onRailItems?(count, top) }
+        }
         context.coordinator.map = map
+        context.coordinator.appliedInterfaceStyle = interfaceStyle
         context.coordinator.installToneOverlays()
         context.coordinator.installInteractionObservers()
+#if DEBUG
+        // WM_TAP_AT — see `DebugLaunch.tapAt`. The tap goes through the path the recognizer
+        // uses, so the hit-test and the reporting are the ones that ship.
+        if let point = DebugLaunch.tapAt {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak coordinator = context.coordinator] in
+                coordinator?.reportRouteTap(at: point)
+            }
+        }
+#endif
         return map
     }
 
     func updateUIView(_ map: FittableMapView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.updateAppearance()
+        context.coordinator.updateMode()
         context.coordinator.updateRoutes()
         context.coordinator.updateUserDot()
         if context.coordinator.appliedCameraToken != cameraToken {
@@ -265,6 +515,11 @@ struct RouteMapView: UIViewRepresentable {
         }
     }
 
+    static func dismantleUIView(_ map: FittableMapView, coordinator: Coordinator) {
+        // The display link that walks the position dot outlives the coordinator otherwise.
+        coordinator.stopDotSteps()
+    }
+
     final class Coordinator: NSObject, MKMapViewDelegate {
         weak var map: FittableMapView?
         var parent: RouteMapView
@@ -272,12 +527,45 @@ struct RouteMapView: UIViewRepresentable {
         var pendingCamera: RouteMapView.Camera?
 
         private var toneOverlays: [ToneOverlay] = []
+        private var appliedMode: MapMode?
+        var appliedInterfaceStyle: UIUserInterfaceStyle?
         private var routeOverlays: [RouteColorOverlay] = []
         /// Routes already turned into overlays, so a reload that adds routes one at a
         /// time costs one polyline per arrival instead of rebuilding the whole set.
         private var polylines: [String: MKPolyline] = [:]
         private var signature = ""
         private var dotAnnotation: UserDotAnnotation?
+        /// The dot's own animation — see `updateUserDot`.
+        private lazy var dotProxy = DotProxy(coordinator: self)
+        private var dotLink: CADisplayLink?
+        private var dotStep: (from: CLLocationCoordinate2D, to: CLLocationCoordinate2D,
+                              start: CFTimeInterval, duration: CFTimeInterval)?
+        private var dotRendered: CLLocationCoordinate2D?
+        private var dotTarget: CLLocationCoordinate2D?
+        private var lastFixArrival: CFTimeInterval?
+
+        /// What the cone points at: the compass first — that is what "facing" means, and it
+        /// keeps working while the user stands still — and the direction of travel only when
+        /// there is no compass reading at all (a phone whose magnetometer is disturbed, e.g.
+        /// in a bus or a tunnel). `nil` — neither is known — takes the cone off the screen
+        /// instead of leaving it pointing at something nobody measured.
+        ///
+        /// The heading arrives already turned onto the user's facing — `LocationProvider` takes
+        /// the device's own rotation out of the compass reading, which is referenced to the top
+        /// of the device — so nothing about the pose belongs here. A correction of our own,
+        /// keyed on the *interface* orientation instead of the device's, turned the cone by 90°
+        /// in every landscape pose (the Duo's inner display is laid out wide while the device
+        /// itself stays upright, so the two disagree there).
+        private var coneDirection: CLLocationDirection? {
+            parent.userHeading ?? parent.userCourse
+        }
+
+        /// Points the cone after a fix, a heading or the camera moved.
+        func applyDotDirection() {
+            guard let map, let dotAnnotation,
+                  let view = map.view(for: dotAnnotation) as? UserDotView else { return }
+            view.apply(direction: coneDirection, cameraHeading: map.camera.heading)
+        }
 
         init(_ parent: RouteMapView) { self.parent = parent }
 
@@ -285,9 +573,42 @@ struct RouteMapView: UIViewRepresentable {
         /// they were added, so the routes land on top of it.
         func installToneOverlays() {
             guard let map else { return }
-            toneOverlays = [ToneOverlay(fill: MapTone.desaturation, blend: .saturation),
-                            ToneOverlay(fill: MapTone.dim, blend: .normal)]
+            toneOverlays = [ToneOverlay(fill: MapTone.desaturation, blend: .saturation, active: parent.mode.usesTone),
+                            ToneOverlay(fill: MapTone.dim, blend: .normal, active: parent.mode.usesTone)]
             map.addOverlays(toneOverlays, level: .aboveLabels)
+        }
+
+        /// Swaps the map style. The tone pass is switched off inside its renderer rather
+        /// than removed and re-added: MapKit draws the overlays of one level in the order
+        /// they were added, so a tone pass re-added after the routes would grey those out.
+        func updateMode() {
+            guard let map, appliedMode != parent.mode else { return }
+            appliedMode = parent.mode
+            // MapKit has no animated form of this; the style swaps in one frame.
+            map.preferredConfiguration = parent.mode.configuration()
+            let wanted = parent.mode.usesTone
+            guard toneOverlays.contains(where: { $0.active != wanted }) else { return }
+            for tone in toneOverlays {
+                tone.active = wanted
+                map.renderer(for: tone)?.setNeedsDisplay()
+            }
+        }
+
+        /// Swaps the map's light/dark style. MapKit redraws its tiles and labels for it, so the
+        /// map follows the system's setting — or the one the user pinned — without a reload.
+        ///
+        /// Swaps the map's light/dark style. MapKit redraws its tiles and labels for it, so the
+        /// map follows the system's setting — or the one the user pinned — without a reload.
+        ///
+        /// MapKit has no animated form of this: the tiles and labels swap in one frame. Nothing
+        /// can fade them either — the tiles are drawn by a Metal layer of the map's own, so
+        /// `UIView.transition` has nothing to snapshot and swaps in one frame as well
+        /// (measured). The screen answers with a wash instead — see `MapTabView.appearanceWash`.
+        func updateAppearance() {
+            guard let map, appliedInterfaceStyle != parent.interfaceStyle else { return }
+            appliedInterfaceStyle = parent.interfaceStyle
+            map.overrideUserInterfaceStyle = parent.interfaceStyle
+            map.backgroundColor = .systemBackground
         }
 
         func installInteractionObservers() {
@@ -299,6 +620,13 @@ struct RouteMapView: UIViewRepresentable {
                 recognizer.delegate = self
                 map.addGestureRecognizer(recognizer)
             }
+            // A single tap, for picking a route. It is not the pan/pinch recognizers' business:
+            // it neither moves the camera nor counts as user interaction, it only reports which
+            // route — if any — the tap landed on.
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+            tap.cancelsTouchesInView = false
+            tap.delegate = self
+            map.addGestureRecognizer(tap)
         }
 
         @objc private func handleGesture(_ recognizer: UIGestureRecognizer) {
@@ -306,6 +634,75 @@ struct RouteMapView: UIViewRepresentable {
             case .changed, .ended: parent.onUserInteraction?()
             default: break
             }
+        }
+
+        /// Reports the route under the finger, or `nil` for a tap on the map itself.
+        ///
+        /// The routes are MapKit overlays, which have no tap target, so the tap is resolved
+        /// against the geometry: the tap's map point, and every route's segments, both in the
+        /// same projected space. One pass per tap — never per frame — so the cost of walking
+        /// every point is not on the render path.
+        @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard let map, recognizer.state == .ended else { return }
+            reportRouteTap(at: recognizer.location(in: map))
+        }
+
+        /// Resolves a tap at a point in the map view and reports the route under it, or `nil`
+        /// for a tap on the map itself.
+        func reportRouteTap(at point: CGPoint) {
+            guard let map, map.bounds.width > 1 else { return }
+            let tapped = MKMapPoint(map.convert(point, toCoordinateFrom: map))
+            // The hit radius in the map's own units, taken from the map itself rather than
+            // guessed: the same 24 pt to the right of the tap, measured in map points, is the
+            // scale the routes are drawn at right here.
+            let beside = MKMapPoint(map.convert(CGPoint(x: point.x + Self.tapRadius, y: point.y),
+                                                toCoordinateFrom: map))
+            let radius = abs(beside.x - tapped.x)
+            guard radius > 0 else { return }
+            parent.onRouteTap?(routeID(near: tapped, within: radius))
+        }
+
+        /// The id of the nearest route whose stroke passes within `threshold` map points of
+        /// `point`, or `nil` when the tap missed every one of them.
+        private func routeID(near point: MKMapPoint, within threshold: Double) -> String? {
+            var best: (id: String, distance: Double)?
+            let limit = threshold * threshold
+            for line in parent.routes where line.coordinates.count > 1 {
+                var nearest = Double.greatestFiniteMagnitude
+                var previous: MKMapPoint?
+                for coordinate in line.coordinates {
+                    let current = MKMapPoint(coordinate)
+                    if let previous {
+                        nearest = min(nearest, Coordinator.distanceSquared(from: point, to: previous, current))
+                    }
+                    previous = current
+                }
+                guard nearest <= limit else { continue }
+                if best == nil || nearest < best!.distance { best = (line.id, nearest) }
+            }
+            return best?.id
+        }
+
+        /// How close to a route a tap counts as landing on it. The routes are ~3 pt wide; 24 pt
+        /// is a comfortable finger target around them.
+        private static let tapRadius: CGFloat = 24
+
+        /// The squared distance from a point to a line segment, both in map points — squared so
+        /// the pass over every segment needs no square root.
+        private static func distanceSquared(from point: MKMapPoint,
+                                            to a: MKMapPoint,
+                                            _ b: MKMapPoint) -> Double {
+            let dx = b.x - a.x
+            let dy = b.y - a.y
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else {
+                let px = point.x - a.x, py = point.y - a.y
+                return px * px + py * py
+            }
+            let t = min(1, max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared))
+            let cx = a.x + t * dx, cy = a.y + t * dy
+            let px = point.x - cx, py = point.y - cy
+            return px * px + py * py
         }
 
         func applyPendingCamera() {
@@ -361,23 +758,111 @@ struct RouteMapView: UIViewRepresentable {
             map.addOverlays(routeOverlays, level: .aboveLabels)
         }
 
+        /// Moves the dot onto the newest fix.
+        ///
+        /// The dot is an annotation of our own, so MapKit does not animate it the way it
+        /// animates its built-in user location — every fix would teleport it. And there is no
+        /// faster stream to wait for: a fix arrives roughly once a second, which is what the
+        /// receiver has to give (`LocationProvider` asks it for the most there is; a phone's
+        /// GPS has no 60 Hz to offer). So the dot is walked by hand, at the display's own
+        /// refresh rate: each fix starts a step from where the dot currently is to that fix,
+        /// over the interval the previous fix took — it runs one fix behind reality and lands
+        /// just as the next one arrives. The step is a display link and stops the moment the
+        /// dot has caught up.
         func updateUserDot() {
             guard let map else { return }
             guard let location = parent.userLocation else {
+                stopDotSteps()
                 if let dotAnnotation {
                     map.removeAnnotation(dotAnnotation)
                     self.dotAnnotation = nil
                 }
+                dotRendered = nil
+                dotTarget = nil
+                lastFixArrival = nil
                 return
             }
-            if let dotAnnotation {
-                dotAnnotation.coordinate = location
-                (map.view(for: dotAnnotation) as? UserDotView)?.apply(color: parent.userDotColor)
-            } else {
+            guard let dotAnnotation else {
                 let annotation = UserDotAnnotation(coordinate: location)
-                dotAnnotation = annotation
+                self.dotAnnotation = annotation
+                dotRendered = location
+                dotTarget = location
                 map.addAnnotation(annotation)
+                return
             }
+            (map.view(for: dotAnnotation) as? UserDotView)?.apply(color: parent.userDotColor)
+            stepDot(towards: location, annotation: dotAnnotation)
+            applyDotDirection()
+        }
+
+        private func stepDot(towards target: CLLocationCoordinate2D, annotation: UserDotAnnotation) {
+            guard !Coordinator.matches(dotTarget, target) else { return }
+            let now = CACurrentMediaTime()
+            let gap = lastFixArrival.map { now - $0 } ?? .infinity
+            lastFixArrival = now
+            dotTarget = target
+            // A gap far longer than a fix interval is not a stream of positions — the screen
+            // was away and the dot may have a city to cross. It jumps instead of sliding.
+            guard gap < 3, let from = dotRendered, !Coordinator.matches(from, target) else {
+                stopDotSteps()
+                dotRendered = target
+                annotation.coordinate = target
+                return
+            }
+            dotStep = (from, target, now, min(max(gap, 0.2), 2))
+            startDotLink()
+        }
+
+        private func startDotLink() {
+            guard dotLink == nil else { return }
+            let link = CADisplayLink(target: dotProxy, selector: #selector(DotProxy.step(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            dotLink = link
+        }
+
+        func stopDotSteps() {
+            dotLink?.invalidate()
+            dotLink = nil
+            dotStep = nil
+        }
+
+        /// One frame of the step: the dot sits at `from` + progress · (to − from).
+        private func stepDot(_ link: CADisplayLink) {
+            guard let step = dotStep, let annotation = dotAnnotation else { stopDotSteps(); return }
+            let elapsed = CACurrentMediaTime() - step.start
+            let progress = step.duration > 0 ? min(1, elapsed / step.duration) : 1
+            let coordinate = Coordinator.interpolate(step.from, step.to, progress)
+            dotRendered = coordinate
+            annotation.coordinate = coordinate
+            if progress >= 1 { stopDotSteps() }
+        }
+
+        /// `CLLocationCoordinate2D` is not `Equatable` here, and one fix is repeated by every
+        /// unrelated redraw of the screen.
+        private static func matches(_ lhs: CLLocationCoordinate2D?, _ rhs: CLLocationCoordinate2D) -> Bool {
+            guard let lhs else { return false }
+            return lhs.latitude == rhs.latitude && lhs.longitude == rhs.longitude
+        }
+
+        /// Linear, the short way round the globe: a fix pair never spans more than a few
+        /// hundred metres, but a longitude that wraps must not send the dot the long way.
+        private static func interpolate(_ from: CLLocationCoordinate2D,
+                                        _ to: CLLocationCoordinate2D,
+                                        _ t: Double) -> CLLocationCoordinate2D {
+            let delta = ((to.longitude - from.longitude + 540).truncatingRemainder(dividingBy: 360)) - 180
+            return CLLocationCoordinate2D(latitude: from.latitude + (to.latitude - from.latitude) * t,
+                                          longitude: from.longitude + delta * t)
+        }
+
+        /// `CADisplayLink` retains its target. This holds the coordinator weakly, so a screen
+        /// that goes away is not kept alive — and kept stepping — by a scheduled link.
+        final class DotProxy: NSObject {
+            weak var coordinator: Coordinator?
+
+            init(coordinator: Coordinator) { self.coordinator = coordinator }
+
+            @objc func step(_ link: CADisplayLink) { coordinator?.stepDot(link) }
         }
 
         // MARK: delegate
@@ -386,7 +871,10 @@ struct RouteMapView: UIViewRepresentable {
             guard annotation is UserDotAnnotation else { return nil }
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: UserDotView.reuseIdentifier,
                                                              for: annotation)
-            (view as? UserDotView)?.apply(color: parent.userDotColor)
+            if let dot = view as? UserDotView {
+                dot.apply(color: parent.userDotColor)
+                dot.apply(direction: coneDirection, cameraHeading: mapView.camera.heading)
+            }
             return view
         }
 
@@ -403,6 +891,12 @@ struct RouteMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             parent.onRegionChange?(mapView.visibleMapRect)
+        }
+
+        /// Fires continuously while the map is turned: the cone is drawn in the screen's frame,
+        /// so it has to follow the camera's heading or it would point at the wrong place.
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            applyDotDirection()
         }
     }
 }

@@ -15,6 +15,14 @@ enum Fmt {
         return f
     }()
 
+    /// The date and time one route is drawn at, for the map's range bubble while a route is
+    /// selected.
+    static let routeDateTime: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "dd.MM.yyyy - HH:mm"
+        return f
+    }()
+
     static let monthYear: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")

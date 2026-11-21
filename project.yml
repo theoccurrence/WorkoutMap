@@ -53,8 +53,10 @@ targets:
         CFBundleName: WorkoutMap
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: "1"
+        # Without this a ProMotion screen caps the app at 60 Hz, which the position dot,
+        # walking between fixes on a display link, would feel.
+        CADisableMinimumFrameDurationOnPhone: true
         LSRequiresIPhoneOS: true
-        UIUserInterfaceStyle: Dark
         UILaunchScreen: {}
         UIViewControllerBasedStatusBarAppearance: true
         UISupportedInterfaceOrientations:
@@ -70,3 +72,4 @@ targets:
         NSPhotoLibraryAddUsageDescription: "WorkoutMap saves the workout map you export to your photo library."
         NSPhotoLibraryUsageDescription: "WorkoutMap saves the workout map you export to your photo library."
         NSHumanReadableCopyright: ""
+

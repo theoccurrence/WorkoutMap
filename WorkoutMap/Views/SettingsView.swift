@@ -6,6 +6,9 @@ struct SettingsView: View {
     /// The period the map screen opens with. The map reads it when it is built, so a
     /// change here applies from the next launch on.
     @AppStorage(RangeKind.defaultPeriodKey) private var defaultPeriod: RangeKind = .week
+    /// How the map is drawn: the system's own light or dark style, or one pinned. The map
+    /// reads it live, so a change here redraws it at once.
+    @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -35,6 +38,20 @@ struct SettingsView: View {
                             rowContent(title: "Default Period",
                                        systemImage: "calendar",
                                        detail: defaultPeriod.title,
+                                       showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                        divider
+                        Menu {
+                            Picker("Map Appearance", selection: $mapAppearance) {
+                                ForEach(MapAppearance.allCases) { appearance in
+                                    Text(appearance.title).tag(appearance)
+                                }
+                            }
+                        } label: {
+                            rowContent(title: "Map Appearance",
+                                       systemImage: "circle.lefthalf.filled",
+                                       detail: mapAppearance.title,
                                        showsChevron: true)
                         }
                         .buttonStyle(.plain)

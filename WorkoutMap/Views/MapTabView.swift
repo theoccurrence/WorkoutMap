@@ -16,20 +16,84 @@ struct MapTabView: View {
     @State private var camera: RouteMapView.Camera?
     @State private var cameraToken = 0
     @State private var userMoved = false
+    /// The map style. Kept in the settings, so the map opens on the style the user last
+    /// picked; `legacy` — the grey map the app shipped with — until they pick another one.
+    @AppStorage(MapMode.storedKey) private var mapMode: MapMode = DebugLaunch.startMapMode ?? MapMode.stored
+    /// How the map is drawn: the system's own light or dark style, or one pinned in the
+    /// settings.
+    @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance =
+        DebugLaunch.startAppearance ?? MapAppearance.stored
+    /// The system's own style, for `MapAppearance.system` — read from the screen, since the app
+    /// itself is pinned to dark (see `SystemAppearance`).
+    @ObservedObject private var systemAppearance = SystemAppearance.shared
+    /// The route the user last tapped. While one is selected the range bubble shows its own
+    /// date and time instead of the range's label.
+    @State private var tappedRouteID: String?
     @State private var showSheet = DebugLaunch.openSheet
+    @State private var showModes = DebugLaunch.openModes
     @State private var showExport = DebugLaunch.openExport
     @State private var visibleMapRect: MKMapRect?
     /// The window's safe-area insets, reported by the map view.
     @State private var windowInsets: UIEdgeInsets = .zero
+    /// The style the map was drawn in a moment ago, while its change is being washed over.
+    /// MapKit swaps its tiles for the new style in one frame and cannot fade them — they are
+    /// drawn by a Metal layer of the map's own, which `UIView.transition` cannot snapshot
+    /// (measured) — so the screen lays a wash of the *old* look over the map for a moment: the
+    /// map changes underneath it, and the new style arrives as the old one washes off, which is
+    /// the transition Maps' own map makes.
+    @State private var washStyle: UIUserInterfaceStyle = .dark
+    /// How much of that wash is showing.
+    @State private var washOpacity: Double = 0
+    @State private var washTask: Task<Void, Never>?
     /// The map screen's size: which way round the rail runs, and whether a short rail
     /// (folded landscape) still has room for the calendar and range actions.
     @State private var railSize: CGSize = .zero
-    /// Which column the rail's pill carries. A state, and applied only once the window has
-    /// stopped moving: changing this item's content while the system is relocating the rail
-    /// makes it rebuild, and then the whole rail — the system's own tab bar included — is
-    /// gone for a moment. That goes for the icons and the pill's height alike.
-    @State private var railCompact = false
-    @State private var railCompactTask: Task<Void, Never>?
+    /// The set of actions the rail declares. Which one it is is the only lever this screen has
+    /// — the system places the items itself, and nothing inside one of them may be animated —
+    /// and there are three of them.
+    private enum RailSet {
+        /// Share, the calendar, the range — and the map style above the locate action, in a
+        /// bubble of their own.
+        case full
+        /// Share and one overflow menu carrying the calendar and the range — the map style and
+        /// the locate action keep their bubble.
+        case filtersFolded
+        /// Share and one overflow menu carrying the calendar, the range *and* the map style —
+        /// the locate action alone in its bubble.
+        case compact
+    }
+
+    /// The set the rail declares right now. Applied only once the window has stopped moving
+    /// (`scheduleRailSet`): changing it while the system is relocating the rail makes the bar
+    /// rebuild, and then the whole rail — the system's own tab bar included — is gone for a
+    /// moment.
+    @State private var railSet: RailSet = .full
+    @State private var railSetTask: Task<Void, Never>?
+    /// What the rail has learned about one layout — the two displays, either way round, with the
+    /// rail on either side: whether the system has been seen folding part of the declared set
+    /// away there, and where the rail's top sat when it did. Kept per layout because the room
+    /// differs between them; and learned rather than known, because the Live Activity that
+    /// takes the room has no API that says so.
+    private struct RailRoom: Equatable {
+        var folded = false
+        var foldedTop: CGFloat = 0
+    }
+    @State private var railRooms: [String: RailRoom] = [:]
+    /// The layout the rail was last seen in. A change here is a turn, a fold of the phone or a
+    /// move to the other display; a size change *within* one layout is the status cluster
+    /// growing (a Live Activity), which is not a turn and must not blind the rail.
+    @State private var lastRailShape = ""
+    /// The rail as last measured: how many of the declared items the system is showing, and
+    /// where the topmost one starts.
+    @State private var railItemCount = 0
+    @State private var railTop: CGFloat = 0
+    /// When the rail last moved.
+    @State private var railMovedAt = Date.distantPast
+    /// Until this, the rail is rebuilding — because the window turned, or because the set
+    /// changed — and what it reports in the meantime is the set on its way out, not a fold.
+    @State private var railBlindUntil = Date.distantPast
+    /// How many reports in a row have shown fewer items than the set declares.
+    @State private var railShortReports = 0
     /// The floating tab bar's capsule as insets from the window's bottom edge to its own
     /// bottom and top edges, measured from the bar so the overlays can line up with it.
     @State private var tabBarInsets: (bottom: CGFloat, top: CGFloat)?
@@ -81,6 +145,57 @@ struct MapTabView: View {
 
     private var dotColor: UIColor { (category ?? .walk).uiColor }
 
+    /// The style the map is drawn in. `legacy` is the grey map the app shipped with and stays
+    /// dark whatever the setting says; every other mode follows it.
+    private var mapInterfaceStyle: UIUserInterfaceStyle {
+        mapAppearance.interfaceStyle(for: mapMode, system: systemAppearance.style)
+    }
+
+    /// Whether the screen's own controls are drawn in the light style. It follows the map: a map
+    /// drawn light gets light controls, and `legacy` — which is the grey map the app shipped
+    /// with and is never light — keeps the dark ones whatever the setting says.
+    private var controlsAreLight: Bool { mapInterfaceStyle == .light }
+
+    /// The colour of a glyph on those controls.
+    private var controlGlyph: Color { controlsAreLight ? .black : .white }
+
+    /// How strong the wash of the old look is: strong enough that the map reads as the style it
+    /// was a moment ago, light enough that its streets still show through it.
+    private static let washStrength: Double = 0.75
+    /// How long the wash takes to come off.
+    private static let washFade: TimeInterval = 0.45
+    /// How many steps it comes off in.
+    private static let washSteps = 18
+
+    /// Washes the change of the map's light/dark style over with the style it came from, and
+    /// takes it off again — the one transition MapKit leaves available (see `washStyle`).
+    ///
+    /// The fade is stepped rather than handed to `withAnimation`: a state that is taken back in
+    /// the same turn it is set never reaches the screen at all (measured — the wash came and
+    /// went unseen), and a transition needs the state it comes from to have been drawn.
+    private func washAppearanceChange(from previous: UIUserInterfaceStyle) {
+        washStyle = previous
+        washTask?.cancel()
+        washTask = Task { @MainActor in
+            washOpacity = Self.washStrength
+            let step = Self.washFade / Double(Self.washSteps)
+            for index in 1...Self.washSteps {
+                try? await Task.sleep(for: .seconds(step))
+                guard !Task.isCancelled else { return }
+                // Ease out: most of the way off in the first half of the fade.
+                let progress = Double(index) / Double(Self.washSteps)
+                washOpacity = Self.washStrength * (1 - progress) * (1 - progress)
+            }
+            washOpacity = 0
+        }
+    }
+
+    /// The workout behind the tapped route, while the map is still showing it.
+    private var tappedWorkout: Workout? {
+        guard let tappedRouteID else { return nil }
+        return loaded.first { $0.0.id.uuidString == tappedRouteID }?.0
+    }
+
     private var centersOn: CLLocationCoordinate2D? {
         if let loc = location.location?.coordinate { return loc }
         return loaded.first?.1.first
@@ -103,9 +218,15 @@ struct MapTabView: View {
                 Palette.surface.ignoresSafeArea()
                 map
             }
+            .onChange(of: mapInterfaceStyle) { previous, _ in washAppearanceChange(from: previous) }
+            // The tab bar is the app's own control rather than this screen's, so it is told
+            // which style this screen is drawing its own in.
+            .onAppear { ControlAppearance.shared.setLight(controlsAreLight) }
+            .onChange(of: controlsAreLight) { _, light in ControlAppearance.shared.setLight(light) }
             .onGeometryChange(for: CGSize.self) { $0.size } action: { railSize = $0 }
-            .onChange(of: railSize) { _, _ in scheduleRailCompact() }
-            .onChange(of: usesVerticalControls) { _, _ in scheduleRailCompact() }
+            .onChange(of: railSize) { _, _ in railGeometryChanged() }
+            .onChange(of: usesVerticalControls) { _, _ in railGeometryChanged() }
+            .onChange(of: windowInsets) { _, _ in railGeometryChanged() }
             // The rail's actions MUST stay system toolbar items. The system places them
             // itself — below the status cluster, clear of the camera cut-out and of a Live
             // Activity — and re-lays them out when the screen turns. Every attempt to draw
@@ -117,7 +238,7 @@ struct MapTabView: View {
             // Two things follow from that, both measured, both easy to get wrong again:
             //
             // * The *set* of items may only change once the window has stopped moving —
-            //   see `scheduleRailCompact`. Changed mid-turn the bar host rebuilds the rail
+            //   see `scheduleRailSet`. Changed mid-turn the bar host rebuilds the rail
             //   while the system is still relocating it, and the whole rail, the system's
             //   own tab bar included, is missing for a moment. Changed at rest the host
             //   brings the new pill in with an animation of its own, and that is the only
@@ -129,31 +250,67 @@ struct MapTabView: View {
             //   animated at all: `.animation`/`.transition` inside a `ToolbarItem` never
             //   reach the UIKit bar, which simply swaps the content in one frame.
             .toolbar(usesVerticalControls ? .visible : .hidden, for: .navigationBar)
+            // The bar's own glass follows the map, too: the system draws it from the colour
+            // scheme the toolbar is given, and `legacy` never asks for the light one.
+            .toolbarColorScheme(controlsAreLight ? .light : .dark, for: .navigationBar, .bottomBar)
             .toolbar {
                 if usesVerticalControls {
                     ToolbarItem { shareToolbarItem }
-                    if railCompact {
-                        ToolbarItem { railOverflowToolbarItem }
-                    } else {
+                    if railSet == .full {
                         ToolbarItem { calendarToolbarItem }
                         ToolbarItem { rangeToolbarItem }
+                    } else {
+                        ToolbarItem { railOverflowToolbarItem }
                     }
-                    // Its own group: the system gives the locate action a bubble of its
-                    // own, aligned with the bottom bar instead of the pill above.
+                    // Its own group: the system gives these a bubble of their own, aligned
+                    // with the bottom bar instead of the pill above — the map style above
+                    // the locate action, the same two-button pill the hand-placed column
+                    // below draws.
+                    //
+                    // The map style only gets that bubble while the rail has room for two
+                    // items in it. On the short rail the system folds a second bubble into an
+                    // overflow of its own, so the style moves into the menu above instead and
+                    // the locate action keeps its own button to itself. When the system is the
+                    // one folding — a Live Activity taking the room — the style stays here and
+                    // the calendar and the range go into the menu instead: this pill is what
+                    // the screen is for, the filters are one tap deeper.
+                    if railSet != .compact {
+                        ToolbarItem(placement: .bottomBar) { mapModeToolbarItem }
+                    }
                     ToolbarItem(placement: .bottomBar) { locateToolbarItem }
                 }
             }
         }
-        .task { if !DebugLaunch.skipLocation { location.start() } }
+        // The wash covers the screen — the map, the overlays and the rail — so the whole thing
+        // turns at once: MapKit cannot fade its tiles and the bar cannot fade its glass, so the
+        // change is made under the wash and the old look comes off with it.
+        .overlay {
+            Color(washStyle == .light ? .white : .black)
+                .opacity(washOpacity)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
+        .task {
+            if let start = DebugLaunch.startMapMode { mapMode = start }
+            if let start = DebugLaunch.startAppearance { mapAppearance = start }
+            if !DebugLaunch.skipLocation { location.start() }
+        }
         .task(id: reloadKey) { await reload() }
         .sheet(isPresented: $showSheet) {
             RangePickerSheet(selection: $selection, workouts: health.workouts)
         }
+        .sheet(isPresented: $showModes) {
+            MapModeSheet(mode: $mapMode,
+                         appearance: mapAppearance,
+                         systemStyle: systemAppearance.style)
+        }
         .fullScreenCover(isPresented: $showExport) {
             ExportPreviewView(workout: mostRecentInFilter,
-                              rangeLabel: selection.label,
+                              rangeLabel: rangeBubbleText,
                               mapRect: exportRect,
-                              routes: mapLines)
+                              routes: mapLines,
+                              mode: mapMode,
+                              interfaceStyle: mapInterfaceStyle)
         }
     }
 
@@ -214,16 +371,22 @@ struct MapTabView: View {
             RouteMapView(routes: mapLines,
                          camera: camera,
                          cameraToken: cameraToken,
+                         mode: mapMode,
+                         interfaceStyle: mapInterfaceStyle,
                          userLocation: location.location?.coordinate,
+                         userHeading: location.heading,
+                         userCourse: location.course,
                          userDotColor: dotColor,
                          onRegionChange: { visibleMapRect = $0 },
                          onUserInteraction: { userMoved = true },
+                         onRouteTap: { tappedRouteID = $0 },
                          onSafeAreaChange: { if windowInsets != $0 { windowInsets = $0 } },
                          onTabBarInsets: { bottom, top in
                              if tabBarInsets == nil || tabBarInsets! != (bottom, top) {
                                  tabBarInsets = (bottom, top)
                              }
-                         })
+                         },
+                         onRailItems: { noteRailItems($0, top: $1) })
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -237,6 +400,8 @@ struct MapTabView: View {
                 HStack(spacing: 0) {
                     if filtersOnTrailingEdge { Spacer(minLength: 0) }
                     categoryFilters
+                        .environment(\.colorScheme, controlsAreLight ? .light : .dark)
+                        .id(controlsAreLight)
                     if !filtersOnTrailingEdge { Spacer(minLength: 0) }
                 }
                 .padding(.horizontal, Metrics.screenInset)
@@ -252,6 +417,8 @@ struct MapTabView: View {
             // directly beneath it, flush above the tab bar.
             if !usesVerticalControls {
                 mapToolbar
+                    .environment(\.colorScheme, controlsAreLight ? .light : .dark)
+                    .id(controlsAreLight)
                     .padding(.trailing, Metrics.screenInset)
                     .padding(.bottom, toolbarBottomInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -276,7 +443,7 @@ struct MapTabView: View {
         return Button {
             toggle(item)
         } label: {
-            toolbarGlyph(item.symbolName, tint: selected ? item.color : .white)
+            toolbarGlyph(item.symbolName, tint: selected ? item.color : controlGlyph)
         }
         .buttonStyle(.plain)
         // A light wash behind the symbol; if the glass ignores the alpha the symbol alone
@@ -285,8 +452,9 @@ struct MapTabView: View {
         .accessibilityLabel(item.title)
     }
 
-    /// The action column for the screens the system gives no side rail — the same three
-    /// actions as the rail, in the same shape: one capsule and the locate circle beneath.
+    /// The action column for the screens the system gives no side rail — the same actions as
+    /// the rail, in the same shape: the pill of screen actions, and beneath it the two-button
+    /// pill Maps carries as well, the map style above the locate action.
     private var mapToolbar: some View {
         VStack(spacing: Metrics.pillGap) {
             VStack(spacing: 0) {
@@ -306,14 +474,25 @@ struct MapTabView: View {
             .padding(.vertical, 4)
             .glassEffect(in: Capsule())
 
-            Button {
-                locate()
-            } label: {
-                toolbarGlyph("location.fill")
+            VStack(spacing: 0) {
+                Button {
+                    showModes = true
+                } label: {
+                    toolbarGlyph("map.fill")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Map mode")
+
+                Button {
+                    locate()
+                } label: {
+                    toolbarGlyph("location.fill")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Current position")
             }
-            .buttonStyle(.plain)
-            .glassEffect(in: Circle())
-            .accessibilityLabel("Current position")
+            .padding(.vertical, 4)
+            .glassEffect(in: Capsule())
         }
     }
 
@@ -325,22 +504,29 @@ struct MapTabView: View {
         .accessibilityLabel(label)
     }
 
-    private func toolbarGlyph(_ symbol: String, tint: Color = .white) -> some View {
+    private func toolbarGlyph(_ symbol: String, tint: Color? = nil) -> some View {
         Image(systemName: symbol)
             .font(.system(size: Metrics.toolbarIconSize, weight: .regular))
-            .foregroundStyle(tint)
+            .foregroundStyle(tint ?? controlGlyph)
             .frame(width: Metrics.toolbarButtonSize, height: Metrics.toolbarButtonSize)
             .contentShape(.circle)
     }
 
+    /// What the bubble reads: the tapped route's own date and time while one is selected — the
+    /// tap lands on the map, the map reports the route, the bubble names it — and the range's
+    /// label otherwise.
+    private var rangeBubbleText: String {
+        tappedWorkout.map { Fmt.routeDateTime.string(from: $0.start) } ?? rangeLabel
+    }
+
     private var rangeBubble: some View {
-        Text(rangeLabel)
+        Text(rangeBubbleText)
             .font(.system(size: 14))
-            .foregroundStyle(Palette.rangeLabel)
+            .foregroundStyle(controlsAreLight ? Palette.rangeLabelLight : Palette.rangeLabel)
             .lineLimit(1)
             .padding(.horizontal, 13)
             .frame(height: Metrics.controlHeight)
-            .background(Palette.surface, in: Capsule())
+            .background(controlsAreLight ? Palette.surfaceLight : Palette.surface, in: Capsule())
     }
 
     /// True while the window sits on the Duo's folded cover panel. Its content column is
@@ -353,23 +539,159 @@ struct MapTabView: View {
     // MARK: - Rail toolbar items
 
     /// The folded landscape is the one rail where all seven buttons do not fit above each
-    /// other, so the calendar and the range fold into one menu there.
-    private var compactWanted: Bool {
-        usesVerticalControls && isFoldedPanel && railSize.height < 540
+    /// other, so the calendar and the range fold into one menu there and the map style joins
+    /// them: the rail has no room for a second bubble beside the locate action.
+    private var shortRailWanted: Bool {
+        guard usesVerticalControls else { return false }
+        return isFoldedPanel && railSize.height < 540
     }
 
-    /// Hands the rail its new set of items once the window has stopped moving — see the note
-    /// above the toolbar. The change goes through `withAnimation`: inside a transaction the
-    /// bar host updates its pill smoothly instead of swapping it in one frame. Without it the
-    /// same change snaps, which is what the previous build looked like.
-    private func scheduleRailCompact() {
-        railCompactTask?.cancel()
-        let wanted = compactWanted
-        guard wanted != railCompact else { return }
-        railCompactTask = Task {
+    /// The set the rail should be declaring: the short rail's own one where the window is too
+    /// short for the two filters and the map style *and* the locate action (the folded panel
+    /// held sideways is the one layout that happens in), and otherwise the full set — or the
+    /// one with the filters folded, where this layout has been seen running out of room.
+    private var wantedRailSet: RailSet {
+        if shortRailWanted { return .compact }
+        return currentRoom.folded ? .filtersFolded : .full
+    }
+
+    /// How many items a set declares.
+    private static func itemCount(of set: RailSet) -> Int {
+        var count: Int
+        switch set {
+        case .full: count = 5
+        case .filtersFolded: count = 4
+        case .compact: count = 3
+        }
+        return count
+    }
+
+    /// Which layout the rail is in. The room differs between the two displays and either way
+    /// round, so what the rail has learned is kept per layout — and keyed on the shape rather
+    /// than on the size, because the shape is the same before and after a turn.
+    private var railShape: String {
+        let panel = isFoldedPanel ? "cover" : "inner"
+        let way = isPortraitLayout ? "portrait" : "landscape"
+        let side = filtersOnTrailingEdge ? "trailing" : "leading"
+        return "\(panel)-\(way)-\(side)"
+    }
+
+    private var currentRoom: RailRoom { railRooms[railShape] ?? RailRoom() }
+
+    /// What the system's rail is showing — the one thing this screen measures.
+    ///
+    /// The item *set* is the only lever there is (the system places the items itself, and
+    /// nothing inside one of them can be animated), and a set that does not fit is folded by
+    /// the system into an overflow of its own — measured on the folded panel in portrait, it
+    /// takes the map style and the locate action away with it, which is the pill the screen is
+    /// for. So the screen answers with the set that folds the calendar and the range instead
+    /// and leaves that bubble alone.
+    ///
+    /// What takes the room is a Live Activity in the status cluster, and no API says so: it is
+    /// read off the rail, as the system showing fewer items than the set declares once the rail
+    /// has stopped moving. Two things are not that, and both were read as one before:
+    ///
+    /// * a rail that is still rebuilding — it reports the top group first, one item then two,
+    ///   where the finished rail shows five, and a set change of ours or a turn makes it
+    ///   rebuild again (`railBlindUntil`, `railMovedAt`). The system's own fold never shows
+    ///   fewer than three: share, the calendar, the range and its own overflow button.
+    /// * the set we folded ourselves: nothing is missing from it, so it reads as "there is
+    ///   room" — which is why the room coming back is read from the rail's *top* instead
+    ///   (below), and why nothing here is latched: every turn, and every fold, is measured
+    ///   again from scratch.
+    private func noteRailItems(_ count: Int, top: CGFloat) {
+        if count != railItemCount || top != railTop {
+            railItemCount = count
+            railTop = top
+            railMovedAt = Date()
+        }
+        // The system folded part of the declared set away — a Live Activity in the status
+        // cluster has taken the rail's room, and the set it folded is the one the user would
+        // otherwise read. Two reports in a row say so: that is one poll of the system's own
+        // fold, and it is still not a rail that is rebuilding, whose count moves with every
+        // report. A *turn* reports short counts too, and for longer — that is what the blind
+        // window is for, and it is set by a change of the rail's own shape.
+        let short = count >= 3 && count < Self.itemCount(of: railSet) && !shortRailWanted
+        railShortReports = short ? railShortReports + 1 : 0
+        if short, railShortReports >= 2, !currentRoom.folded, Date() > railBlindUntil {
+            foldRailFilters(top: top, atOnce: true)
+            return
+        }
+        guard Date() > railBlindUntil,
+              Date().timeIntervalSince(railMovedAt) > Self.railSettle else { return }
+        var room = currentRoom
+        if room.folded {
+            // The rail's top is where the status cluster ends. When it comes back up the Live
+            // Activity that grew it has ended, the room is back, and the full set fits again.
+            guard room.foldedTop > 0, top > 0, top < room.foldedTop - Self.railRoomBack else { return }
+            room.folded = false
+            room.foldedTop = 0
+            railRooms[railShape] = room
+            scheduleRailSet()
+        }
+    }
+
+    /// Remembers that this layout has no room for the full set, and hands the rail the folded
+    /// one. `atOnce` skips the delay `scheduleRailSet` keeps for a window that is still moving:
+    /// the fold has just been seen, so the rail is not going anywhere.
+    private func foldRailFilters(top: CGFloat, atOnce: Bool) {
+        var room = currentRoom
+        room.folded = true
+        room.foldedTop = top
+        railRooms[railShape] = room
+        scheduleRailSet(atOnce: atOnce)
+    }
+
+    /// How long the rail has to have been still before a short count is read as the system's
+    /// own fold. A rail that is rebuilding reports a partial set for a moment.
+    private static let railSettle: TimeInterval = 0.25
+    /// How long the rail takes to rebuild around a set of ours — measured at about 0.4 s. Until
+    /// then what it reports is the set on its way out.
+    private static let railRebuild: TimeInterval = 0.6
+    /// How far the rail's top has to come back up for the room to count as back: the height a
+    /// Live Activity adds to the status cluster.
+    private static let railRoomBack: CGFloat = 24
+
+    /// The window moved. Whether that is a turn is decided by the rail's *shape*: a turn, a fold
+    /// of the phone and a move to the other display all change it, and the rail is then rebuilt
+    /// in the new one — nothing it reports until that has happened is worth reading, not even
+    /// its overflow button, which the set on its way out produces there.
+    ///
+    /// A size change *within* one shape is the status cluster growing — a Live Activity — or
+    /// shrinking. That only moves the rail, and it is the one case the screen must answer now:
+    /// its count is worth re-reading after the settle, but an overflow button it reports is the
+    /// system's own fold and must not wait behind a blind window.
+    private func railGeometryChanged() {
+        railMovedAt = Date()
+        let shape = railShape
+        if shape != lastRailShape {
+            lastRailShape = shape
+            railBlindUntil = Date().addingTimeInterval(Self.railRebuild)
+        }
+        scheduleRailSet()
+    }
+
+    /// Hands the rail its set once the window has stopped moving — see the note above the
+    /// toolbar. The change goes through `withAnimation`: inside a transaction the bar host
+    /// brings the new pill in with an animation of its own instead of swapping it in one frame,
+    /// and that animation is all there is — the system owns this bar.
+    private func scheduleRailSet(atOnce: Bool = false) {
+        railSetTask?.cancel()
+        let wanted = wantedRailSet
+        guard wanted != railSet else { return }
+        let apply = {
+            withAnimation(.easeInOut(duration: 0.2)) { railSet = wanted }
+            railMovedAt = Date()
+            railBlindUntil = Date().addingTimeInterval(Self.railRebuild)
+        }
+        guard !atOnce else {
+            apply()
+            return
+        }
+        railSetTask = Task {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.2)) { railCompact = wanted }
+            apply()
         }
     }
 
@@ -380,7 +702,7 @@ struct MapTabView: View {
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
         }
-        .tint(.white)
+        .tint(controlGlyph)
     }
 
     private var calendarToolbarItem: some View {
@@ -390,7 +712,7 @@ struct MapTabView: View {
             Label("Pick a period", systemImage: "calendar")
         }
         .disabled(kind == .all)
-        .tint(.white)
+        .tint(controlGlyph)
     }
 
     private var rangeToolbarItem: some View {
@@ -399,7 +721,16 @@ struct MapTabView: View {
         } label: {
             Label("Range", systemImage: "line.3.horizontal.decrease")
         }
-        .tint(.white)
+        .tint(controlGlyph)
+    }
+
+    private var mapModeToolbarItem: some View {
+        Button {
+            showModes = true
+        } label: {
+            Label("Map mode", systemImage: "map.fill")
+        }
+        .tint(controlGlyph)
     }
 
     private var locateToolbarItem: some View {
@@ -408,10 +739,12 @@ struct MapTabView: View {
         } label: {
             Label("Current position", systemImage: "location.fill")
         }
-        .tint(.white)
+        .tint(controlGlyph)
     }
 
-    /// Calendar and range folded into one menu — the rail's answer to a short column.
+    /// Calendar and range folded into one menu — the rail's answer to a short column. On the
+    /// short rail the style joins them, because there is no room for a second bubble beside the
+    /// locate action; when the system is the one folding, the style keeps its own bubble.
     private var railOverflowToolbarItem: some View {
         Menu {
             Button {
@@ -425,10 +758,17 @@ struct MapTabView: View {
             } label: {
                 Label("Range", systemImage: "line.3.horizontal.decrease")
             }
+            if railSet == .compact {
+                Button {
+                    showModes = true
+                } label: {
+                    Label("Map mode", systemImage: "map.fill")
+                }
+            }
         } label: {
             Label("More", systemImage: "ellipsis")
         }
-        .tint(.white)
+        .tint(controlGlyph)
     }
 
     private var rangePicker: some View {
@@ -440,10 +780,12 @@ struct MapTabView: View {
         .pickerStyle(.inline)
     }
 
+    /// Picks a Walk / Run / Ride filter. Tapping the one that is already on does nothing at
+    /// all: it must not turn the filter off — an empty filter falls back to walking's routes —
+    /// and it must not re-zoom the map the way a real change does.
     private func toggle(_ item: WorkoutCategory) {
-        withAnimation(.easeInOut(duration: 0.15)) {
-            category = (category == item) ? nil : item
-        }
+        guard category != item else { return }
+        withAnimation(.easeInOut(duration: 0.15)) { category = item }
     }
 
     /// The locate button: centre on the current position. Without a fix there is
@@ -471,6 +813,7 @@ struct MapTabView: View {
 
     private func reload() async {
         userMoved = false
+        tappedRouteID = nil
         let list = filtered
         let cached = await RouteStore.shared.cachedRoutes(for: list.map(\.id))
         loaded = list.compactMap { workout in cached[workout.id].map { (workout, $0) } }

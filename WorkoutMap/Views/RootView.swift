@@ -4,6 +4,10 @@ struct RootView: View {
     @StateObject private var health = HealthStore()
     @StateObject private var location = LocationProvider()
     @State private var tab: Int = DebugLaunch.startTab
+    /// The style the map screen wants its controls in — and with it the tab bar, which is the
+    /// app's own and not the screen's. In the light style the selected item is the system's own
+    /// blue; the yellow accent is what the dark bar uses.
+    @ObservedObject private var controls = ControlAppearance.shared
 
     var body: some View {
         // The system TabView on purpose: it is what draws the floating Liquid
@@ -12,14 +16,19 @@ struct RootView: View {
             Tab("Workouts", systemImage: "rectangle.stack.fill", value: 0) {
                 WorkoutsListView(health: health)
             }
-            Tab("Map", systemImage: "map.fill", value: 1) {
+            // The map tab carries the app's own glyph rather than an SF Symbol. It is a
+            // template image, so the bar tints it like the others: white, accent when
+            // selected.
+            Tab(value: 1) {
                 MapTabView(health: health, location: location)
+            } label: {
+                Label("Map", image: "MapTab")
             }
-            Tab("Setting", systemImage: "gearshape.fill", value: 2) {
+            Tab("Settings", systemImage: "gearshape.fill", value: 2) {
                 SettingsView()
             }
         }
-        .tint(Palette.accent)
+        .tint(tab == 1 && controls.isLight ? nil : Palette.accent)
         .task {
             await health.bootstrap()
         }

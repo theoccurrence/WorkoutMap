@@ -14,15 +14,14 @@ final class MapImageRenderer {
     private let cache = NSCache<NSString, UIImage>()
     private static let ciContext = CIContext(options: nil)
 
-    /// Applies saturation / contrast / brightness so the snapshot matches the
-    /// grayscale, low-contrast look of the original app's map.
-    /// Applies a linear tone curve (and optional desaturation) directly on sRGB
-    /// pixels. Doing this by hand avoids Core Image's linear working space, which
-    /// makes brightness/contrast behave unpredictably for the app's flat look.
+    /// Applies a linear tone curve directly on sRGB pixels, keeping `chroma` of each
+    /// pixel's own colour and the rest of its luma: 0 is the flat grey of the cards, 0.5 is
+    /// the grey the live map's tone pass leaves behind, 1 keeps the colour. Doing this by hand avoids Core Image's linear working space, which makes
+    /// brightness/contrast behave unpredictably for the app's flat look.
     private func toneMapped(_ image: UIImage,
+                            chroma: CGFloat,
                             scale: CGFloat,
-                            offset: CGFloat,
-                            desaturate: Bool) -> UIImage {
+                            offset: CGFloat) -> UIImage {
         guard let cg = image.cgImage else { return image }
         let width = cg.width
         let height = cg.height
@@ -40,74 +39,67 @@ final class MapImageRenderer {
         guard let data = context.data else { return image }
         let ptr = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
         for index in stride(from: 0, to: width * height * 4, by: 4) {
-            var value: CGFloat
-            if desaturate {
-                value = 0.299 * CGFloat(ptr[index])
-                    + 0.587 * CGFloat(ptr[index + 1])
-                    + 0.114 * CGFloat(ptr[index + 2])
-            } else {
-                value = CGFloat(ptr[index + 1])
-            }
-            let mapped = max(0, min(255, value * scale + offset))
-            let byte = UInt8(mapped)
-            ptr[index] = byte
-            ptr[index + 1] = byte
-            ptr[index + 2] = byte
+            let red = CGFloat(ptr[index])
+            let green = CGFloat(ptr[index + 1])
+            let blue = CGFloat(ptr[index + 2])
+            let luma = 0.299 * red + 0.587 * green + 0.114 * blue
+            let gray = (1 - chroma) * luma
+            ptr[index] = UInt8(max(0, min(255, (chroma * red + gray) * scale + offset)))
+            ptr[index + 1] = UInt8(max(0, min(255, (chroma * green + gray) * scale + offset)))
+            ptr[index + 2] = UInt8(max(0, min(255, (chroma * blue + gray) * scale + offset)))
         }
         guard let output = context.makeImage() else { return image }
         return UIImage(cgImage: output, scale: image.scale, orientation: .up)
     }
 
-    /// The map style the live map (`RouteMapView`) also uses, so an exported card
-    /// shows the same map the user was looking at.
-    static func configuration() -> MKStandardMapConfiguration {
-        let config = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
-        config.pointOfInterestFilter = .excludingAll
-        return config
-    }
-
-    private func snapshot(mapRect: MKMapRect, size: CGSize, scale: CGFloat) async -> MKMapSnapshotter.Snapshot? {
+    /// One snapshot per map style, so an exported card shows the same map the user was
+    /// looking at.
+    private func snapshot(mapRect: MKMapRect,
+                          size: CGSize,
+                          scale: CGFloat,
+                          mode: MapMode,
+                          interfaceStyle: UIUserInterfaceStyle) async -> MKMapSnapshotter.Snapshot? {
         guard size.width > 1, size.height > 1 else { return nil }
         let options = MKMapSnapshotter.Options()
         options.mapRect = mapRect
         options.size = size
         options.scale = scale
-        options.preferredConfiguration = Self.configuration()
-        options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
+        options.preferredConfiguration = mode.configuration()
+        options.traitCollection = UITraitCollection(userInterfaceStyle: interfaceStyle)
         options.showsBuildings = false
         let snapshotter = MKMapSnapshotter(options: options)
         return try? await snapshotter.start()
     }
 
-    /// Map + routes rendered into one image. `darkening` dims the map behind the
-    /// route (1 = fully replaced by `darkeningColor`).
+    /// Map + routes rendered into one image. The tone curve is applied for the modes that
+    /// carry the app's grey (`MapMode.usesTone`) and skipped for the rest, which are the map
+    /// as MapKit draws it.
     func image(mapRect: MKMapRect,
                size: CGSize,
                scale: CGFloat,
                routes: [RouteLine],
-               darkening: CGFloat = 0,
-               darkeningColor: UIColor = UIColor(red: 0.11, green: 0.11, blue: 0.118, alpha: 1),
+               mode: MapMode = .legacy,
+               interfaceStyle: UIUserInterfaceStyle = .dark,
                lineWidth: CGFloat = 7,
+               toneChroma: CGFloat = 0,
                toneScale: CGFloat = 1,
-               toneOffset: CGFloat = 0,
-               desaturate: Bool = true) async -> UIImage? {
+               toneOffset: CGFloat = 0) async -> UIImage? {
         // MapKit draws its "Maps" attribution into the snapshot's bottom edge.
         // The original app shows no attribution in the card thumbnails, so the
         // snapshot is taken a little taller and that band is cropped off.
         let attributionBand: CGFloat = 14
         let snapshotSize = CGSize(width: size.width, height: size.height + attributionBand)
-        guard let snapshot = await snapshot(mapRect: mapRect, size: snapshotSize, scale: scale) else { return nil }
-        let base = toneMapped(snapshot.image, scale: toneScale, offset: toneOffset, desaturate: desaturate)
+        guard let snapshot = await snapshot(mapRect: mapRect, size: snapshotSize, scale: scale,
+                                            mode: mode, interfaceStyle: interfaceStyle) else { return nil }
+        let base = mode.usesTone
+            ? toneMapped(snapshot.image, chroma: toneChroma, scale: toneScale, offset: toneOffset)
+            : snapshot.image
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = scale
         format.opaque = true
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         return renderer.image { context in
             base.draw(in: CGRect(x: 0, y: -attributionBand, width: size.width, height: snapshotSize.height))
-            if darkening > 0 {
-                darkeningColor.withAlphaComponent(darkening).setFill()
-                context.fill(CGRect(origin: .zero, size: size))
-            }
             let cg = context.cgContext
             cg.setLineCap(.round)
             cg.setLineJoin(.round)
@@ -160,12 +152,10 @@ final class MapImageRenderer {
             ?? RouteGeometry.fitted(RouteGeometry.mapRect(for: route.first ?? CLLocationCoordinate2D()))
         let image = await image(mapRect: rect, size: size, scale: scale,
                                 routes: [RouteLine(coordinates: route, color: color)],
-                                darkening: 0,
-                                darkeningColor: .black,
                                 lineWidth: 2.4,
+                                toneChroma: 0,
                                 toneScale: 0.29,
-                                toneOffset: 16,
-                                desaturate: true)
+                                toneOffset: 16)
         if let image { cache.setObject(image, forKey: key) }
         return image
     }

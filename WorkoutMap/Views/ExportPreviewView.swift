@@ -8,6 +8,10 @@ struct ExportPreviewView: View {
     let rangeLabel: String
     let mapRect: MKMapRect?
     let routes: [MapRouteLine]
+    /// The map style the card is drawn in — the one the map it was exported from shows.
+    let mode: MapMode
+    /// The style that map is drawn in, so the card matches what the user was looking at.
+    let interfaceStyle: UIUserInterfaceStyle
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
@@ -161,10 +165,11 @@ struct ExportPreviewView: View {
                                                       size: CGSize(width: width, height: width * 0.78),
                                                       scale: displayScale,
                                                       routes: lines,
+                                                      mode: mode,
+                                                      interfaceStyle: interfaceStyle,
                                                       lineWidth: 4,
-                                                      toneScale: 0.72,
-                                                      toneOffset: 0,
-                                                      desaturate: true)
+                                                      toneChroma: 0,
+                                                      toneScale: 0.72)
     }
 
     private func save() async {

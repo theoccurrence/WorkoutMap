@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00817EB7CA01A698DD46A7C8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5DAF003050049BA3E62B5DF2 /* Assets.xcassets */; };
+		06E25D7A2B2F874D3269A75F /* MapMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261EAD446B5AC5B4F86D01F0 /* MapMode.swift */; };
 		0732BA69F360061119BC962D /* AppBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E953720D2A0F7CE9EADF8FE /* AppBackground.swift */; };
 		0D50A24C560BCAE0514B02D7 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1580B103C393940147C727E8 /* RouteStore.swift */; };
 		26701C7E896A64F41CF9ACE2 /* Metrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9FCF0A046B333430CBACFB /* Metrics.swift */; };
@@ -15,6 +16,7 @@
 		3283565090993D24D1DF0DD5 /* WorkoutCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C1094D0563FB01C619897C /* WorkoutCategory.swift */; };
 		34B326884EA77C94DC7A5D66 /* WorkoutMapApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D283CFA1D7D081654E932501 /* WorkoutMapApp.swift */; };
 		40FC7C1B0E69ABA306759CD1 /* TimeRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0DC88292C68F483805EC0A /* TimeRange.swift */; };
+		45C3B92E84512435D6793769 /* MapModeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AE76FF2591695815BDB0C5D /* MapModeSheet.swift */; };
 		5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E067599700C1579F86E5B45A /* ExportPreviewView.swift */; };
 		5FB46E23E7BE24A6EB05F868 /* WorkoutsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE6C11B7D46FCF2B7C9BC37 /* WorkoutsListView.swift */; };
 		636020DA50D5474720DFF24F /* HealthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C8374FFE8DA74D43CDF3D0 /* HealthStore.swift */; };
@@ -24,10 +26,12 @@
 		9C0464366C4261DCBC4238A4 /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239FACC29E0EB5235839B714 /* DebugLaunch.swift */; };
 		9C16629B50448FB841A06D90 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44ADDDBD6D95EE6030B2887D /* Components.swift */; };
 		AE7D60C69F4446EDCE650B18 /* MapImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A9908A3117CF3CCD723410D /* MapImageRenderer.swift */; };
+		AF5367A93BE477457C50C10D /* ControlAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D508E97CB901197853D63B57 /* ControlAppearance.swift */; };
 		B17C8DBF93754E37F2752DEC /* RouteGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */; };
 		B8DA40C4F2EB819396364428 /* RangePickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FD8F0FCB97E99E926E69D9B /* RangePickerSheet.swift */; };
 		CAB5B905D124764E36A6BB43 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCFFF76D1AD664F15B87FBBE /* SettingsView.swift */; };
 		CCC8E03F47C1CC9627965604 /* MapTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A231724BE3653A235B51A2F6 /* MapTabView.swift */; };
+		DB645A199F829A2763800D07 /* SystemAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AF569EB5045DD43C9FE1EE3 /* SystemAppearance.swift */; };
 		E0B814F3C4EBACC660298A61 /* WorkoutCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB43AA47D31BF875793C2277 /* WorkoutCardView.swift */; };
 		E955ADB8CF98796125D1E5D9 /* DebugSampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A63D8776C7CC508C221A2CF /* DebugSampleData.swift */; };
 		EF048E31131A14D028921ADF /* Workout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F90752D46A1FDDCFD1D51E8 /* Workout.swift */; };
@@ -41,6 +45,7 @@
 		15C7F167A6E55EDF154ECDD6 /* Palette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Palette.swift; sourceTree = "<group>"; };
 		1AB7B41C2C224D883B2841A0 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
 		239FACC29E0EB5235839B714 /* DebugLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLaunch.swift; sourceTree = "<group>"; };
+		261EAD446B5AC5B4F86D01F0 /* MapMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapMode.swift; sourceTree = "<group>"; };
 		371F8FAB111E70EFAED48FDA /* WorkoutDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDetailView.swift; sourceTree = "<group>"; };
 		3D9355199A652B873059B5A6 /* RouteMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteMapView.swift; sourceTree = "<group>"; };
 		44ADDDBD6D95EE6030B2887D /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
@@ -48,6 +53,8 @@
 		4C9FCF0A046B333430CBACFB /* Metrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Metrics.swift; sourceTree = "<group>"; };
 		5DAF003050049BA3E62B5DF2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6A9908A3117CF3CCD723410D /* MapImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapImageRenderer.swift; sourceTree = "<group>"; };
+		6AE76FF2591695815BDB0C5D /* MapModeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapModeSheet.swift; sourceTree = "<group>"; };
+		6AF569EB5045DD43C9FE1EE3 /* SystemAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearance.swift; sourceTree = "<group>"; };
 		6B10383FCD4C6961C1FC099A /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		6E953720D2A0F7CE9EADF8FE /* AppBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppBackground.swift; sourceTree = "<group>"; };
 		6F90752D46A1FDDCFD1D51E8 /* Workout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workout.swift; sourceTree = "<group>"; };
@@ -60,6 +67,7 @@
 		BEE6C11B7D46FCF2B7C9BC37 /* WorkoutsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutsListView.swift; sourceTree = "<group>"; };
 		C2F03628C72B3659DAB8738B /* LocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationProvider.swift; sourceTree = "<group>"; };
 		D283CFA1D7D081654E932501 /* WorkoutMapApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutMapApp.swift; sourceTree = "<group>"; };
+		D508E97CB901197853D63B57 /* ControlAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlAppearance.swift; sourceTree = "<group>"; };
 		DB43AA47D31BF875793C2277 /* WorkoutCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCardView.swift; sourceTree = "<group>"; };
 		E067599700C1579F86E5B45A /* ExportPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPreviewView.swift; sourceTree = "<group>"; };
 		E4C1094D0563FB01C619897C /* WorkoutCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCategory.swift; sourceTree = "<group>"; };
@@ -105,6 +113,7 @@
 				6E953720D2A0F7CE9EADF8FE /* AppBackground.swift */,
 				44ADDDBD6D95EE6030B2887D /* Components.swift */,
 				E067599700C1579F86E5B45A /* ExportPreviewView.swift */,
+				6AE76FF2591695815BDB0C5D /* MapModeSheet.swift */,
 				A231724BE3653A235B51A2F6 /* MapTabView.swift */,
 				9FD8F0FCB97E99E926E69D9B /* RangePickerSheet.swift */,
 				6B10383FCD4C6961C1FC099A /* RootView.swift */,
@@ -128,6 +137,7 @@
 		BFD64A34B3501B12432ACC86 /* Model */ = {
 			isa = PBXGroup;
 			children = (
+				261EAD446B5AC5B4F86D01F0 /* MapMode.swift */,
 				7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */,
 				BB0DC88292C68F483805EC0A /* TimeRange.swift */,
 				6F90752D46A1FDDCFD1D51E8 /* Workout.swift */,
@@ -139,10 +149,12 @@
 		F0AE655E4C5D9906B67B0101 /* Theme */ = {
 			isa = PBXGroup;
 			children = (
+				D508E97CB901197853D63B57 /* ControlAppearance.swift */,
 				239FACC29E0EB5235839B714 /* DebugLaunch.swift */,
 				1AB7B41C2C224D883B2841A0 /* Formatters.swift */,
 				4C9FCF0A046B333430CBACFB /* Metrics.swift */,
 				15C7F167A6E55EDF154ECDD6 /* Palette.swift */,
+				6AF569EB5045DD43C9FE1EE3 /* SystemAppearance.swift */,
 			);
 			path = Theme;
 			sourceTree = "<group>";
@@ -220,6 +232,7 @@
 			files = (
 				0732BA69F360061119BC962D /* AppBackground.swift in Sources */,
 				9C16629B50448FB841A06D90 /* Components.swift in Sources */,
+				AF5367A93BE477457C50C10D /* ControlAppearance.swift in Sources */,
 				9C0464366C4261DCBC4238A4 /* DebugLaunch.swift in Sources */,
 				E955ADB8CF98796125D1E5D9 /* DebugSampleData.swift in Sources */,
 				5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */,
@@ -227,6 +240,8 @@
 				636020DA50D5474720DFF24F /* HealthStore.swift in Sources */,
 				97C0361AE400FD9489827864 /* LocationProvider.swift in Sources */,
 				AE7D60C69F4446EDCE650B18 /* MapImageRenderer.swift in Sources */,
+				06E25D7A2B2F874D3269A75F /* MapMode.swift in Sources */,
+				45C3B92E84512435D6793769 /* MapModeSheet.swift in Sources */,
 				CCC8E03F47C1CC9627965604 /* MapTabView.swift in Sources */,
 				26701C7E896A64F41CF9ACE2 /* Metrics.swift in Sources */,
 				F6E9B535D0CBF8163B388075 /* Palette.swift in Sources */,
@@ -236,6 +251,7 @@
 				F2E4AA2D2B6CD7C0810BB69A /* RouteMapView.swift in Sources */,
 				0D50A24C560BCAE0514B02D7 /* RouteStore.swift in Sources */,
 				CAB5B905D124764E36A6BB43 /* SettingsView.swift in Sources */,
+				DB645A199F829A2763800D07 /* SystemAppearance.swift in Sources */,
 				40FC7C1B0E69ABA306759CD1 /* TimeRange.swift in Sources */,
 				EF048E31131A14D028921ADF /* Workout.swift in Sources */,
 				E0B814F3C4EBACC660298A61 /* WorkoutCardView.swift in Sources */,

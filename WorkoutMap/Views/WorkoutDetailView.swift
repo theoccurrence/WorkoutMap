@@ -9,9 +9,18 @@ struct WorkoutDetailView: View {
     @State private var route: [CLLocationCoordinate2D] = []
     @State private var showExport = DebugLaunch.openExport
     @State private var visibleMapRect: MKMapRect?
+    /// How the map is drawn, matching the map screen: the appearance setting against the
+    /// system's own style.
+    @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
+    @ObservedObject private var systemAppearance = SystemAppearance.shared
 
     private var lines: [MapRouteLine] {
         [MapRouteLine(id: workout.id.uuidString, coordinates: route, color: workout.category.uiColor)]
+    }
+
+    /// The style the map is drawn in — `legacy`, the stored style, stays dark.
+    private var mapInterfaceStyle: UIUserInterfaceStyle {
+        mapAppearance.interfaceStyle(for: MapMode.stored, system: systemAppearance.style)
     }
 
     var body: some View {
@@ -44,7 +53,9 @@ struct WorkoutDetailView: View {
             ExportPreviewView(workout: workout,
                               rangeLabel: workout.listDateText,
                               mapRect: visibleMapRect ?? RouteGeometry.fittedRect(routes: [route]),
-                              routes: lines)
+                              routes: lines,
+                              mode: MapMode.stored,
+                              interfaceStyle: mapInterfaceStyle)
         }
     }
 
@@ -52,6 +63,8 @@ struct WorkoutDetailView: View {
         RouteMapView(routes: lines,
                      camera: RouteGeometry.fittedRect(routes: [route]).map { .fit($0) },
                      cameraToken: route.count,
+                     mode: MapMode.stored,
+                     interfaceStyle: mapInterfaceStyle,
                      onRegionChange: { visibleMapRect = $0 })
             .frame(height: height)
             .clipped()

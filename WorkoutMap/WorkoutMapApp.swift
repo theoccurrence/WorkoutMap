@@ -7,6 +7,10 @@ struct WorkoutMapApp: App {
             RootView()
                 .preferredColorScheme(.dark)
                 .background(Color.black)
+                .task {
+                    DebugLaunch.startRotationIfRequested()
+                    DebugLaunch.startModeFlipIfRequested()
+                }
         }
     }
 }
