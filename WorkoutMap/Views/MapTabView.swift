@@ -45,18 +45,19 @@ struct MapTabView: View {
     /// How much of that wash is showing.
     @State private var washOpacity: Double = 0
     @State private var washTask: Task<Void, Never>?
-    /// The map screen's size: which way round the rail runs, and whether a short rail
-    /// (folded landscape) still has room for the calendar and range actions.
+    /// The map screen's size: which way round the rail runs, and which of the Duo's two panels
+    /// it sits on. The folded cover panel's rail is the one with no room for the full set of
+    /// actions, which is what `wantedRailSet` reads off it.
     @State private var railSize: CGSize = .zero
     /// The set of actions the rail declares. Which one it is is the only lever this screen has
     /// — the system places the items itself, and nothing inside one of them may be animated —
     /// and there are three of them.
     private enum RailSet {
-        /// Share, the calendar, the range — and the map style above the locate action, in a
-        /// bubble of their own.
+        /// Share, the calendar and the range — and the map style above the locate action, in a
+        /// bubble of their own. For a rail with room to spare.
         case full
         /// Share and one overflow menu carrying the calendar and the range — the map style and
-        /// the locate action keep their bubble.
+        /// the locate action keep their own bubble. For a rail too tight for the full set.
         case filtersFolded
         /// Share and one overflow menu carrying the calendar, the range *and* the map style —
         /// the locate action alone in its bubble.
@@ -65,35 +66,13 @@ struct MapTabView: View {
 
     /// The set the rail declares right now. Applied only once the window has stopped moving
     /// (`scheduleRailSet`): changing it while the system is relocating the rail makes the bar
-    /// rebuild, and then the whole rail — the system's own tab bar included — is gone for a
-    /// moment.
+    /// rebuild, and then the whole rail, the system's own tab bar included, is gone for a
+    /// moment. The first set the rail is ever handed goes over at once instead: the rail must
+    /// not open on a set the window cannot hold.
     @State private var railSet: RailSet = .full
     @State private var railSetTask: Task<Void, Never>?
-    /// What the rail has learned about one layout — the two displays, either way round, with the
-    /// rail on either side: whether the system has been seen folding part of the declared set
-    /// away there, and where the rail's top sat when it did. Kept per layout because the room
-    /// differs between them; and learned rather than known, because the Live Activity that
-    /// takes the room has no API that says so.
-    private struct RailRoom: Equatable {
-        var folded = false
-        var foldedTop: CGFloat = 0
-    }
-    @State private var railRooms: [String: RailRoom] = [:]
-    /// The layout the rail was last seen in. A change here is a turn, a fold of the phone or a
-    /// move to the other display; a size change *within* one layout is the status cluster
-    /// growing (a Live Activity), which is not a turn and must not blind the rail.
-    @State private var lastRailShape = ""
-    /// The rail as last measured: how many of the declared items the system is showing, and
-    /// where the topmost one starts.
-    @State private var railItemCount = 0
-    @State private var railTop: CGFloat = 0
-    /// When the rail last moved.
-    @State private var railMovedAt = Date.distantPast
-    /// Until this, the rail is rebuilding — because the window turned, or because the set
-    /// changed — and what it reports in the meantime is the set on its way out, not a fold.
-    @State private var railBlindUntil = Date.distantPast
-    /// How many reports in a row have shown fewer items than the set declares.
-    @State private var railShortReports = 0
+    /// Whether the rail has ever been handed a set (see `scheduleRailSet`).
+    @State private var railSetApplied = false
     /// The floating tab bar's capsule as insets from the window's bottom edge to its own
     /// bottom and top edges, measured from the bar so the overlays can line up with it.
     @State private var tabBarInsets: (bottom: CGFloat, top: CGFloat)?
@@ -224,9 +203,12 @@ struct MapTabView: View {
             .onAppear { ControlAppearance.shared.setLight(controlsAreLight) }
             .onChange(of: controlsAreLight) { _, light in ControlAppearance.shared.setLight(light) }
             .onGeometryChange(for: CGSize.self) { $0.size } action: { railSize = $0 }
-            .onChange(of: railSize) { _, _ in railGeometryChanged() }
-            .onChange(of: usesVerticalControls) { _, _ in railGeometryChanged() }
-            .onChange(of: windowInsets) { _, _ in railGeometryChanged() }
+            // A turn, a fold of the phone or a move to the other display: the rail's set is
+            // re-decided from the size it moved to (`wantedRailSet`), and nothing here reads
+            // the system's rail.
+            .onChange(of: railSize) { _, _ in scheduleRailSet() }
+            .onChange(of: usesVerticalControls) { _, _ in scheduleRailSet() }
+            .onChange(of: windowInsets) { _, _ in scheduleRailSet() }
             // The rail's actions MUST stay system toolbar items. The system places them
             // itself — below the status cluster, clear of the camera cut-out and of a Live
             // Activity — and re-lays them out when the screen turns. Every attempt to draw
@@ -235,9 +217,17 @@ struct MapTabView: View {
             // clock and status badge run straight over it as soon as a Live Activity is
             // live.
             //
-            // Two things follow from that, both measured, both easy to get wrong again:
+            // Three things follow from that, all measured, all easy to get wrong again:
             //
-            // * The *set* of items may only change once the window has stopped moving —
+            // * The *set* has to be one the window can hold: the system folds what does not
+            //   fit into an overflow of its own, and on the folded panel it folds the map
+            //   style and the locate action — the pill this screen is for — away with it. A
+            //   set that only just fits is therefore not safe, and the rail decides which one
+            //   to declare from the window's own size rather than by watching for the fold
+            //   (`wantedRailSet`). Watching for it leaves the folded pill on screen for as
+            //   long as the fold takes to be answered, which is what a Live Activity growing
+            //   the status cluster used to show for a moment.
+            // * The set may only change once the window has stopped moving —
             //   see `scheduleRailSet`. Changed mid-turn the bar host rebuilds the rail
             //   while the system is still relocating it, and the whole rail, the system's
             //   own tab bar included, is missing for a moment. Changed at rest the host
@@ -385,8 +375,7 @@ struct MapTabView: View {
                              if tabBarInsets == nil || tabBarInsets! != (bottom, top) {
                                  tabBarInsets = (bottom, top)
                              }
-                         },
-                         onRailItems: { noteRailItems($0, top: $1) })
+                         })
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -534,6 +523,9 @@ struct MapTabView: View {
     /// against 951 pt — which is what tells the two panels apart in every orientation,
     /// where a plain height check cannot (folded portrait and unfolded landscape are
     /// nearly the same height).
+    ///
+    /// It also chooses the rail's set: the cover panel's rail is the one with no room for the
+    /// full set of actions (see `wantedRailSet`).
     private var isFoldedPanel: Bool { min(railSize.width, railSize.height) < 500 }
 
     // MARK: - Rail toolbar items
@@ -546,145 +538,40 @@ struct MapTabView: View {
         return isFoldedPanel && railSize.height < 540
     }
 
-    /// The set the rail should be declaring: the short rail's own one where the window is too
-    /// short for the two filters and the map style *and* the locate action (the folded panel
-    /// held sideways is the one layout that happens in), and otherwise the full set — or the
-    /// one with the filters folded, where this layout has been seen running out of room.
+    /// The set the rail should be declaring, decided from the window's own geometry.
+    ///
+    /// The system folds whatever it is handed and does not fit into an overflow of its own, and
+    /// on the folded panel that is the map style and the locate action — the pill this screen is
+    /// for. So a tight rail declares a set that fits instead, and it decides that from the size
+    /// of the window rather than by watching the system fold: a set that only *just* fits shows
+    /// the wrong pill for as long as the fold takes to be noticed, and that is what used to be
+    /// on screen for a moment when a Live Activity grew the status cluster.
+    ///
+    /// * the short rail — the folded panel held sideways — declares `compact`;
+    /// * the folded cover panel's rail, upright, declares `filtersFolded`: its status cluster is
+    ///   a *vertical* strip that takes most of the rail's height, which leaves the rail room for
+    ///   the filters' set but not for the full one, and a Live Activity in it only takes more;
+    /// * anything else — a rail with room — declares `full`.
     private var wantedRailSet: RailSet {
         if shortRailWanted { return .compact }
-        return currentRoom.folded ? .filtersFolded : .full
-    }
-
-    /// How many items a set declares.
-    private static func itemCount(of set: RailSet) -> Int {
-        var count: Int
-        switch set {
-        case .full: count = 5
-        case .filtersFolded: count = 4
-        case .compact: count = 3
-        }
-        return count
-    }
-
-    /// Which layout the rail is in. The room differs between the two displays and either way
-    /// round, so what the rail has learned is kept per layout — and keyed on the shape rather
-    /// than on the size, because the shape is the same before and after a turn.
-    private var railShape: String {
-        let panel = isFoldedPanel ? "cover" : "inner"
-        let way = isPortraitLayout ? "portrait" : "landscape"
-        let side = filtersOnTrailingEdge ? "trailing" : "leading"
-        return "\(panel)-\(way)-\(side)"
-    }
-
-    private var currentRoom: RailRoom { railRooms[railShape] ?? RailRoom() }
-
-    /// What the system's rail is showing — the one thing this screen measures.
-    ///
-    /// The item *set* is the only lever there is (the system places the items itself, and
-    /// nothing inside one of them can be animated), and a set that does not fit is folded by
-    /// the system into an overflow of its own — measured on the folded panel in portrait, it
-    /// takes the map style and the locate action away with it, which is the pill the screen is
-    /// for. So the screen answers with the set that folds the calendar and the range instead
-    /// and leaves that bubble alone.
-    ///
-    /// What takes the room is a Live Activity in the status cluster, and no API says so: it is
-    /// read off the rail, as the system showing fewer items than the set declares once the rail
-    /// has stopped moving. Two things are not that, and both were read as one before:
-    ///
-    /// * a rail that is still rebuilding — it reports the top group first, one item then two,
-    ///   where the finished rail shows five, and a set change of ours or a turn makes it
-    ///   rebuild again (`railBlindUntil`, `railMovedAt`). The system's own fold never shows
-    ///   fewer than three: share, the calendar, the range and its own overflow button.
-    /// * the set we folded ourselves: nothing is missing from it, so it reads as "there is
-    ///   room" — which is why the room coming back is read from the rail's *top* instead
-    ///   (below), and why nothing here is latched: every turn, and every fold, is measured
-    ///   again from scratch.
-    private func noteRailItems(_ count: Int, top: CGFloat) {
-        if count != railItemCount || top != railTop {
-            railItemCount = count
-            railTop = top
-            railMovedAt = Date()
-        }
-        // The system folded part of the declared set away — a Live Activity in the status
-        // cluster has taken the rail's room, and the set it folded is the one the user would
-        // otherwise read. Two reports in a row say so: that is one poll of the system's own
-        // fold, and it is still not a rail that is rebuilding, whose count moves with every
-        // report. A *turn* reports short counts too, and for longer — that is what the blind
-        // window is for, and it is set by a change of the rail's own shape.
-        let short = count >= 3 && count < Self.itemCount(of: railSet) && !shortRailWanted
-        railShortReports = short ? railShortReports + 1 : 0
-        if short, railShortReports >= 2, !currentRoom.folded, Date() > railBlindUntil {
-            foldRailFilters(top: top, atOnce: true)
-            return
-        }
-        guard Date() > railBlindUntil,
-              Date().timeIntervalSince(railMovedAt) > Self.railSettle else { return }
-        var room = currentRoom
-        if room.folded {
-            // The rail's top is where the status cluster ends. When it comes back up the Live
-            // Activity that grew it has ended, the room is back, and the full set fits again.
-            guard room.foldedTop > 0, top > 0, top < room.foldedTop - Self.railRoomBack else { return }
-            room.folded = false
-            room.foldedTop = 0
-            railRooms[railShape] = room
-            scheduleRailSet()
-        }
-    }
-
-    /// Remembers that this layout has no room for the full set, and hands the rail the folded
-    /// one. `atOnce` skips the delay `scheduleRailSet` keeps for a window that is still moving:
-    /// the fold has just been seen, so the rail is not going anywhere.
-    private func foldRailFilters(top: CGFloat, atOnce: Bool) {
-        var room = currentRoom
-        room.folded = true
-        room.foldedTop = top
-        railRooms[railShape] = room
-        scheduleRailSet(atOnce: atOnce)
-    }
-
-    /// How long the rail has to have been still before a short count is read as the system's
-    /// own fold. A rail that is rebuilding reports a partial set for a moment.
-    private static let railSettle: TimeInterval = 0.25
-    /// How long the rail takes to rebuild around a set of ours — measured at about 0.4 s. Until
-    /// then what it reports is the set on its way out.
-    private static let railRebuild: TimeInterval = 0.6
-    /// How far the rail's top has to come back up for the room to count as back: the height a
-    /// Live Activity adds to the status cluster.
-    private static let railRoomBack: CGFloat = 24
-
-    /// The window moved. Whether that is a turn is decided by the rail's *shape*: a turn, a fold
-    /// of the phone and a move to the other display all change it, and the rail is then rebuilt
-    /// in the new one — nothing it reports until that has happened is worth reading, not even
-    /// its overflow button, which the set on its way out produces there.
-    ///
-    /// A size change *within* one shape is the status cluster growing — a Live Activity — or
-    /// shrinking. That only moves the rail, and it is the one case the screen must answer now:
-    /// its count is worth re-reading after the settle, but an overflow button it reports is the
-    /// system's own fold and must not wait behind a blind window.
-    private func railGeometryChanged() {
-        railMovedAt = Date()
-        let shape = railShape
-        if shape != lastRailShape {
-            lastRailShape = shape
-            railBlindUntil = Date().addingTimeInterval(Self.railRebuild)
-        }
-        scheduleRailSet()
+        return isFoldedPanel ? .filtersFolded : .full
     }
 
     /// Hands the rail its set once the window has stopped moving — see the note above the
     /// toolbar. The change goes through `withAnimation`: inside a transaction the bar host
     /// brings the new pill in with an animation of its own instead of swapping it in one frame,
-    /// and that animation is all there is — the system owns this bar.
-    private func scheduleRailSet(atOnce: Bool = false) {
+    /// and that animation is all there is — the system owns this bar. The first set the rail is
+    /// ever handed goes over at once: the rail has just been built and is not going anywhere,
+    /// and it must not spend a moment declaring a set the window cannot hold.
+    private func scheduleRailSet() {
         railSetTask?.cancel()
         let wanted = wantedRailSet
         guard wanted != railSet else { return }
         let apply = {
             withAnimation(.easeInOut(duration: 0.2)) { railSet = wanted }
-            railMovedAt = Date()
-            railBlindUntil = Date().addingTimeInterval(Self.railRebuild)
+            railSetApplied = true
         }
-        guard !atOnce else {
+        guard railSetApplied else {
             apply()
             return
         }

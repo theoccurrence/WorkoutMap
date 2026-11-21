@@ -261,50 +261,33 @@ Notes on the map rendering, all measured from the original app:
   bar's top edge: the system only offers a vertical bar where it reserves a side inset, and
   there is nowhere else to put one at the bottom of a portrait screen. The grey top bar
   (`MapTabView.toolbar`) is gone with it.
-  The rail declares one of **three sets**, and only two of them are ours to choose:
+  The rail declares one of **three sets**, and it chooses between them from the window's own
+  geometry — not by watching what the system does with them:
   `full` — share, the calendar and the range, and the map style above the locate action in a
   bubble of their own; `filtersFolded` — share and one overflow menu carrying the calendar and
   the range, the map style and the locate action untouched; and `compact` — share, the calendar,
   the range *and* the map style behind that menu, the locate action alone in its bubble.
-  `compact` is the short rail's own set and is decided by the geometry
-  (`shortRailWanted`: the folded cover panel held sideways — its content column is 382 pt wide
-  and 620 pt tall in portrait, ~445 pt tall in landscape, against the unfolded panel's ~650 pt,
-  so this never trips when the phone is unfolded).
-  The other way to run out of room is a Live Activity in the status cluster, which grows that
-  cluster and takes the rail's space away; the system then folds a group of its own into an
-  `ellipsis` — measured on the folded panel in portrait, it folds the **map style and the locate
-  action** away, which is the pill the screen is for. No API says a Live Activity is there, so
-  it is read off the rail (`FittableMapView.railItems`, polled every 0.3 s while the screen has
-  a rail): the system showing fewer items than the declared set means the system has folded
-  some, and the screen answers with `filtersFolded` instead. Two things are not that, and both
-  were read as one by the build before this one:
-  * a rail that is still rebuilding — it reports the top group first, one item then two, where
-    the finished rail shows five. A set change of ours or a turn makes it rebuild, so for
-    `railRebuild` (0.6 s, measured) after either, nothing the rail reports is read at all
-    (`railBlindUntil`), and a short count has to have stood for `railSettle` (0.25 s) as well.
-    The system's own fold never shows fewer than three: share, the calendar, the range and its
-    own overflow button.
-  * the set we folded ourselves: nothing is missing from it, so it reads as "there is room".
-    That is why the room coming back is read from the rail's *top* instead — where the status
-    cluster ends — and why **nothing is latched**: the answer is kept per layout
-    (`railShape`: which of the two panels, which way round, which side the rail is on), and
-    every turn, and every fold, is measured again from scratch. The previous build latched
-    "had all of its items" and read the rail *left over from the compact set* as the system's
-    fold, which is what made a portrait → landscape → portrait turn come back with the filters
-    folded; the reverse turn only escaped it by luck.
-  The live fold is answered in **one poll** (0.15 s): two reports in a row may show fewer items
-  than the set declares and the screen folds — a Live Activity that has just appeared is the case
-  that must not be *read* for long. What keeps that honest is the **blind window**, and it is set
-  by a change of the rail's *shape* rather than by any change of its size: a turn, a fold of the
-  phone and a move to the other display all change the shape and then rebuild the rail, whose
-  count is worthless for a while, while a Live Activity growing the status cluster only moves the
-  rail inside one shape (measured: the rail's own top goes down by about 50 pt) — and that is
-  exactly the case that must be answered at once. A launch is blinded by its own first shape
-  change, so a screen that opens with a Live Activity already running answers about 0.6 s after
-  the rail appears instead of instantly, which is the one case left. An overflow button of the
-  system's own cannot be told from one of ours by the view it lives in — measured, it is hosted
-  in a `ButtonRepresentation` just like the screen's own items — so only the count is read, and
-  the count cannot say anything earlier than this.
+  `compact` is the short rail's own set (`shortRailWanted`: the folded cover panel held sideways
+  — its content column is 382 pt wide and 620 pt tall in portrait, ~445 pt tall in landscape,
+  against the unfolded panel's ~650 pt, so this never trips when the phone is unfolded).
+  `filtersFolded` is the folded cover panel's rail, upright (`isFoldedPanel`), and it is what
+  that rail can hold. Its status cluster is a *vertical* strip — the clock, the battery and the
+  badge turn with the rail — and it takes most of the rail's height (measured: the rail's own
+  top sits ~370 pt down a 678 pt screen), which leaves the rail room for the filters' set but
+  not for the full one. Without a Live Activity the full set fits there by a hair; a Live
+  Activity grows the cluster, and the system folds what no longer fits into an `ellipsis` of its
+  own — measured on that panel, it folds the **map style and the locate action**, the pill the
+  screen is for, away with it. No API says a Live Activity is there, and reading it off the rail
+  (the system showing fewer items than the declared set: `railItems`, polled every 0.15 s) left
+  that wrong pill on screen for the quarter second the answer took, after every Live Activity.
+  A rail the full set only *just* fills is not one to declare a full set on: the rail declares
+  the set the window can hold whatever the status cluster does, and the cluster can no longer
+  change the layout at all. The cost is that this rail shows the filters folded even while the
+  cluster is at rest, where the full set fits — two buttons sit one tap deeper, and the layout
+  is the same in every state.
+  The rail is not measured at all any more: `FittableMapView` reports the window's safe area and
+  the tab bar's capsule — both needed elsewhere — and nothing else, and the 0.15 s poll the Live
+  Activity needed is gone with it.
   **The items stay system items — do not hand-place this column.** The system positions them
   itself (below the status cluster, clear of the camera cut-out and of a Live Activity) and
   re-lays them out on every turn. A hand-placed overlay — it was tried once, on the folded
@@ -314,7 +297,8 @@ Notes on the map rendering, all measured from the original app:
   moving the rail: an item set that changed mid-turn made the bar rebuild itself, and the
   whole rail — the system's own tab bar included — was gone for a moment on every turn. So
   `MapTabView.scheduleRailSet` hands the new set over only once the window has stopped
-  moving (120 ms after the last geometry change) and opens the blind window with it.
+  moving (120 ms after the last geometry change) — except the first set the rail is ever
+  handed, which goes over at once so the rail never opens on a set the window cannot hold.
   **What the transition can and cannot be** — measured, with three routes tried:
   * The item *set* is the only lever, and it may only change once the window is still.
     Mid-turn the host rebuilds the rail while it is relocating it and the whole rail, tab bar

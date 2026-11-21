@@ -254,76 +254,17 @@ final class FittableMapView: MKMapView {
     /// bottom and top edges, so the SwiftUI overlays can line up with the bar itself
     /// rather than with the safe area.
     var onTabBarInsets: ((_ bottom: CGFloat, _ top: CGFloat) -> Void)?
-    /// How many of the screen's rail items the system is showing, and where the topmost one
-    /// starts, so the SwiftUI side can tell that part of the rail has been folded into an
-    /// overflow of the system's own, and that the room it lost has come back.
-    var onRailItems: ((_ count: Int, _ top: CGFloat) -> Void)?
-
-    /// A Live Activity can take the rail's room away without any layout change reaching this
-    /// view, so the rail is measured again on a slow poll while the screen has one. The
-    /// interval is what the screen's answer to a Live Activity costs in time — see
-    /// `MapTabView.noteRailItems` — and the walk it drives is a few hundred microseconds.
-    private static let railPollInterval: TimeInterval = 0.15
-    private var railPoll: Timer?
 
     override func layoutSubviews() {
         super.layoutSubviews()
         onLayout?()
         reportWindow()
-        updateRailPoll()
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard window != nil else {
-            railPoll?.invalidate()
-            railPoll = nil
-            return
-        }
+        guard window != nil else { return }
         reportWindow()
-        updateRailPoll()
-    }
-
-    /// What the system put in the window's rail: how many items it is showing, and where the
-    /// topmost one starts.
-    ///
-    /// Counted by class name — the bar's own buttons are `_UIButtonBarButton` and
-    /// `_UIModernBarButton`, while the tab bar's are `_UITabButton` — and only the outermost
-    /// one of each item, so the inner modern button of a bar button is not counted twice.
-    /// Their accessibility labels are nil, so they cannot be told apart by label; the count is
-    /// what says that the system has folded part of the declared set away, because it drops
-    /// those items out of the hierarchy. (An overflow button of the system's own cannot be told
-    /// from one of ours by the view it lives in — measured, it is hosted the same way — so only
-    /// the count is read.)
-    static func railItems(in root: UIView) -> (count: Int, top: CGFloat) {
-        var count = 0
-        var top = CGFloat.greatestFiniteMagnitude
-        func isBarButton(_ view: UIView) -> Bool {
-            String(describing: type(of: view)).contains("BarButton")
-        }
-        func walk(_ view: UIView, inside: Bool) {
-            let isButton = isBarButton(view)
-            if isButton, !inside, !view.isHidden, view.alpha > 0.01 {
-                let frame = view.convert(view.bounds, to: root)
-                if frame.width > 8, frame.height > 8 {
-                    count += 1
-                    top = min(top, frame.minY)
-                }
-            }
-            for sub in view.subviews { walk(sub, inside: inside || isButton) }
-        }
-        walk(root, inside: false)
-        return (count, top == .greatestFiniteMagnitude ? 0 : top)
-    }
-
-    private func updateRailPoll() {
-        guard let window, max(window.safeAreaInsets.left, window.safeAreaInsets.right) >= Metrics.railInset,
-              railPoll == nil else { return }
-        let timer = Timer(timeInterval: Self.railPollInterval, repeats: true) { [weak self] _ in
-            self?.reportWindow()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        railPoll = timer
     }
 
     /// Reported on every layout pass rather than on change: SwiftUI rebuilds this screen's
@@ -333,7 +274,6 @@ final class FittableMapView: MKMapView {
     private func reportWindow() {
         guard let window else { return }
         onSafeAreaChange?(window.safeAreaInsets)
-        let items = FittableMapView.railItems(in: window)
         if let bar = FittableMapView.tabBar(in: window) {
             let frame = bar.convert(bar.bounds, to: window)
             let foot = window.bounds.maxY
@@ -341,12 +281,7 @@ final class FittableMapView: MKMapView {
             let top = foot - frame.minY
             guard bottom.isFinite, top.isFinite else { return }
             onTabBarInsets?(bottom, top)
-            // A rail item can only sit above the tab bar. A report that puts the topmost one
-            // below it is the system mid-move — a parked copy of the pill at the position it
-            // had before the window turned — and nothing to read.
-            if items.top > 0, items.top > foot - top - 4 { return }
         }
-        onRailItems?(items.count, items.top)
     }
 
     /// The floating bar is drawn by a private `UITabBar` subclass; its capsule container is
@@ -437,10 +372,6 @@ struct RouteMapView: UIViewRepresentable {
     /// The floating tab bar's capsule, as insets from the window's bottom edge to its own
     /// bottom and top edges.
     var onTabBarInsets: ((_ bottom: CGFloat, _ top: CGFloat) -> Void)?
-    /// How many of the map screen's rail items the system is actually showing, and where the
-    /// topmost one starts. Fewer than the screen declares means the system folded some of them
-    /// into an overflow of its own.
-    var onRailItems: ((_ count: Int, _ top: CGFloat) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -481,10 +412,6 @@ struct RouteMapView: UIViewRepresentable {
         map.onTabBarInsets = { [weak coordinator = context.coordinator] bottom, top in
             // Deferred like the safe-area report: this arrives from a layout pass.
             DispatchQueue.main.async { coordinator?.parent.onTabBarInsets?(bottom, top) }
-        }
-        map.onRailItems = { [weak coordinator = context.coordinator] count, top in
-            // Deferred like the others: the report arrives from a layout pass or the poll.
-            DispatchQueue.main.async { coordinator?.parent.onRailItems?(count, top) }
         }
         context.coordinator.map = map
         context.coordinator.appliedInterfaceStyle = interfaceStyle
