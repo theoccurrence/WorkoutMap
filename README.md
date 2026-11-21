@@ -423,16 +423,26 @@ Notes on the map rendering, all measured from the original app:
     becomes one red **Stop**. Dragging it up **follows the finger**: the drag writes the card's
     own offset — a swipe that does not keep up with the thumb does not feel like a swipe — and
     only the release decides where it settles, leaving on a spring if it is past a third of the
-    way off or was flicked fast enough that it would have got there, and springing back if not.
-    The overlay column has to be clipped, or a card on its way out slides over the range bubble
-    and fades out mid-screen instead. The explorer's button brings it back down, or opens the
-    sheet again when it is already up.
-  * The explorer's surfaces are **frosted**, not flat: the result card and the range bubble use
-    `.regularMaterial`, and the planner's sheet `.ultraThinMaterial` — thinner than the rest,
-    because over a dark map a heavier material reads as a solid plate, and the streets have to
-    show through it for the glass to look like glass. The sheet's own fields (the search box, the
-    results, the chosen destination) are `.thinMaterial` over it. The sheets that shipped before
-    the explorer keep the flat fill they had.
+    way off or was flicked fast enough that it would have got there, and springing back with a
+    little overshoot if not. Past the end of its travel, and dragging *down* where there is
+    nothing below the resting place at all, the offset is a **rubber band** (`UIScrollView`'s own
+    `(x·d·c)/(d + c·x)`) rather than a clamp: the pull still moves the card, by less and less, so
+    the edge gives instead of stopping dead. The explorer's button brings it back down, or opens
+    the sheet again when it is already up. The card clears the top of the screen by its own
+    height plus the gap it sits below, so nothing has to be clipped to hide it — clipping the
+    overlay column is what used to cut the top off the range bubble.
+  * **Every panel of the map screen is glass**, through one modifier (`View.glassPanel()`): the
+    explorer's sheet, its result card, the range bubble, the calendar picker and the map-style
+    picker. **Liquid Glass** (`glassEffect`) rather than a `Material`, because over a dark map a
+    material — even `.ultraThin` — is a grey plate with a blur on it: it neither lights its own
+    edge nor reads as glass, while the glass does both and still keeps the text readable. The
+    sheets ask for `presentationBackgroundInteraction(.enabled)` too, since the system otherwise
+    dims the map behind them and glass over something dimmed has nothing left to be glass over.
+    The explorer sheet's own fields (the search box, the results, the chosen destination) are
+    `.thinMaterial` over it, and every panel's close cross is **white** — black read as a hole
+    punched in the glass. The flat `Palette.sheetCard` / `Palette.pickerGlass` fills went with
+    it. The export card is the one exception: it is a full-screen viewer for the image it
+    produces rather than a panel over the map, so it still sits on black.
   * The explorer is **independent** of the Walk / Run / Ride filters: it neither selects nor
     clears one, and a walk filter can be on while a planned route is on the map. That is also
     what makes the two comparable at a glance — a filter's routes and a planned route are drawn

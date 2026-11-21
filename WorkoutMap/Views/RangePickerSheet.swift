@@ -23,7 +23,7 @@ struct RangePickerSheet: View {
                 .padding(.bottom, 23)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.sheetCard)
+        .glassPanel()
         .presentationDetents([.height(358)])
         .presentationDragIndicator(.hidden)
         .presentationCornerRadius(12)

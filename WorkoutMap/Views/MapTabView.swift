@@ -493,9 +493,6 @@ struct MapTabView: View {
             // the gap below the top of the screen that it has below the grey bar in the
             // reference, and the overlays line up with the tab bar's own edges.
             .ignoresSafeArea()
-            // So the result card can be swiped up and actually leave: without a clip it would
-            // slide up over the range bubble and then fade out mid-screen instead.
-            .clipped()
 
             // Screens without a side rail get no vertical toolbar from the system, so the
             // same column is placed by hand: the action capsule with the locate circle
@@ -783,28 +780,49 @@ struct MapTabView: View {
     private var cardDrag: some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                cardOffset = min(0, value.translation.height)
+                cardOffset = cardOffset(for: value.translation.height)
             }
             .onEnded { value in
                 let projected = min(value.translation.height, value.predictedEndTranslation.height)
                 let leaves = projected < -cardTravel / 3
                 cardParked = leaves
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                // A bouncier spring than a plain ease: the snap-back is the part that has to
+                // feel like a piece of iOS, and it overshoots a little on the way home.
+                withAnimation(.spring(response: 0.36, dampingFraction: leaves ? 0.9 : 0.76)) {
                     cardOffset = leaves ? -cardTravel : 0
                 }
             }
     }
 
+    /// The card's offset for a pull of the finger: one to one while there is somewhere to go,
+    /// and past that the rubber band iOS puts on a drag that has run out of room — the pull
+    /// still moves it, by less and less, so the edge gives instead of stopping dead. Dragging
+    /// *down* is all rubber band, because there is nothing below the resting place at all.
+    private func cardOffset(for pull: CGFloat) -> CGFloat {
+        guard pull < 0 else { return rubberBand(pull, limit: cardTravel * 0.20) }
+        let travelled = min(-pull, cardTravel)
+        let past = max(0, -pull - cardTravel)
+        return -travelled - rubberBand(past, limit: cardTravel * 0.20)
+    }
+
+    /// `UIScrollView`'s own rubber band: the displacement approaches `limit` as the pull grows,
+    /// and a small pull moves it about half as far as the finger.
+    private func rubberBand(_ distance: CGFloat, limit: CGFloat) -> CGFloat {
+        guard distance > 0, limit > 0 else { return 0 }
+        let constant: CGFloat = 0.55
+        return (distance * limit * constant) / (limit + constant * distance)
+    }
+
     /// Brings the result card back down from wherever it is parked.
     private func showCard() {
         cardParked = false
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { cardOffset = 0 }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.74)) { cardOffset = 0 }
     }
 
     /// Puts it away again — the debug hook and the flicked-away state share this.
     private func parkCard() {
         cardParked = true
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { cardOffset = -cardTravel }
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.9)) { cardOffset = -cardTravel }
     }
 
     /// Picking one of the planned routes by tapping it on the map — the same choice the pills on

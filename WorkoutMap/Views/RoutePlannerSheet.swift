@@ -41,10 +41,7 @@ struct RoutePlannerSheet: View {
                 .padding(.bottom, 23)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Frosted rather than the flat card the other sheets use — and thin rather than regular,
-        // because over a dark map a heavier material reads as a solid plate: the streets have to
-        // show through it for the glass to look like glass, while the labels stay readable.
-        .presentationBackground(.ultraThinMaterial)
+        .glassPanel()
         .presentationDetents([.height(detent)])
         .presentationDragIndicator(.hidden)
         .presentationCornerRadius(12)

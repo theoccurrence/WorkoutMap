@@ -47,7 +47,7 @@ struct MapModeSheet: View {
         // where the rail is. The card covers that strip anyway, so the row is centred on the
         // card instead.
         .ignoresSafeArea(.container, edges: .horizontal)
-        .background(Palette.sheetCard)
+        .glassPanel()
         .presentationDetents([.height(Self.detent)])
         .presentationDragIndicator(.hidden)
         .presentationCornerRadius(12)

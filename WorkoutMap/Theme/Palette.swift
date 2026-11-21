@@ -19,24 +19,21 @@ enum Palette {
 
     /// Toolbar / pills / floating buttons.
     static let surface     = Color(hex: 0x393939)
-    /// List cards, stat cards, sheet background.
+    /// List cards, stat cards.
     static let card        = Color(hex: 0x1C1C1E)
-    static let sheetCard   = Color(hex: 0x1C1C1E)
     static let background  = Color.black
 
     static let textSecondary = Color(hex: 0x8E8E93)
     static let textTertiary  = Color(hex: 0x6C6C70)
     /// The map's range bubble label — measured grey, never white.
     static let rangeLabel    = Color(hex: 0xA4A4A4)
-    /// The same bubble on a map drawn light: a light pill with a dark label, as Maps draws it.
-    static let surfaceLight  = Color(hex: 0xF2F2F7)
+    /// The bubble's label on a map drawn light, as Maps draws it — the pill itself is glass now.
     static let rangeLabelLight = Color(hex: 0x3C3C43)
     static let dotRing       = Color(hex: 0xC7C7CC)
     static let closeButton   = Color(hex: 0xA4A4A4)
     /// The ring around the chosen map style in the "Map Modes" sheet — the dark-mode system
     /// blue, the one Apple Maps' own panel uses.
     static let modeSelection = Color(hex: 0x0A84FF)
-    static let pickerGlass   = Color(hex: 0x2C2C2F)
     /// The destination pin the explorer drops, and its row in the sheet — the system red Maps
     /// drops its own pin in.
     static let pin           = Color(hex: 0xFF3B30)
