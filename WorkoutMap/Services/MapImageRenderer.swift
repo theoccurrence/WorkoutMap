@@ -157,9 +157,10 @@ final class MapImageRenderer {
                    style: RouteJumpStyle,
                    size: CGSize,
                    scale: CGFloat) async -> UIImage? {
-        // The style is part of the key: the same workout is drawn differently once the setting
-        // changes, and a cached image of the other style must not come back.
-        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))-\(style.rawValue)" as NSString
+        // The style and the mode's colour are part of the key: the same workout is drawn
+        // differently once either changes, and a cached image of the other look must not come
+        // back.
+        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))-\(style.rawValue)-\(color.hexRGB)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
 
         let aspect = size.height > 1 ? size.width / size.height : 4

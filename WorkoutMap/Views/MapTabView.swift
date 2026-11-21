@@ -29,6 +29,9 @@ struct MapTabView: View {
     /// The system's own style, for `MapAppearance.system` — read from the screen, since the app
     /// itself is pinned to dark (see `SystemAppearance`).
     @ObservedObject private var systemAppearance = SystemAppearance.shared
+    /// The colours the three modes are drawn in — the routes, the position dot and its cone,
+    /// and the filter buttons — as the settings keep them.
+    @ObservedObject private var modeColors = CategoryColorStore.shared
     /// The route the user last tapped. While one is selected the range bubble shows its own
     /// date and time instead of the range's label.
     @State private var tappedRouteID: String?
@@ -125,7 +128,12 @@ struct MapTabView: View {
     }
 
     private var mapLines: [MapRouteLine] {
-        loaded.flatMap { MapRouteLine.lines(for: $0.0, route: $0.1, style: jumpStyle) }
+        loaded.flatMap {
+            MapRouteLine.lines(for: $0.0,
+                               route: $0.1,
+                               style: jumpStyle,
+                               color: modeColors.uiColor(for: $0.0.category))
+        }
     }
 
     /// The explorer's planned route and its alternates, as map lines: the selected one in the
@@ -186,7 +194,7 @@ struct MapTabView: View {
         hasData ? selection.label : selection.label + " \u{2014} No Data"
     }
 
-    private var dotColor: UIColor { (category ?? .walk).uiColor }
+    private var dotColor: UIColor { modeColors.uiColor(for: category ?? .walk) }
 
     /// The style the map is drawn in. `legacy` is the grey map the app shipped with and stays
     /// dark whatever the setting says; every other mode follows it.
@@ -599,12 +607,13 @@ struct MapTabView: View {
         return Button {
             toggle(item)
         } label: {
-            toolbarGlyph(item.symbolName, tint: selected ? item.color : controlGlyph)
+            toolbarGlyph(item.symbolName, tint: selected ? modeColors.color(for: item) : controlGlyph)
         }
         .buttonStyle(.plain)
         // A light wash behind the symbol; if the glass ignores the alpha the symbol alone
         // carries the colour.
-        .glassEffect(selected ? .regular.tint(item.color.opacity(0.25)) : .regular, in: .circle)
+        .glassEffect(selected ? .regular.tint(modeColors.color(for: item).opacity(0.25)) : .regular,
+                     in: .circle)
         .accessibilityLabel(item.title)
     }
 

@@ -43,6 +43,22 @@ enum DebugLaunch {
     static var hideCard: Bool { env["WM_HIDE_CARD"] == "1" }
     /// WM_SKIP_LOCATION=1 skips the location prompt (simulator screenshots).
     static var skipLocation: Bool { env["WM_SKIP_LOCATION"] == "1" }
+    /// WM_RESET_MODE_COLORS=1 puts Walk / Run / Ride back to their shipped colours at launch —
+    /// the simulator cannot tap *Reset to Defaults* from the command line.
+    static var resetModeColors: Bool { env["WM_RESET_MODE_COLORS"] == "1" }
+    /// WM_MODE_COLORS="walk=FF00FF,run=00FFFF,ride=0000FF" writes mode colours through the
+    /// store at launch, the way the colour picker does, so the whole path can be checked
+    /// without a touch.
+    static var modeColors: [(WorkoutCategory, UInt32)] {
+        guard let raw = env["WM_MODE_COLORS"] else { return [] }
+        return raw.split(separator: ",").compactMap { item in
+            let parts = item.split(separator: "=")
+            guard parts.count == 2,
+                  let category = WorkoutCategory(rawValue: String(parts[0])),
+                  let hex = UInt32(parts[1], radix: 16) else { return nil }
+            return (category, hex)
+        }
+    }
     /// WM_STRESS=N replicates the sample workouts N times (performance testing).
     static var stressCopies: Int { max(1, Int(env["WM_STRESS"] ?? "1") ?? 1) }
     /// WM_STRESS_SPREAD=degrees between replicated clusters (default 0.035).
@@ -181,6 +197,8 @@ enum DebugLaunch {
     static var tapDelay: Double { 4 }
     static var hideCard: Bool { false }
     static var skipLocation: Bool { false }
+    static var resetModeColors: Bool { false }
+    static var modeColors: [(WorkoutCategory, UInt32)] { [] }
     static var stressCopies: Int { 1 }
     static var stressSpread: Double { 0.035 }
     static var fakeLocation: CLLocationCoordinate2D? { nil }

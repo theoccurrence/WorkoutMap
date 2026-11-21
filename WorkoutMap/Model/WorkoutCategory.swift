@@ -1,4 +1,4 @@
-import SwiftUI
+import UIKit
 import HealthKit
 
 enum WorkoutCategory: String, CaseIterable, Identifiable, Hashable {
@@ -22,15 +22,9 @@ enum WorkoutCategory: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    var color: Color {
-        switch self {
-        case .walk: return Palette.accent
-        case .run: return Palette.orange
-        case .ride: return Palette.green
-        }
-    }
-
-    var uiColor: UIColor {
+    /// The colour the mode shipped with — yellow, orange, green. The user can change it in
+    /// Settings; `CategoryColorStore` is what the views read.
+    var defaultUIColor: UIColor {
         switch self {
         case .walk: return UIColor(red: 1.0, green: 199.0 / 255.0, blue: 3.0 / 255.0, alpha: 1)
         case .run: return UIColor(red: 235.0 / 255.0, green: 125.0 / 255.0, blue: 20.0 / 255.0, alpha: 1)

@@ -14,6 +14,8 @@ struct WorkoutCardView: View {
     @State private var size: CGSize = .zero
     /// What the map does with a GPS jump — the same setting the map screen reads.
     @AppStorage(RouteJumpStyle.storedKey) private var jumpStyle: RouteJumpStyle = .dotted
+    /// The colour the mode is drawn in — the same choice the map screen uses.
+    @ObservedObject private var modeColors = CategoryColorStore.shared
 
     private var thumbnailWidth: CGFloat { Metrics.thumbnailWidth }
 
@@ -74,7 +76,7 @@ struct WorkoutCardView: View {
         let target = CGSize(width: thumbnailWidth, height: Metrics.cardHeight)
         if let image = await MapImageRenderer.shared.thumbnail(for: workout.id,
                                                               route: route,
-                                                              color: workout.category.uiColor,
+                                                              color: modeColors.uiColor(for: workout.category),
                                                               style: jumpStyle,
                                                               size: target,
                                                               scale: displayScale) {
@@ -84,7 +86,9 @@ struct WorkoutCardView: View {
 
     /// What the thumbnail is drawn from: the card's own size and the jump setting, so a change to
     /// either draws it again.
-    private var loadKey: String { "\(size.width)x\(size.height)-\(jumpStyle.rawValue)" }
+    private var loadKey: String {
+        "\(size.width)x\(size.height)-\(jumpStyle.rawValue)-\(modeColors.hexString(for: workout.category))"
+    }
 
     private func route() async -> WorkoutRoute {
         if let cached = RouteStore.shared.cached(workout.id) { return cached }

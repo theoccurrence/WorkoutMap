@@ -18,6 +18,9 @@ struct SettingsView: View {
     @AppStorage(ExploreOptions.shapeKey) private var exploreShape: Double = ExploreOptions.shapeDefault
     /// How much of the route should be new ground.
     @AppStorage(ExploreOptions.minimumNewKey) private var exploreMinimumNew: Double = ExploreOptions.minimumNewDefault
+    /// The colour each mode is drawn in — the routes, the position dot and its cone, and the
+    /// filter buttons. Shared with the map screens, so a picker here redraws them at once.
+    @ObservedObject private var modeColors = CategoryColorStore.shared
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -83,6 +86,26 @@ struct SettingsView: View {
 
                     Spacer().frame(height: 33)
 
+                    Text("Mode Colors")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.textSecondary)
+                        .padding(.leading, 2)
+                        .padding(.bottom, 8)
+
+                    VStack(spacing: 0) {
+                        ForEach(WorkoutCategory.allCases) { category in
+                            colorRow(category)
+                            if category != WorkoutCategory.allCases.last {
+                                divider
+                            }
+                        }
+                        divider
+                        resetColorsRow
+                    }
+                    .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
+
+                    Spacer().frame(height: 33)
+
                     Text("Explore")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Palette.textSecondary)
@@ -137,6 +160,52 @@ struct SettingsView: View {
         } message: {
             Text("Version 1.0")
         }
+    }
+
+    /// One mode's colour: its glyph and name, the hex the picker is showing, and the system
+    /// colour picker — spectrum, sliders and hex field — on the trailing edge.
+    private func colorRow(_ category: WorkoutCategory) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: category.symbolName)
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(modeColors.color(for: category))
+                .frame(width: 24)
+            Text(category.title)
+                .font(.system(size: 19))
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            Text(modeColors.hexString(for: category))
+                .font(.system(size: 16, design: .monospaced))
+                .foregroundStyle(Palette.textSecondary)
+            ColorPicker(category.title,
+                        selection: colorBinding(for: category),
+                        supportsOpacity: false)
+                .labelsHidden()
+                .accessibilityLabel("\(category.title) color")
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 62)
+    }
+
+    private func colorBinding(for category: WorkoutCategory) -> Binding<Color> {
+        Binding(get: { modeColors.color(for: category) },
+                set: { modeColors.setColor($0, for: category) })
+    }
+
+    /// Puts all three modes back to the colours they shipped with. Dimmed while there is
+    /// nothing to reset.
+    private var resetColorsRow: some View {
+        Button {
+            modeColors.reset()
+        } label: {
+            rowContent(title: "Reset to Defaults",
+                       systemImage: "arrow.counterclockwise",
+                       detail: nil,
+                       showsChevron: false)
+        }
+        .buttonStyle(.plain)
+        .disabled(modeColors.isDefault)
+        .opacity(modeColors.isDefault ? 0.45 : 1)
     }
 
     /// The shape slider: at *Wide* the planner makes two long legs out and back around the
