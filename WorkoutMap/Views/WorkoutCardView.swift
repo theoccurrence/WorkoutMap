@@ -21,8 +21,13 @@ struct WorkoutCardView: View {
     @ObservedObject private var modeColors = CategoryColorStore.shared
     /// The tone each jump rule draws in — the same choice the map screen uses.
     @ObservedObject private var jumpColors = JumpColorStore.shared
+    /// The legs the user erased in the route editor — the thumbnail is drawn without them, and
+    /// the row carries a badge while there are any.
+    @ObservedObject private var eraseEdits = EraseStore.shared
 
     private var thumbnailWidth: CGFloat { Metrics.thumbnailWidth }
+
+    private var edits: EraseEdits { eraseEdits.edits(for: workout.id) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -36,9 +41,12 @@ struct WorkoutCardView: View {
                 Text(workout.title)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
-                Text(workout.listDateText)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Palette.textSecondary)
+                HStack(spacing: 6) {
+                    Text(workout.listDateText)
+                        .font(.system(size: 15))
+                        .foregroundStyle(Palette.textSecondary)
+                    if !edits.isEmpty { editedBadge }
+                }
             }
             .padding(.leading, 18)
 
@@ -74,6 +82,22 @@ struct WorkoutCardView: View {
         }
     }
 
+    /// A small mark that this workout's route has been edited in the app. The list is where a
+    /// workout is picked, so it is where the user should be able to see that one of them carries
+    /// an edit before opening it.
+    private var editedBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "eraser.fill")
+                .font(.system(size: 10, weight: .semibold))
+            Text("Edited")
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .foregroundStyle(Palette.accent)
+        .padding(.horizontal, 7)
+        .frame(height: 19)
+        .background(Palette.accent.opacity(0.16), in: Capsule())
+    }
+
     private func loadThumbnail() async {
         guard size.width > 1 else { return }
         let route = await route()
@@ -84,6 +108,7 @@ struct WorkoutCardView: View {
                                                               color: modeColors.uiColor(for: workout.category),
                                                               rules: jumpRules,
                                                               tones: jumpColors.tones,
+                                                              erased: edits,
                                                               size: target,
                                                               scale: displayScale) {
             withAnimation(.easeOut(duration: 0.2)) { thumbnail = image }
@@ -91,9 +116,10 @@ struct WorkoutCardView: View {
     }
 
     /// What the thumbnail is drawn from: the card's own size, the jump rules, the tone they draw
-    /// in and the mode's colour, so a change to any of them draws it again.
+    /// in, the mode's colour and the legs the user erased, so a change to any of them draws it
+    /// again.
     private var loadKey: String {
-        "\(size.width)x\(size.height)-\(jumpRules.key)-\(jumpColors.tones.key)-\(modeColors.hexString(for: workout.category))"
+        "\(size.width)x\(size.height)-\(jumpRules.key)-\(jumpColors.tones.key)-\(modeColors.hexString(for: workout.category))-\(edits.key)"
     }
 
     private var jumpRules: JumpRules {

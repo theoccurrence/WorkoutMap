@@ -68,6 +68,33 @@ enum Geo {
         return offset(coordinate, east: sin(radians) * distance, north: cos(radians) * distance)
     }
 
+    /// The squared distance from a point to a line segment, all in map points — squared so a pass
+    /// over every leg of a route needs no square root.
+    ///
+    /// The same question is asked by two callers of the same geometry: a tap asks which route it
+    /// landed on, the route editor's eraser asks which legs its stroke reached. Neither can afford
+    /// a `CLLocation` per leg, and a route is redrawn on every fix of a walk, so the maths lives
+    /// here once rather than beside each caller.
+    static func pointToSegmentSquared(_ point: MKMapPoint,
+                                      _ a: MKMapPoint,
+                                      _ b: MKMapPoint) -> Double {
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        let lengthSquared = dx * dx + dy * dy
+        guard lengthSquared > 0 else { return distanceSquared(point, a) }
+        let t = min(1, max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared))
+        let cx = a.x + t * dx
+        let cy = a.y + t * dy
+        return distanceSquared(point, MKMapPoint(x: cx, y: cy))
+    }
+
+    /// The squared distance between two points in map points.
+    static func distanceSquared(_ a: MKMapPoint, _ b: MKMapPoint) -> Double {
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        return dx * dx + dy * dy
+    }
+
     /// The initial bearing from one point to another, in degrees from true north.
     static func bearing(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
         let lat1 = a.latitude * .pi / 180

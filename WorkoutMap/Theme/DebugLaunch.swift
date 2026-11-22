@@ -11,6 +11,28 @@ enum DebugLaunch {
     static var startTab: Int { Int(env["WM_START_TAB"] ?? "0") ?? 0 }
     static var openDetail: Bool { env["WM_START_DETAIL"] == "1" }
     static var openExport: Bool { env["WM_START_EXPORT"] == "1" }
+    /// WM_START_EDIT=1 opens the route-editing screen on the detail screen it pushes.
+    static var startEdit: Bool { env["WM_START_EDIT"] == "1" }
+    /// WM_ERASE="x1,y1;x2,y2;…" runs one eraser stroke along those screen points, once the editor
+    /// is up. The simulator offers no way to drag a finger from the command line, so the stroke is
+    /// run through the very path the eraser recognizer uses (`RouteMapView.Coordinator`).
+    static var eraseStroke: [CGPoint]? {
+        guard let raw = env["WM_ERASE"] else { return nil }
+        let points = raw.split(separator: ";").compactMap { item -> CGPoint? in
+            let parts = item.split(separator: ",").compactMap { Double($0) }
+            guard parts.count == 2 else { return nil }
+            return CGPoint(x: parts[0], y: parts[1])
+        }
+        return points.isEmpty ? nil : points
+    }
+    /// WM_ERASE_DELAY=<seconds> moves that stroke back, so it lands after the route has loaded.
+    static var eraseDelay: Double { Double(env["WM_ERASE_DELAY"] ?? "") ?? 5 }
+    /// WM_ERASE_SAVE=1 saves the edit after that stroke, through the call *Done* makes.
+    static var eraseSave: Bool { env["WM_ERASE_SAVE"] == "1" }
+    /// WM_EXPORT_EDITS=<path> writes the edits file there at launch, and WM_IMPORT_EDITS=<path>
+    /// merges that file in — the two halves of the settings screen's Edit Transfer, without a tap.
+    static var exportEditsPath: String? { env["WM_EXPORT_EDITS"] }
+    static var importEditsPath: String? { env["WM_IMPORT_EDITS"] }
     /// WM_START_SHEET=1 opens the calendar picker (the flag keeps the name it shipped with).
     static var openSheet: Bool { env["WM_START_SHEET"] == "1" }
     static var startCategory: WorkoutCategory? { env["WM_START_CATEGORY"].flatMap(WorkoutCategory.init(rawValue:)) }
@@ -199,6 +221,12 @@ enum DebugLaunch {
     static var startTab: Int { 0 }
     static var openDetail: Bool { false }
     static var openExport: Bool { false }
+    static var startEdit: Bool { false }
+    static var eraseStroke: [CGPoint]? { nil }
+    static var eraseDelay: Double { 5 }
+    static var eraseSave: Bool { false }
+    static var exportEditsPath: String? { nil }
+    static var importEditsPath: String? { nil }
     static var openSheet: Bool { false }
     static var startCategory: WorkoutCategory? { nil }
     static var startMapMode: MapMode? { nil }

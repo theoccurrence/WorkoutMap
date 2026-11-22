@@ -94,7 +94,22 @@ struct WorkoutRoute {
         let kind: JumpKind
     }
 
-    /// Splits the track the way `rules` say it should be drawn.
+    /// The fixes that are still drawn after `erased` took some legs out — a fix is kept while a
+    /// leg on either side of it is. What frames the map on a route the user has edited uses this,
+    /// so an erased stretch does not leave a hole of empty map beside the route.
+    func visible(erased: EraseEdits) -> [CLLocationCoordinate2D] {
+        guard !erased.isEmpty else { return coordinates }
+        var kept: [CLLocationCoordinate2D] = []
+        kept.reserveCapacity(coordinates.count)
+        for index in coordinates.indices {
+            let before = index > 0 && !erased.contains(index)
+            let after = index + 1 < coordinates.count && !erased.contains(index + 1)
+            if before || after { kept.append(coordinates[index]) }
+        }
+        return kept
+    }
+
+    /// Splits the track the way `rules` say it should be drawn, with the legs `erased` took out.
     ///
     /// A leg the **strict** three-part rule catches is never drawn — it is the receiver's
     /// invention, and the map simply leaves the ground out. The two softer rules are each on
@@ -103,12 +118,24 @@ struct WorkoutRoute {
     /// and a leg that trips both is a speed leg. A leg whose
     /// rule is set to `hidden` still splits the walked line — the gap is the point — but no line
     /// is drawn for it.
-    func drawing(_ rules: JumpRules) -> Drawing {
+    ///
+    /// An erased leg is a leg that is not drawn **at all** — walked or jump. That is what lets the
+    /// eraser take a dotted jump leg out as readily as a stretch of the walked line: the dotted
+    /// line *is* one leg. Because the drawing only ever emits the legs it is given and never
+    /// invents one between two fixes an erasure separated, erasing a stretch of the route cannot
+    /// leave a phantom line across the gap.
+    func drawing(_ rules: JumpRules, erased: EraseEdits = .empty) -> Drawing {
         guard coordinates.count > 1 else { return Drawing(walked: [coordinates], legs: []) }
         var walked: [[CLLocationCoordinate2D]] = []
         var legs: [JumpLeg] = []
-        var run: [CLLocationCoordinate2D] = [coordinates[0]]
+        var run: [CLLocationCoordinate2D] = []
         for index in 1..<coordinates.count {
+            // The line simply stops where it was erased and picks up at the leg after it.
+            guard !erased.contains(index) else {
+                if run.count > 1 { walked.append(run) }
+                run = []
+                continue
+            }
             let distance = legDistance(index)
             let speed = legSpeed(index)
             let strict = distance > Self.jumpMinimumDistance
@@ -124,15 +151,19 @@ struct WorkoutRoute {
             } else {
                 kind = nil
             }
-            guard strict || kind != nil else {
-                run.append(coordinates[index])
+            if strict || kind != nil {
+                if run.count > 1 { walked.append(run) }
+                run = []
+                if let kind, rules.style(for: kind) != .hidden {
+                    legs.append(JumpLeg(coordinates: [coordinates[index - 1], coordinates[index]], kind: kind))
+                }
                 continue
             }
-            if run.count > 1 { walked.append(run) }
-            run = [coordinates[index]]
-            if let kind, rules.style(for: kind) != .hidden {
-                legs.append(JumpLeg(coordinates: [coordinates[index - 1], coordinates[index]], kind: kind))
-            }
+            // A walked leg joins the run, and the run has to start at the leg's own first fix:
+            // the leg before it may have been erased, or may have been a jump, and a fix that is
+            // no longer joined to anything must not be drawn on its own.
+            if run.isEmpty { run = [coordinates[index - 1]] }
+            run.append(coordinates[index])
         }
         if run.count > 1 { walked.append(run) }
         return Drawing(walked: walked, legs: legs)

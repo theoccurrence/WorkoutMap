@@ -157,21 +157,25 @@ final class MapImageRenderer {
                    color: UIColor,
                    rules: JumpRules,
                    tones: JumpTones,
+                   erased: EraseEdits = .empty,
                    size: CGSize,
                    scale: CGFloat) async -> UIImage? {
-        // The rules, the mode's colour and the tones the jump legs are drawn in are part of the
-        // key: the same workout is drawn differently once any of them changes, and a cached image
-        // of the other look must not come back.
-        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))-\(rules.key)-\(tones.key)-\(color.hexRGB)" as NSString
+        // The rules, the mode's colour, the tones the jump legs are drawn in and the legs the user
+        // erased are part of the key: the same workout is drawn differently once any of them
+        // changes, and a cached image of the other look must not come back.
+        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))-\(rules.key)-\(tones.key)-\(color.hexRGB)-\(erased.key)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
 
         let aspect = size.height > 1 ? size.width / size.height : 4
-        let rect = MapImageRenderer.thumbnailMapRect(route: route.coordinates, aspect: aspect)
-            ?? RouteGeometry.fitted(RouteGeometry.mapRect(for: route.coordinates.first ?? CLLocationCoordinate2D()))
+        // What is left after the erasure frames it, so an erased stretch does not push the route
+        // into a corner of the card.
+        let visible = route.visible(erased: erased)
+        let rect = MapImageRenderer.thumbnailMapRect(route: visible, aspect: aspect)
+            ?? RouteGeometry.fitted(RouteGeometry.mapRect(for: visible.first ?? CLLocationCoordinate2D()))
         // A leg's dots are measured against the 2.4 pt the route itself is drawn at in a
         // thumbnail, so they follow that weight instead of carrying one of their own.
         let thumbnailRouteWidth: CGFloat = 2.4
-        let drawing = route.drawing(rules)
+        let drawing = route.drawing(rules, erased: erased)
         var lines = drawing.walked.map { RouteLine(coordinates: $0, color: color) }
         for leg in drawing.legs {
             switch rules.style(for: leg.kind) {

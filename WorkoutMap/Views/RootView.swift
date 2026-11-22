@@ -25,7 +25,7 @@ struct RootView: View {
                 Label("Map", image: "MapTab")
             }
             Tab("Settings", systemImage: "gearshape.fill", value: 2) {
-                SettingsView()
+                SettingsView(health: health)
             }
         }
         .tint(tab == 1 && controls.isLight ? nil : Palette.accent)

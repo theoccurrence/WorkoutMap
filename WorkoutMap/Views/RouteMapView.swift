@@ -22,6 +22,9 @@ extension MapRouteLine {
     /// (`tones`) and style (`JumpRules`). A leg's dots are measured against `routeWidth`, so they
     /// follow the weight the routes are drawn at rather than sit on a weight of their own.
     ///
+    /// Legs the user erased in the route editor (`erased`) are left out entirely — walked legs and
+    /// jump legs alike, so a dotted line the user erased goes as readily as a stretch of the route.
+    ///
     /// Every line's id is the workout's own with a suffix; `Coordinator.baseRouteID` cuts the
     /// suffix off again, so a tap anywhere on the route picks that workout.
     static func lines(for workout: Workout,
@@ -29,8 +32,9 @@ extension MapRouteLine {
                       rules: JumpRules,
                       color: UIColor,
                       tones: JumpTones,
+                      erased: EraseEdits = .empty,
                       routeWidth: CGFloat = Metrics.routeWidth) -> [MapRouteLine] {
-        let drawing = route.drawing(rules)
+        let drawing = route.drawing(rules, erased: erased)
         var lines = drawing.walked.enumerated().map { index, coordinates in
             MapRouteLine(id: "\(workout.id.uuidString)#\(index)",
                          coordinates: coordinates,
@@ -580,6 +584,23 @@ struct RouteMapView: UIViewRepresentable {
     /// A tap that landed on one of the planned routes: which one, so tapping a washed-out
     /// alternate on the map makes it the one — as tapping an alternate card does in Maps.
     var onPlannedTap: ((Int) -> Void)?
+    /// The eraser's brush radius in points, or `nil` while the map is not being edited.
+    ///
+    /// With a brush up, one finger erases: MapKit's own pan is parked (it cannot be told to leave a
+    /// single finger alone) and the coordinator adds two recognizers — a one-finger drag that
+    /// reports an eraser stroke, and a two-finger drag that moves the map by setting its region. A
+    /// pinch and a rotation are untouched, so the map still zooms and turns as it does elsewhere.
+    /// See `Coordinator.updateEraser`.
+    var eraserRadius: CGFloat?
+    /// One step of an eraser stroke: the segment the finger just travelled — `from` is `nil` for
+    /// the stroke's first point — and the brush's radius in the map's own units at that zoom.
+    /// The radii are what the eraser measures against: a brush of a fixed size *on the screen*
+    /// covers more ground the further the map is zoomed out, and the caller needs the same number
+    /// the finger covers.
+    var onErase: ((_ from: MKMapPoint?, _ to: MKMapPoint, _ radius: Double) -> Void)?
+    /// Where the brush is on the screen, so the editor can draw it under the finger, and `nil`
+    /// when the finger left the map.
+    var onEraseCursor: ((CGPoint?) -> Void)?
     /// The window's safe-area insets, reported after layout and on orientation or
     /// fold changes.
     var onSafeAreaChange: ((UIEdgeInsets) -> Void)?
@@ -633,6 +654,7 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.appliedInterfaceStyle = interfaceStyle
         context.coordinator.installToneOverlays()
         context.coordinator.installInteractionObservers()
+        context.coordinator.updateEraser()
 #if DEBUG
         // WM_TAP_AT — see `DebugLaunch.tapAt`. The tap goes through the path the recognizer
         // uses, so the hit-test and the reporting are the ones that ship.
@@ -641,6 +663,7 @@ struct RouteMapView: UIViewRepresentable {
                 coordinator?.reportRouteTap(at: point)
             }
         }
+        context.coordinator.runEraseProbeIfRequested()
 #endif
         return map
     }
@@ -649,6 +672,7 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.updateAppearance()
         context.coordinator.updateMode()
+        context.coordinator.updateEraser()
         context.coordinator.updateRoutes()
         context.coordinator.updatePin()
         context.coordinator.updateUserDot()
@@ -718,6 +742,21 @@ struct RouteMapView: UIViewRepresentable {
         private var dotRendered: CLLocationCoordinate2D?
         private var dotTarget: CLLocationCoordinate2D?
         private var lastFixArrival: CFTimeInterval?
+
+        /// The two recognizers the route editor borrows the map with: one finger erases, two
+        /// fingers pan. Both are installed together and removed together (`updateEraser`), and
+        /// while they are up the map's own pan is off.
+        private var erasePan: UIPanGestureRecognizer?
+        private var movePan: UIPanGestureRecognizer?
+        /// The last point of the stroke in progress, so a step is reported as the segment the
+        /// finger travelled rather than as a bare point — a fast drag must not leave ground
+        /// between two reported points unerased.
+        private var erasePrevious: MKMapPoint?
+        /// The brush radius in the map's own units, measured once at the start of a stroke.
+        private var eraseRadius: Double = 0
+        /// The region a two-finger pan started from, so the map follows the fingers exactly
+        /// instead of accumulating rounding into a region that is re-read every step.
+        private var moveStartRegion: MKCoordinateRegion?
 
         /// What the cone points at: the compass first — that is what "facing" means, and it
         /// keeps working while the user stands still — and the direction of travel only when
@@ -811,6 +850,122 @@ struct RouteMapView: UIViewRepresentable {
             map.addGestureRecognizer(press)
         }
 
+        /// Puts the eraser on the map while the editor is up, and takes it off again.
+        ///
+        /// With a brush, MapKit's own pan — which cannot be told to leave a single finger alone —
+        /// is parked (`isScrollEnabled`) and two recognizers of our own take over: a one-finger
+        /// drag that erases, and a two-finger drag that pans the map by moving its region. A pinch
+        /// and a rotation are untouched, so the map still zooms and turns the way it does
+        /// everywhere else.
+        func updateEraser() {
+            guard let map else { return }
+            let wanted = parent.eraserRadius != nil
+            guard wanted != (erasePan != nil) else { return }
+            if wanted {
+                let erase = UIPanGestureRecognizer(target: self, action: #selector(handleErase(_:)))
+                erase.maximumNumberOfTouches = 1
+                erase.cancelsTouchesInView = false
+                erase.delegate = self
+                map.addGestureRecognizer(erase)
+                erasePan = erase
+
+                let move = UIPanGestureRecognizer(target: self, action: #selector(handleMove(_:)))
+                move.minimumNumberOfTouches = 2
+                move.cancelsTouchesInView = false
+                move.delegate = self
+                map.addGestureRecognizer(move)
+                movePan = move
+
+                map.isScrollEnabled = false
+            } else {
+                if let erasePan { map.removeGestureRecognizer(erasePan) }
+                if let movePan { map.removeGestureRecognizer(movePan) }
+                erasePan = nil
+                movePan = nil
+                map.isScrollEnabled = true
+            }
+        }
+
+        /// One finger, erasing: every step the finger takes is handed on with the brush's own
+        /// radius converted into the map's units right there, so a fixed brush covers the ground
+        /// the finger covers whatever the zoom.
+        @objc private func handleErase(_ recognizer: UIPanGestureRecognizer) {
+            guard let map, let brush = parent.eraserRadius, map.bounds.width > 1 else { return }
+            let point = recognizer.location(in: map)
+            switch recognizer.state {
+            case .began:
+                parent.onEraseCursor?(point)
+                eraseRadius = mapPointsPerPoint(at: point, in: map) * Double(brush)
+                let current = MKMapPoint(map.convert(point, toCoordinateFrom: map))
+                parent.onErase?(nil, current, eraseRadius)
+                erasePrevious = current
+            case .changed:
+                let current = MKMapPoint(map.convert(point, toCoordinateFrom: map))
+                parent.onErase?(erasePrevious, current, eraseRadius)
+                erasePrevious = current
+                parent.onEraseCursor?(point)
+            case .ended, .cancelled, .failed:
+                parent.onEraseCursor?(nil)
+                erasePrevious = nil
+            default:
+                break
+            }
+        }
+
+        /// Two fingers, panning — MapKit's own pan is parked while a brush is up.
+        @objc private func handleMove(_ recognizer: UIPanGestureRecognizer) {
+            guard let map, recognizer.numberOfTouches >= 2 else { return }
+            switch recognizer.state {
+            case .began:
+                moveStartRegion = map.region
+            case .changed:
+                guard let start = moveStartRegion else { return }
+                let translation = recognizer.translation(in: map)
+                let perPointX = start.span.longitudeDelta / Double(max(map.bounds.width, 1))
+                let perPointY = start.span.latitudeDelta / Double(max(map.bounds.height, 1))
+                map.setRegion(MKCoordinateRegion(
+                    center: CLLocationCoordinate2D(
+                        latitude: start.center.latitude + Double(translation.y) * perPointY,
+                        longitude: start.center.longitude - Double(translation.x) * perPointX),
+                    span: start.span),
+                              animated: false)
+            case .ended, .cancelled, .failed:
+                moveStartRegion = nil
+            default:
+                break
+            }
+        }
+
+        /// How many map points one point of the screen is worth where the finger is — the same
+        /// measurement the tap hit-test takes for its own radius.
+        private func mapPointsPerPoint(at point: CGPoint, in map: MKMapView) -> Double {
+            let a = MKMapPoint(map.convert(point, toCoordinateFrom: map))
+            let b = MKMapPoint(map.convert(CGPoint(x: point.x + 1, y: point.y), toCoordinateFrom: map))
+            return abs(b.x - a.x)
+        }
+
+#if DEBUG
+        /// `WM_ERASE` — see `DebugLaunch.eraseStroke`. The simulator offers no way to drag a finger
+        /// from the command line, so the stroke is run through the very path the eraser recognizer
+        /// uses. The brush is left standing where the stroke ended, so a screenshot shows the brush
+        /// as well as what it took out.
+        func runEraseProbeIfRequested() {
+            guard let stroke = DebugLaunch.eraseStroke, stroke.count > 1,
+                  parent.eraserRadius != nil else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + DebugLaunch.eraseDelay) { [weak self] in
+                guard let self, let map = self.map, let brush = self.parent.eraserRadius else { return }
+                var previous: MKMapPoint?
+                for point in stroke {
+                    let current = MKMapPoint(map.convert(point, toCoordinateFrom: map))
+                    self.parent.onEraseCursor?(point)
+                    self.parent.onErase?(previous, current,
+                                         self.mapPointsPerPoint(at: point, in: map) * Double(brush))
+                    previous = current
+                }
+            }
+        }
+#endif
+
         @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
             guard let map, recognizer.state == .began else { return }
             let coordinate = map.convert(recognizer.location(in: map), toCoordinateFrom: map)
@@ -872,7 +1027,7 @@ struct RouteMapView: UIViewRepresentable {
                 for coordinate in line.coordinates {
                     let current = MKMapPoint(coordinate)
                     if let previous {
-                        nearest = min(nearest, Coordinator.distanceSquared(from: point, to: previous, current))
+                        nearest = min(nearest, Geo.pointToSegmentSquared(point, previous, current))
                     }
                     previous = current
                 }
@@ -899,7 +1054,7 @@ struct RouteMapView: UIViewRepresentable {
                 for coordinate in line.coordinates {
                     let current = MKMapPoint(coordinate)
                     if let previous {
-                        nearest = min(nearest, Coordinator.distanceSquared(from: point, to: previous, current))
+                        nearest = min(nearest, Geo.pointToSegmentSquared(point, previous, current))
                     }
                     previous = current
                 }
@@ -919,24 +1074,6 @@ struct RouteMapView: UIViewRepresentable {
         /// How close to a route a tap counts as landing on it. The routes are ~3 pt wide; 24 pt
         /// is a comfortable finger target around them.
         private static let tapRadius: CGFloat = 24
-
-        /// The squared distance from a point to a line segment, both in map points — squared so
-        /// the pass over every segment needs no square root.
-        private static func distanceSquared(from point: MKMapPoint,
-                                            to a: MKMapPoint,
-                                            _ b: MKMapPoint) -> Double {
-            let dx = b.x - a.x
-            let dy = b.y - a.y
-            let lengthSquared = dx * dx + dy * dy
-            guard lengthSquared > 0 else {
-                let px = point.x - a.x, py = point.y - a.y
-                return px * px + py * py
-            }
-            let t = min(1, max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared))
-            let cx = a.x + t * dx, cy = a.y + t * dy
-            let px = point.x - cx, py = point.y - cy
-            return px * px + py * py
-        }
 
         func applyPendingCamera() {
             guard let map, map.bounds.width > 1, map.bounds.height > 1 else { return }

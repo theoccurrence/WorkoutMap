@@ -13,11 +13,11 @@ desaturated Apple map and lets you filter them by week / month / year.
 
 | Tab | What it does |
 | --- | --- |
-| **Workouts** | List of every walk / run / ride with distance, date and a small map thumbnail of the route, ordered by date or by length from the control in the header (the choice is kept). Tapping a row opens the detail screen; the chevron at the top left returns to the list. |
+| **Workouts** | List of every walk / run / ride with distance, date and a small map thumbnail of the route, ordered by date or by length from the control in the header (the choice is kept), and an **Edited** badge on a row whose route has been edited in the app. Tapping a row opens the detail screen; the chevron at the top left returns to the list. The detail screen carries the **eraser** besides its share button: it opens the route editor, where parts of the drawn route can be erased and kept (see below). |
 | **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as circle buttons on the opposite side. The map can be panned, pinched and turned with two fingers. The share button exports the current map as an image card. The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`); tapping the map itself brings the range's label back. |
 | **Map styles** | Apple Maps' own *Map Modes* panel: **Explore**, **Driving** (live traffic), **Transit** (stations only), **Satellite** (imagery) and **Legacy** — the grey map the app shipped with, which is also what it opens with. Each tile is Maps' own artwork for the style (the grey Explore tile for **Legacy**), so the panel is complete the moment it opens. The choice is kept in the settings, and the detail screen and the export card draw the map in it as well. The map itself — and every preview of it — is drawn in the system's own light or dark style, or in the one pinned under *Map Appearance*; **Legacy** is the grey map the app shipped with and stays dark either way. |
 | **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a panel: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map. Tapping one of the alternates on the map picks it, the same as tapping its pill on the card. Once Go is tapped the map shows that one route alone and the Go and the cross give way to a red **Stop**; the card can be swiped up out of the way without ending anything, and the binoculars bring it back — or open the panel again to plan another one. The route stays until Stop, a new plan, or a relaunch. The pin carries an info bubble with the name the geocoder resolved, the address, **how far away it is** (live, as the user walks) and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
-| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **gps jumps** — two independent rules, each *dotted* / *hidden* / *solid*: legs longer than a **distance** threshold (25 m to start with) and legs faster than a **speed** threshold (162 km/h to start with, and past 10 m of ground — a shorter leg is a rounded clock, not a jump), each with its own **colour** for the tone it draws in (the system colour picker and hex, as under *Mode Colors*, with *Reset Colors* beneath them), see below; the combined detection that catches the big ones is fixed and never drawn, **mode colors** (the primary colour of Walk, Run and Ride — the routes, the position dot and its cone, and each mode's filter button — chosen in the system colour picker with its spectrum, sliders and hex field, plus *Reset to Defaults*), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered — feedback, share app, about, contact. |
+| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **gps jumps** — two independent rules, each *dotted* / *hidden* / *solid*: legs longer than a **distance** threshold (25 m to start with) and legs faster than a **speed** threshold (162 km/h to start with, and past 10 m of ground — a shorter leg is a rounded clock, not a jump), each with its own **colour** for the tone it draws in (the system colour picker and hex, as under *Mode Colors*, with *Reset Colors* beneath them), see below; the combined detection that catches the big ones is fixed and never drawn, **mode colors** (the primary colour of Walk, Run and Ride — the routes, the position dot and its cone, and each mode's filter button — chosen in the system colour picker with its spectrum, sliders and hex field, plus *Reset to Defaults*), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered, **workout edits** — every edit the eraser has made, most recent first, each row naming its workout and carrying a bin that removes the edit without the workout being opened (a row opens the workout while this device has it), with *Export Edits* writing them all to a JSON file and *Import Edits* merging such a file in — feedback, share app, about, contact. |
 
 Detail screen: map with the route, workout type, date, weather (temperature and
 humidity from the workout metadata), then time, distance, elevation, active
@@ -27,6 +27,16 @@ screen's own edges (see the rail notes below).
 
 Export card: the map with the *Workout Map* title, a 2×2 statistic grid and the
 app badge; **Save** writes the card to the photo library.
+
+Edit screen: the workout's route with an **eraser** on it, opened from the eraser
+button on the detail screen. One finger drags the brush — sized on the slider — and
+takes the ground under it out of the line, walked legs and GPS-jump lines alike;
+two fingers move the map. *Undo* steps back a stroke, *Clear* puts the whole route
+back, and *Done* keeps the edit. Nothing about the workout changes — Health's data
+cannot be changed, by this app or the Fitness app — what changes is how the app
+*draws* the route, and the erased stretches are kept as ranges of the route's own leg
+indices in a small SQLite database in the app (`EraseStore`), so every screen that
+draws the route draws it without them from then on.
 
 ## Requirements
 
@@ -85,6 +95,12 @@ variables (Debug builds only):
 | `WM_RESET_MODE_COLORS=1` | Puts Walk / Run / Ride back to their shipped colours at launch (checks *Reset to Defaults*) |
 | `WM_START_DETAIL=1` | Pushes the first workout's detail screen |
 | `WM_START_EXPORT=1` | Opens the export card |
+| `WM_START_EDIT=1` | Opens the route editor on the detail screen it pushes |
+| `WM_ERASE="x,y;x2,y2"` | Runs one eraser stroke along those screen points, through the path the eraser recognizer uses |
+| `WM_ERASE_DELAY=<seconds>` | Moves that stroke back, so it can land after the route has loaded |
+| `WM_ERASE_SAVE=1` | Writes the edit after that stroke, through the call *Done* makes |
+| `WM_EXPORT_EDITS=<path>` | Writes the edits file there at launch (the settings screen's *Export Edits*, without a tap) |
+| `WM_IMPORT_EDITS=<path>` | Merges that edits file in at launch (the settings screen's *Import Edits*, without a tap) |
 | `WM_SKIP_LOCATION=1` | Skips the location prompt (screenshots) |
 | `WM_ZOOM_SPAN=<metres>` | Opens the map centred on the routes at that span instead of fitting them (checks an overlay at one zoom level) |
 | `WM_FLIP_MODES=<seconds>` | Switches the stored map style between Explore and Legacy every that many seconds (checks the controls' own light/dark transition) |
@@ -120,15 +136,17 @@ WorkoutMap/
                MapMode (Explore / Driving / Transit / Satellite / Legacy), RoutePlan,
                WorkoutRoute (a track and its per-leg intervals), RouteJumpStyle, JumpRules
                (the two jump rules the settings expose), ExploreOptions (the two explorer
-               settings)
+               settings), EraseEdits (the legs the route editor erased, as index ranges)
   Services/    HealthStore (HealthKit), RouteStore (route fetch + disk cache),
                LocationProvider, MapImageRenderer (map snapshots), DebugSampleData,
                CoverageIndex + CoverageStore (where the user has been), DirectionsClient
-               (MKDirections, behind a protocol), RoutePlanner (the explorer's algorithm)
+               (MKDirections, behind a protocol), RoutePlanner (the explorer's algorithm),
+               EraseStore (the route edits, in SQLite, and the JSON file they travel in)
   Theme/       Palette (measured colours), CategoryColorStore (the user's mode colours),
                JumpColorStore (the tone each jump rule draws in), Metrics (measured geometry),
                Formatters, SystemAppearance (the phone's own light/dark style), ControlAppearance
   Views/       RootView (TabView), WorkoutsListView, WorkoutCardView, WorkoutDetailView,
+               WorkoutEditView (the route editor) + EraseEditsDocument (its JSON file),
                MapTabView, RouteMapView, RangePickerPanel, MapModePanel, ExportPreviewView,
                SettingsView, RoutePlannerPanel, PlannedRouteBar
 ```
@@ -269,6 +287,31 @@ Notes on the map rendering, all measured from the original app:
   compass does not redraw the screen.
   `simctl` reports a course but never a heading (no magnetometer), so in the simulator the cone
   shows up on the course path and the two stubs stand in for the compass.
+* The route editor erases **legs**, not fixes and not a copy of the trimmed track, and that is
+  the whole of why it works on the GPS-jump lines as well: a dotted jump line *is* one leg, so
+  erasing it is erasing one index, and because `WorkoutRoute.drawing` only ever emits the legs it
+  is given and never invents one between two fixes an erasure separated, taking a stretch out of
+  the route can neither leave a phantom line across the gap nor turn what is left of a stretch
+  into a dotted one. The brush's stroke is measured against every leg with the same
+  point-to-segment maths the map's own tap hit-test uses (`Geo.pointToSegmentSquared`), with the
+  brush radius — 12–70 pt, set on the slider — converted into the map's own units at the zoom it
+  is used at, so a brush of a fixed size on the screen erases the ground it covers. The stroke is
+  walked in steps smaller than the radius, because a jump leg can be hundreds of metres long and
+  a stroke across its middle has to catch it without the finger ever touching an end. With a brush
+  up, MapKit's own pan is parked (`isScrollEnabled`) and two recognizers of the coordinator's take
+  over: one finger erases, two fingers move the map by setting its region (`UIPanGestureRecognizer`
+  with disjoint touch counts — MapKit's pan cannot be told to leave a single finger alone). An
+  erased leg is not drawn at all — walked or jump — which is also why the *Undo* step is per
+  stroke, not per touch event. The edits are kept as ranges of leg indices — two numbers a stretch
+  — in `EraseStore`, a SQLite database in **Application Support** (never `Caches`: an edit is the
+  user's work and must survive both a purge and the route itself being fetched from Health again),
+  read once at launch into memory, so drawing a route costs a dictionary lookup and never a disk
+  read; the file travels as JSON (the workout's own UUID is the key on both devices, and an edit
+  whose workout this device does not have is kept and simply never drawn). Every screen that draws
+  a route applies them — the detail map, the memoised split behind the map tab (`RouteLineCache`,
+  whose key includes them) and the list thumbnails (`MapImageRenderer.thumbnail`, in *its* cache
+  key too), and with those the export card. Coverage and the explorer deliberately do not: an edit
+  is how a route is *drawn*, not where the user has been.
 * Card thumbnails frame the route with a **100 m margin** and then extend the
   rect to the thumbnail's aspect ratio, so a route occupies roughly the same
   fraction of every card.

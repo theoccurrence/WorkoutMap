@@ -1,8 +1,22 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
+    /// The workouts Health handed over, so an edited one can be named in the list below — and
+    /// opened — from here.
+    @ObservedObject var health: HealthStore
+
     @Environment(\.displayScale) private var displayScale
     @State private var showAbout = false
+    /// The route edits: the list below, the file they travel in, and the two sheets that move it.
+    @ObservedObject private var eraseStore = EraseStore.shared
+    @State private var showExporter = false
+    @State private var showImporter = false
+    @State private var imported: ImportMessage?
+    /// The workout an edit's row opened, if any.
+    @State private var openedWorkout: Workout?
+    /// The edit a bin was tapped for, until its confirmation is answered.
+    @State private var pendingDelete: UUID?
     /// The period the map screen opens with. The map reads it when it is built, so a
     /// change here applies from the next launch on.
     @AppStorage(RangeKind.defaultPeriodKey) private var defaultPeriod: RangeKind = .week
@@ -202,6 +216,10 @@ struct SettingsView: View {
 
                     Spacer().frame(height: 33)
 
+                    workoutEditsSection
+
+                    Spacer().frame(height: 33)
+
                     VStack(spacing: 0) {
                         row(title: "Feedback", systemImage: "square.and.pencil", detail: nil, showsChevron: true) {
                             open("mailto:feedback@theoccurrence.com?subject=WorkoutMap%20Feedback")
@@ -226,6 +244,150 @@ struct SettingsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Version 1.0")
+        }
+        .sheet(item: $openedWorkout) { workout in
+            WorkoutDetailView(workout: workout)
+        }
+        .fileExporter(isPresented: $showExporter,
+                      document: EraseEditsDocument(data: (try? eraseStore.exportData()) ?? Data()),
+                      contentType: .json,
+                      defaultFilename: "WorkoutMap-Edits") { _ in }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json]) { result in
+            imported = message(for: result)
+        }
+        .confirmationDialog("Remove this edit?",
+                            isPresented: Binding(get: { pendingDelete != nil },
+                                                 set: { if !$0 { pendingDelete = nil } })) {
+            Button("Remove", role: .destructive) {
+                if let id = pendingDelete { eraseStore.remove(for: id) }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("The workout's route is drawn whole again. The workout in Health is not changed.")
+        }
+        .alert(item: $imported) { message in
+            Alert(title: Text(message.title), message: Text(message.text),
+                  dismissButton: .default(Text("OK")))
+        }
+    }
+
+    // MARK: - workout edits
+
+    /// The route edits: what they are, which workout each belongs to, and the file they can travel
+    /// in. The bin removes an edit without the workout ever being opened, and a row opens the
+    /// workout while this device still has it.
+    private var workoutEditsSection: some View {
+        let edits = eraseStore.entries()
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("Workout Edits")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Palette.textSecondary)
+                .padding(.leading, 2)
+                .padding(.bottom, 8)
+
+            VStack(spacing: 0) {
+                row(title: "Export Edits",
+                    systemImage: "square.and.arrow.up",
+                    detail: edits.isEmpty ? nil : "\(edits.count)",
+                    showsChevron: true) { showExporter = true }
+                divider
+                row(title: "Import Edits",
+                    systemImage: "square.and.arrow.down",
+                    detail: nil,
+                    showsChevron: true) { showImporter = true }
+            }
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
+
+            Text("An edit is how this app draws a workout's route — the parts the eraser took out — and never a change to the workout in Health. Export writes every edit to a JSON file; importing one adds the edits that file carries to this device. The same workout keeps the same id in iCloud, so its edits land on the same route — and an edit whose workout this device does not have is kept too, and simply never drawn.")
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.textTertiary)
+                .padding(.horizontal, 2)
+                .padding(.top, 8)
+
+            if !edits.isEmpty {
+                Spacer().frame(height: 18)
+                VStack(spacing: 0) {
+                    ForEach(Array(edits.enumerated()), id: \.element.id) { index, entry in
+                        editRow(entry)
+                        if index < edits.count - 1 { divider }
+                    }
+                }
+                .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
+            }
+        }
+    }
+
+    /// One edited workout. It is named and can be opened while this device has the workout; an id
+    /// whose workout is not here — an import from a phone that has more workouts — is still listed,
+    /// so the user can see what came over rather than wonder where it went.
+    private func editRow(_ entry: EraseStore.Entry) -> some View {
+        let workout = health.workouts.first { $0.id == entry.id }
+        return HStack(spacing: 8) {
+            Button {
+                if let workout { openedWorkout = workout }
+            } label: {
+                HStack(spacing: 16) {
+                    Image(systemName: workout?.category.symbolName ?? "questionmark.circle")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(workout == nil ? Palette.textSecondary : .white)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(workout?.title ?? "Workout not on this device")
+                            .font(.system(size: 19))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Text(workout.map { $0.listDateText } ?? entry.id.uuidString)
+                            .font(.system(size: 14))
+                            .foregroundStyle(Palette.textSecondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(workout == nil)
+
+            Button { pendingDelete = entry.id } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(Palette.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove edit")
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 6)
+        .frame(height: 70)
+    }
+
+    /// What an import had to say. The export writes silently — the share sheet it opens is its own
+    /// answer.
+    struct ImportMessage: Identifiable {
+        let id = UUID()
+        let title: String
+        let text: String
+    }
+
+    private func message(for result: Result<URL, Error>) -> ImportMessage {
+        guard case .success(let url) = result else {
+            return ImportMessage(title: "Could not import", text: "The file could not be opened.")
+        }
+        // The picker hands a file outside the app's own sandbox, so it is read through the
+        // security scope it comes with.
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let count = try eraseStore.importData(try Data(contentsOf: url))
+            return ImportMessage(title: "Edits imported",
+                                 text: count == 1 ? "One edit was added."
+                                                  : "\(count) edits were added.")
+        } catch {
+            return ImportMessage(title: "Could not import",
+                                 text: "The file is not a WorkoutMap edits file.")
         }
     }
 

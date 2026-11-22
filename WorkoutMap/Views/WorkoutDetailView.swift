@@ -8,6 +8,8 @@ struct WorkoutDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var route = WorkoutRoute(coordinates: [])
     @State private var showExport = DebugLaunch.openExport
+    /// The route-editing screen. Its edits are the app's own — the workout itself is untouched.
+    @State private var showEdit = DebugLaunch.startEdit
     @State private var visibleMapRect: MKMapRect?
     /// How the map is drawn, matching the map screen: the appearance setting against the
     /// system's own style.
@@ -21,6 +23,15 @@ struct WorkoutDetailView: View {
     @ObservedObject private var modeColors = CategoryColorStore.shared
     /// The tone each jump rule draws in — the same choice the settings keep.
     @ObservedObject private var jumpColors = JumpColorStore.shared
+    /// The legs the user erased in the route editor — read live, so an edit saved on the editor
+    /// draws here the moment it closes.
+    @ObservedObject private var eraseStore = EraseStore.shared
+
+    private var edits: EraseEdits { eraseStore.edits(for: workout.id) }
+
+    /// What the map frames: the fixes still drawn, so an erased stretch does not leave a hole of
+    /// empty map beside what is left of the route.
+    private var visibleCoordinates: [CLLocationCoordinate2D] { route.visible(erased: edits) }
 
     private var lines: [MapRouteLine] {
         MapRouteLine.lines(for: workout,
@@ -30,7 +41,8 @@ struct WorkoutDetailView: View {
                                             speedStyle: jumpSpeedStyle,
                                             speedThreshold: jumpSpeedThreshold),
                            color: modeColors.uiColor(for: workout.category),
-                           tones: jumpColors.tones)
+                           tones: jumpColors.tones,
+                           erased: edits)
     }
 
     /// The style the map is drawn in — `legacy`, the stored style, stays dark.
@@ -63,7 +75,7 @@ struct WorkoutDetailView: View {
         }
         .ignoresSafeArea(edges: .top)
         .overlay(alignment: .topLeading) { backButton }
-        .overlay(alignment: .topTrailing) { shareButton }
+        .overlay(alignment: .topTrailing) { topTrailingButtons }
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .task(id: workout.id) {
@@ -74,16 +86,19 @@ struct WorkoutDetailView: View {
         .fullScreenCover(isPresented: $showExport) {
             ExportPreviewView(workout: workout,
                               rangeLabel: workout.listDateText,
-                              mapRect: visibleMapRect ?? RouteGeometry.fittedRect(routes: [route.coordinates]),
+                              mapRect: visibleMapRect ?? RouteGeometry.fittedRect(routes: [visibleCoordinates]),
                               routes: lines,
                               mode: MapMode.stored,
                               interfaceStyle: mapInterfaceStyle)
+        }
+        .fullScreenCover(isPresented: $showEdit) {
+            WorkoutEditView(workout: workout)
         }
     }
 
     private func mapSection(height: CGFloat) -> some View {
         RouteMapView(routes: lines,
-                     camera: RouteGeometry.fittedRect(routes: [route.coordinates]).map { .fit($0) },
+                     camera: RouteGeometry.fittedRect(routes: [visibleCoordinates]).map { .fit($0) },
                      cameraToken: route.count,
                      mode: MapMode.stored,
                      interfaceStyle: mapInterfaceStyle,
@@ -178,6 +193,30 @@ struct WorkoutDetailView: View {
         .padding(.leading, 8)
     }
 
+    /// The two actions the screen's top trailing corner carries: the route editor, and the export
+    /// card.
+    private var topTrailingButtons: some View {
+        HStack(spacing: 0) {
+            editButton
+            shareButton
+        }
+        .padding(.trailing, 8)
+    }
+
+    /// Opens the route editor: the eraser the screen is named for. Health's workout is not touched
+    /// by it — what is edited is how this app draws the workout's route.
+    private var editButton: some View {
+        Button { showEdit = true } label: {
+            Image(systemName: "eraser")
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Edit route")
+    }
+
     private var shareButton: some View {
         Button { showExport = true } label: {
             Image(systemName: "square.and.arrow.up")
@@ -187,7 +226,7 @@ struct WorkoutDetailView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.trailing, 8)
+        .accessibilityLabel("Share")
     }
 }
 
