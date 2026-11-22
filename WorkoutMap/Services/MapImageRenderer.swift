@@ -156,12 +156,13 @@ final class MapImageRenderer {
                    route: WorkoutRoute,
                    color: UIColor,
                    rules: JumpRules,
+                   tones: JumpTones,
                    size: CGSize,
                    scale: CGFloat) async -> UIImage? {
-        // The rules and the mode's colour are part of the key: the same workout is drawn
-        // differently once either changes, and a cached image of the other look must not come
-        // back.
-        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))-\(rules.key)-\(color.hexRGB)" as NSString
+        // The rules, the mode's colour and the tones the jump legs are drawn in are part of the
+        // key: the same workout is drawn differently once any of them changes, and a cached image
+        // of the other look must not come back.
+        let key = "\(id.uuidString)-\(Int(size.width))x\(Int(size.height))-\(Int(scale * 100))-\(rules.key)-\(tones.key)-\(color.hexRGB)" as NSString
         if let cached = cache.object(forKey: key) { return cached }
 
         let aspect = size.height > 1 ? size.width / size.height : 4
@@ -178,12 +179,12 @@ final class MapImageRenderer {
                 continue
             case .dotted:
                 lines.append(RouteLine(coordinates: leg.coordinates,
-                                       color: RouteJump.uiColor(for: leg.kind),
+                                       color: tones.uiColor(for: leg.kind),
                                        dash: RouteJump.dotDash(routeWidth: thumbnailRouteWidth),
                                        width: RouteJump.dotDiameter(routeWidth: thumbnailRouteWidth)))
             case .solid:
                 lines.append(RouteLine(coordinates: leg.coordinates,
-                                       color: RouteJump.uiColor(for: leg.kind)))
+                                       color: tones.uiColor(for: leg.kind)))
             }
         }
         let image = await image(mapRect: rect, size: size, scale: scale,

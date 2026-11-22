@@ -98,8 +98,9 @@ struct WorkoutRoute {
     ///
     /// A leg the **strict** three-part rule catches is never drawn — it is the receiver's
     /// invention, and the map simply leaves the ground out. The two softer rules are each on
-    /// their own: a leg longer than the distance threshold is a distance leg, a leg faster than
-    /// the speed threshold is a speed leg, and a leg that trips both is a speed leg. A leg whose
+    /// their own: a leg longer than the distance threshold is a distance leg, a leg that covers
+    /// `JumpRules.speedMinimumDistance` and is faster than the speed threshold is a speed leg,
+    /// and a leg that trips both is a speed leg. A leg whose
     /// rule is set to `hidden` still splits the walked line — the gap is the point — but no line
     /// is drawn for it.
     func drawing(_ rules: JumpRules) -> Drawing {
@@ -115,7 +116,8 @@ struct WorkoutRoute {
             let kind: JumpKind?
             if strict {
                 kind = nil
-            } else if let speed, speed > rules.speedThresholdMetersPerSecond {
+            } else if let speed, distance > JumpRules.speedMinimumDistance,
+                      speed > rules.speedThresholdMetersPerSecond {
                 kind = .speed
             } else if distance > rules.distanceThreshold {
                 kind = .distance

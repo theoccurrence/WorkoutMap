@@ -11,6 +11,7 @@
 		06E25D7A2B2F874D3269A75F /* MapMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261EAD446B5AC5B4F86D01F0 /* MapMode.swift */; };
 		0732BA69F360061119BC962D /* AppBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E953720D2A0F7CE9EADF8FE /* AppBackground.swift */; };
 		0D50A24C560BCAE0514B02D7 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1580B103C393940147C727E8 /* RouteStore.swift */; };
+		0ED5B5F04DDAF1A7EA290036 /* JumpColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09E5FE3CB71EE6914E91AE6 /* JumpColors.swift */; };
 		104A41C92B5B8D40EC68BA5F /* RouteJumpStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19FF8DC6198EEE24F3EBFD57 /* RouteJumpStyle.swift */; };
 		1735056C58850B2B5F44AB99 /* CoverageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9978FD106F794C8E5F7E61F2 /* CoverageStore.swift */; };
 		26701C7E896A64F41CF9ACE2 /* Metrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9FCF0A046B333430CBACFB /* Metrics.swift */; };
@@ -82,6 +83,7 @@
 		90C8374FFE8DA74D43CDF3D0 /* HealthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthStore.swift; sourceTree = "<group>"; };
 		9978FD106F794C8E5F7E61F2 /* CoverageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverageStore.swift; sourceTree = "<group>"; };
 		A231724BE3653A235B51A2F6 /* MapTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapTabView.swift; sourceTree = "<group>"; };
+		B09E5FE3CB71EE6914E91AE6 /* JumpColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpColors.swift; sourceTree = "<group>"; };
 		BB0DC88292C68F483805EC0A /* TimeRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeRange.swift; sourceTree = "<group>"; };
 		BCFFF76D1AD664F15B87FBBE /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		BD8AAD1EB3A748454CE34A23 /* PlannedRouteBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannedRouteBar.swift; sourceTree = "<group>"; };
@@ -188,6 +190,7 @@
 				D508E97CB901197853D63B57 /* ControlAppearance.swift */,
 				239FACC29E0EB5235839B714 /* DebugLaunch.swift */,
 				1AB7B41C2C224D883B2841A0 /* Formatters.swift */,
+				B09E5FE3CB71EE6914E91AE6 /* JumpColors.swift */,
 				4C9FCF0A046B333430CBACFB /* Metrics.swift */,
 				15C7F167A6E55EDF154ECDD6 /* Palette.swift */,
 				6AF569EB5045DD43C9FE1EE3 /* SystemAppearance.swift */,
@@ -279,6 +282,7 @@
 				5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */,
 				860DE2C06087E6D338E4F9FF /* Formatters.swift in Sources */,
 				636020DA50D5474720DFF24F /* HealthStore.swift in Sources */,
+				0ED5B5F04DDAF1A7EA290036 /* JumpColors.swift in Sources */,
 				7BB4A7BCE191B84F65794F27 /* JumpRules.swift in Sources */,
 				97C0361AE400FD9489827864 /* LocationProvider.swift in Sources */,
 				AE7D60C69F4446EDCE650B18 /* MapImageRenderer.swift in Sources */,

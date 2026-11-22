@@ -77,25 +77,19 @@ enum RouteBlue {
 /// zero-length dash with a round cap, so the cap *is* the circle and its diameter is the line
 /// width.
 enum RouteJump {
-    /// The grey a leg the distance rule catches is drawn in.
-    static let uiColor = UIColor(red: 174.0 / 255, green: 174.0 / 255, blue: 178.0 / 255, alpha: 1)
-    /// The tone a leg the speed rule catches is drawn in — the system red, so a fast leg never
-    /// reads as the route's own colour, whatever the user has set that to.
-    static let speedUIColor = UIColor(red: 1, green: 69.0 / 255, blue: 58.0 / 255, alpha: 1)
+    /// The grey a leg the distance rule catches is drawn in *until the user picks another tone*
+    /// (`JumpColorStore`).
+    static let distanceTone = UIColor(red: 174.0 / 255, green: 174.0 / 255, blue: 178.0 / 255, alpha: 1)
+    /// The tone a leg the speed rule catches ships in — the system red, so a fast leg never reads
+    /// as the route's own colour, whatever the user has set that to. It is the default of
+    /// `JumpColorStore` for that rule.
+    static let speedTone = UIColor(red: 1, green: 69.0 / 255, blue: 58.0 / 255, alpha: 1)
 
     /// A dot is this share of the route's own width — thinner than the route, so the ground
     /// that *was* walked reads as the solid line and the jump as a trail beside it.
     static let dotScale: CGFloat = 0.65
     /// Centre-to-centre spacing of two dots, in dot diameters.
     static let spacingScale: CGFloat = 2.4
-
-    /// The tone a leg is drawn in, whichever rule caught it.
-    static func uiColor(for kind: JumpKind) -> UIColor {
-        switch kind {
-        case .distance: return uiColor
-        case .speed: return speedUIColor
-        }
-    }
 
     /// The diameter of one dot on a route drawn `routeWidth` wide.
     static func dotDiameter(routeWidth: CGFloat) -> CGFloat {

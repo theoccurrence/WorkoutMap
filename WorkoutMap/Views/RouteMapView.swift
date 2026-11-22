@@ -19,8 +19,8 @@ struct MapRouteLine: Equatable {
 extension MapRouteLine {
     /// One workout route as the lines it is drawn as: the stretches the user walked, in the
     /// category's colour, and each leg one of the two jump rules caught, in that rule's own tone
-    /// and style (`JumpRules`). A leg's dots are measured against `routeWidth`, so they follow
-    /// the weight the routes are drawn at rather than sit on a weight of their own.
+    /// (`tones`) and style (`JumpRules`). A leg's dots are measured against `routeWidth`, so they
+    /// follow the weight the routes are drawn at rather than sit on a weight of their own.
     ///
     /// Every line's id is the workout's own with a suffix; `Coordinator.baseRouteID` cuts the
     /// suffix off again, so a tap anywhere on the route picks that workout.
@@ -28,6 +28,7 @@ extension MapRouteLine {
                       route: WorkoutRoute,
                       rules: JumpRules,
                       color: UIColor,
+                      tones: JumpTones,
                       routeWidth: CGFloat = Metrics.routeWidth) -> [MapRouteLine] {
         let drawing = route.drawing(rules)
         var lines = drawing.walked.enumerated().map { index, coordinates in
@@ -43,13 +44,13 @@ extension MapRouteLine {
             case .dotted:
                 lines.append(MapRouteLine(id: "\(workout.id.uuidString)#\(leg.kind.rawValue)\(index)",
                                           coordinates: leg.coordinates,
-                                          color: RouteJump.uiColor(for: leg.kind),
+                                          color: tones.uiColor(for: leg.kind),
                                           width: RouteJump.dotDiameter(routeWidth: routeWidth),
                                           dash: RouteJump.dotDash(routeWidth: routeWidth)))
             case .solid:
                 lines.append(MapRouteLine(id: "\(workout.id.uuidString)#\(leg.kind.rawValue)\(index)",
                                           coordinates: leg.coordinates,
-                                          color: RouteJump.uiColor(for: leg.kind),
+                                          color: tones.uiColor(for: leg.kind),
                                           width: routeWidth))
             }
         }
@@ -104,27 +105,41 @@ final class ToneOverlay: NSObject, MKOverlay {
 /// span — so the dots grow past the line they interrupt. This renderer strokes the dots at a
 /// size the zoom cannot move instead, and the coordinator asks it to redraw when the zoom
 /// actually changed.
+///
+/// It strokes only the legs of the tile it is handed (`legs`), one leg at a time: a tile is
+/// asked for again every time a pan brings a new one in, and paying for every leg on the map each
+/// time is what made the map crawl. Gathered into a single path instead, Core Graphics works out
+/// the union of every dot in the tile, which at the wide strokes a world-level zoom asks for
+/// (a dot several kilometres across in map points) measured 200 ms a tile against 8 ms for the
+/// same dots stroked one leg at a time — so a tile costs its own dots, stroked as they were.
 final class JumpDotsRenderer: MKOverlayRenderer {
     private let color: UIColor
     /// The dot's diameter, in points on the screen.
     private let diameter: CGFloat
     /// The distance between two dot centres, in the same points.
     private let spacing: CGFloat
-    private let polylines: [MKPolyline]
+    /// Every leg of the overlay with the rectangle it covers. MapKit hands the renderer one
+    /// *tile* at a time, so a tile that stroked the whole overlay again paid for every leg on
+    /// the map — 8–11 ms measured at a few thousand legs, on each tile, on every frame a pan
+    /// brought a new tile in — no matter how little of the route set the tile held. The legs a
+    /// tile can actually reach are picked out first instead.
+    private let legs: [(polyline: MKPolyline, bounds: MKMapRect)]
 
     override init(overlay: MKOverlay) {
         let jump = overlay as? RouteColorOverlay
-        color = jump?.color ?? RouteJump.uiColor
+        color = jump?.color ?? RouteJump.distanceTone
         diameter = jump?.width ?? RouteJump.dotDiameter(routeWidth: Metrics.routeWidth)
         spacing = diameter * RouteJump.spacingScale
-        polylines = (jump as? MKMultiPolyline)?.polylines ?? []
+        legs = (jump?.polylines ?? [])
+            .filter { $0.pointCount > 1 }
+            .map { ($0, $0.boundingMapRect) }
         super.init(overlay: overlay)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        guard !polylines.isEmpty, diameter > 0, spacing > 0 else { return }
+        guard !legs.isEmpty, diameter > 0, spacing > 0 else { return }
         // The renderer's own space is map points, and MapKit hands a *tile* over — measured, a
         // tile is drawn at twice the display's resolution (a dot asked for at 1.45 pt came out
         // at ~1.3 px per point of it) — so a size that should be `diameter` points on the screen
@@ -132,15 +147,22 @@ final class JumpDotsRenderer: MKOverlayRenderer {
         // dots: a zero-length dash with a round cap is one circle, and the second length keeps
         // two of them apart.
         let scale = 2 / CGFloat(zoomScale)
+        // A dot reaches half a diameter either side of the leg it sits on, so a leg is kept while
+        // that much of it can still land inside the tile.
+        let reach = Double(diameter * scale)
+        context.saveGState()
+        // Clipped to the tile, like every other tile drawing MapKit makes: a dot is carried by
+        // the tiles it touches and never drawn outside them.
+        context.clip(to: rect(for: mapRect))
         context.setStrokeColor(color.cgColor)
         context.setLineWidth(diameter * scale)
         context.setLineCap(.round)
         context.setLineJoin(.round)
         context.setLineDash(phase: 0, lengths: [0.01 * scale, spacing * scale])
-        for polyline in polylines where polyline.pointCount > 1 {
+        for leg in legs where leg.bounds.insetBy(dx: -reach, dy: -reach).intersects(mapRect) {
             let path = CGMutablePath()
-            let points = polyline.points()
-            for index in 0..<polyline.pointCount {
+            let points = leg.polyline.points()
+            for index in 0..<leg.polyline.pointCount {
                 let dot = point(for: points[index])
                 if index == 0 { path.move(to: dot) } else { path.addLine(to: dot) }
             }
@@ -148,6 +170,7 @@ final class JumpDotsRenderer: MKOverlayRenderer {
             context.strokePath()
         }
         context.setLineDash(phase: 0, lengths: [])
+        context.restoreGState()
     }
 }
 
@@ -660,8 +683,30 @@ struct RouteMapView: UIViewRepresentable {
         private var jumpRedrawWidth: Double?
         private var jumpRedrawTime: CFTimeInterval = 0
         /// Routes already turned into overlays, so a reload that adds routes one at a
-        /// time costs one polyline per arrival instead of rebuilding the whole set.
+        /// time costs one polyline per arrival instead of rebuilding the whole set — with the
+        /// ground each was built from, so an id that comes back standing for a different stretch
+        /// is built again (see `updateRoutes`).
         private var polylines: [String: MKPolyline] = [:]
+        private var polylineShapes: [String: PolylineShape] = [:]
+        /// What a cached polyline was built from: two stretches of the same length can still be
+        /// different ground, so both ends count as well as the number of fixes.
+        private struct PolylineShape: Equatable {
+            let count: Int
+            let firstX: Double
+            let firstY: Double
+            let lastX: Double
+            let lastY: Double
+
+            init(_ line: MapRouteLine) {
+                count = line.coordinates.count
+                let first = MKMapPoint(line.coordinates[0])
+                let last = MKMapPoint(line.coordinates[count - 1])
+                firstX = first.x
+                firstY = first.y
+                lastX = last.x
+                lastY = last.y
+            }
+        }
         private var signature = ""
         private var dotAnnotation: UserDotAnnotation?
         private var pinAnnotation: DestinationPinAnnotation?
@@ -934,12 +979,20 @@ struct RouteMapView: UIViewRepresentable {
             var wanted: Set<String> = []
             for line in lines where line.coordinates.count > 1 {
                 wanted.insert(line.id)
-                if polylines[line.id] == nil {
+                let shape = PolylineShape(line)
+                // An id outlives the stretch it stands for: a jump rule moved and the route was
+                // cut another way, and the id (`…-0`, `…-distance1`) came back as different
+                // ground. One that kept its shape is left as it is — that is what makes a reload
+                // that arrives in batches cost one polyline per arrival.
+                guard polylines[line.id] != nil, polylineShapes[line.id] == shape else {
                     polylines[line.id] = MKPolyline(coordinates: line.coordinates,
                                                     count: line.coordinates.count)
+                    polylineShapes[line.id] = shape
+                    continue
                 }
             }
             polylines = polylines.filter { wanted.contains($0.key) }
+            polylineShapes = polylineShapes.filter { wanted.contains($0.key) }
 
             var grouped: [(color: UIColor, width: CGFloat, dash: [CGFloat]?, polylines: [MKPolyline])] = []
             for line in lines {
@@ -1216,19 +1269,26 @@ struct RouteMapView: UIViewRepresentable {
         ///
         /// A dashed stroke is rasterised per tile level, so between two levels MapKit scales the
         /// tile it already drew and the dots drift in size with the map. Asking the renderers to
-        /// redraw when the zoom has actually moved pulls them back — throttled, because the
-        /// visible region changes on every pan frame as well and one redraw re-strokes the whole
-        /// overlay.
+        /// redraw when the zoom has actually moved pulls them back — and both halves of that are
+        /// throttled, because a redraw re-strokes every dot on screen and the visible region
+        /// changes on every pan frame as well: only the tiles on screen are asked for again, and
+        /// only once the zoom has moved the dots by more than a fraction of a dot.
         private func redrawJumpDotsIfZoomChanged(_ map: MKMapView) {
             guard !jumpRenderers.isEmpty else { return }
-            let width = map.visibleMapRect.width
-            if let previous = jumpRedrawWidth,
-               abs(width - previous) / max(width, previous) < 0.04 { return }
+            let rect = map.visibleMapRect
+            let width = rect.width
             let now = CACurrentMediaTime()
-            guard now - jumpRedrawTime >= 0.05 else { return }
+            if let previous = jumpRedrawWidth {
+                // What the zoom can have moved a dot by is the ratio of the two visible widths.
+                // The dots are a handful of points across, so a tenth of one is not worth the
+                // strokes: the redraw is left for a real move, not for every pinch frame.
+                let moved = abs(width - previous) / max(width, previous)
+                guard moved > 0.15 else { return }
+            }
+            guard now - jumpRedrawTime >= 0.15 else { return }
             jumpRedrawWidth = width
             jumpRedrawTime = now
-            for renderer in jumpRenderers { renderer.setNeedsDisplay() }
+            for renderer in jumpRenderers { renderer.setNeedsDisplay(rect) }
         }
     }
 }

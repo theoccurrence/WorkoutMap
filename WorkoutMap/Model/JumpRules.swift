@@ -10,11 +10,21 @@ import Foundation
 /// These two rules are the ones the settings expose, each on its own:
 ///
 /// * a leg longer than `distanceThreshold` is a **distance** leg,
-/// * a leg faster than `speedThreshold` is a **speed** leg.
+/// * a leg that covers `speedMinimumDistance` and is faster than `speedThreshold` is a **speed**
+///   leg.
 ///
 /// A leg that trips both is drawn as a speed leg — the faster reading is the more telling one —
 /// and a leg the strict rule catches is drawn as neither.
 struct JumpRules: Equatable {
+    /// The ground a leg has to cover before its speed is judged at all, in metres.
+    ///
+    /// A leg's speed is only as good as the two timestamps behind it, and a receiver's timestamps
+    /// are rounded: two fixes a metre apart, a hundredth of a second apart, imply 100 m/s. That is
+    /// a bad timestamp, not a jump, and the app has no business drawing a lone dot for a fix the
+    /// user was standing on. Twenty-five metres is what the strict rule already asks for; the
+    /// speed rule is left at a tenth of it, so a leg it catches is still ground the user covered.
+    static let speedMinimumDistance: Double = 10  // m
+
     var distanceStyle: RouteJumpStyle
     /// The distance, in metres, past which a leg counts as a jump.
     var distanceThreshold: Double

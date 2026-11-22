@@ -35,6 +35,8 @@ struct MapTabView: View {
     /// The colours the three modes are drawn in — the routes, the position dot and its cone,
     /// and the filter buttons — as the settings keep them.
     @ObservedObject private var modeColors = CategoryColorStore.shared
+    /// The tone each jump rule draws its legs in, as the settings keep those.
+    @ObservedObject private var jumpColors = JumpColorStore.shared
     /// The route the user last tapped. While one is selected the range bubble shows its own
     /// date and time instead of the range's label.
     @State private var tappedRouteID: String?
@@ -130,13 +132,18 @@ struct MapTabView: View {
         health.workouts.filter { selection.contains($0.start) && (category == nil || $0.category == category) }
     }
 
+    /// The lines the map draws, split once per route rather than on every redraw of the screen.
+    ///
+    /// Splitting a route walks every leg of it — a distance and a speed each — and this screen's
+    /// body runs for every fix, every finger movement of the explorer's card, every style change
+    /// and every arrive of a route. Nothing about the split changes while the route, the two
+    /// rules and the category's colour stay as they are, so it is kept (see `RouteLineCache`).
+    @State private var lineCache = RouteLineCache()
+
     private var mapLines: [MapRouteLine] {
-        loaded.flatMap {
-            MapRouteLine.lines(for: $0.0,
-                               route: $0.1,
-                               rules: jumpRules,
-                               color: modeColors.uiColor(for: $0.0.category))
-        }
+        lineCache.lines(for: loaded,
+                        rules: jumpRules,
+                        tones: jumpColors.tones) { modeColors.uiColor(for: $0) }
     }
 
     /// The explorer's planned route and its alternates, as map lines: the selected one in the
@@ -1059,6 +1066,55 @@ struct MapTabView: View {
         let ids = Set(batch.map { $0.0.id })
         loaded.removeAll { ids.contains($0.0.id) }
         loaded.append(contentsOf: batch)
+    }
+}
+
+/// One route's lines, kept for as long as the split cannot have changed.
+///
+/// The map screen asks for its lines on every redraw of the screen (`mapLines`), and turning a
+/// route into its lines is the expensive half of that: the track is walked leg by leg, a
+/// great-circle distance and a speed per leg, and the runs and jump legs are cut out of it. The
+/// answer only depends on the route, the two jump rules and the colour the category is drawn in,
+/// so it is kept under the route's own id and handed back untouched until one of those moves.
+///
+/// Touched from the map screen's body alone, and so from the main thread alone; the routes
+/// themselves stay plain data.
+final class RouteLineCache {
+    private struct Entry {
+        /// The rules and the colour the lines were cut for, as one comparable string.
+        let key: String
+        let lines: [MapRouteLine]
+    }
+
+    private var entries: [UUID: Entry] = [:]
+
+    /// The lines of every loaded route, in the order they were handed over. A route whose split,
+    /// colour or jump tone changed is cut again — and only that one.
+    func lines(for loaded: [(Workout, WorkoutRoute)],
+               rules: JumpRules,
+               tones: JumpTones,
+               color: (WorkoutCategory) -> UIColor) -> [MapRouteLine] {
+        var result: [MapRouteLine] = []
+        var live: Set<UUID> = []
+        live.reserveCapacity(loaded.count)
+        for (workout, route) in loaded {
+            live.insert(workout.id)
+            let routeColor = color(workout.category)
+            // The track's own length is part of the key as well: the store hands the same route
+            // back for an id, and a route that arrives with another size is a different one.
+            let key = "\(rules.key)-\(tones.key)-\(routeColor.hexRGB)-\(route.count)"
+            if let entry = entries[workout.id], entry.key == key {
+                result.append(contentsOf: entry.lines)
+                continue
+            }
+            let lines = MapRouteLine.lines(for: workout, route: route, rules: rules,
+                                           color: routeColor, tones: tones)
+            entries[workout.id] = Entry(key: key, lines: lines)
+            result.append(contentsOf: lines)
+        }
+        // Routes that left the range keep nothing: the cache is as big as the map's own filter.
+        entries = entries.filter { live.contains($0.key) }
+        return result
     }
 }
 

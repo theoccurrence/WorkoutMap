@@ -24,6 +24,9 @@ struct SettingsView: View {
     /// The colour each mode is drawn in — the routes, the position dot and its cone, and the
     /// filter buttons. Shared with the map screens, so a picker here redraws them at once.
     @ObservedObject private var modeColors = CategoryColorStore.shared
+    /// The tone each jump rule draws its legs in. Shared with the map screens, the list
+    /// thumbnails and the export card, so a picker here redraws them at once.
+    @ObservedObject private var jumpColors = JumpColorStore.shared
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -104,6 +107,12 @@ struct SettingsView: View {
                                   low: "\(Int(JumpSettings.distanceRange.lowerBound)) m",
                                   high: "\(Int(JumpSettings.distanceRange.upperBound)) m",
                                   detail: "\(Int(jumpDistanceThreshold)) m")
+                        // The tone a rule draws its legs in is only worth a row while the rule is
+                        // drawn at all: `hidden` leaves nothing for a colour to show up on.
+                        if jumpDistanceStyle != .hidden {
+                            divider
+                            toneRow(.distance, title: "Distance Color")
+                        }
                         divider
                         Menu {
                             Picker("Fast Legs", selection: $jumpSpeedStyle) {
@@ -127,10 +136,16 @@ struct SettingsView: View {
                                   low: "\(Int(JumpSettings.speedRange.lowerBound))",
                                   high: "\(Int(JumpSettings.speedRange.upperBound)) km/h",
                                   detail: "\(Int(jumpSpeedThreshold)) km/h")
+                        if jumpSpeedStyle != .hidden {
+                            divider
+                            toneRow(.speed, title: "Fast Legs Color")
+                        }
+                        divider
+                        resetTonesRow
                     }
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
 
-                    Text("A leg longer than the distance, or faster than the speed, is drawn as that rule says. A leg that trips both is drawn as a fast leg, and a leg the combined detection catches is never drawn.")
+                    Text("A leg longer than the distance is drawn as that rule says, and so is a leg faster than the speed — as long as it covers more than \(Int(JumpRules.speedMinimumDistance)) m, since a shorter one is a rounding of the clock and not a jump. A leg that trips both is drawn as a fast leg, and a leg the combined detection catches is never drawn. Each rule draws in its own tone, dotted or solid — the grey and the red until another one is picked above.")
                         .font(.system(size: 13))
                         .foregroundStyle(Palette.textTertiary)
                         .padding(.horizontal, 2)
@@ -242,6 +257,53 @@ struct SettingsView: View {
     private func colorBinding(for category: WorkoutCategory) -> Binding<Color> {
         Binding(get: { modeColors.color(for: category) },
                 set: { modeColors.setColor($0, for: category) })
+    }
+
+    /// One jump rule's tone: its swatch, the hex the picker is showing, and the same system
+    /// colour picker the mode colours use. The tone belongs to the rule, so it is what a leg
+    /// reads as whether the rule draws that leg dotted or solid.
+    private func toneRow(_ kind: JumpKind, title: String) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(jumpColors.color(for: kind))
+                .frame(width: 24)
+            Text(title)
+                .font(.system(size: 19))
+                .foregroundStyle(.white)
+            Spacer(minLength: 8)
+            Text(jumpColors.hexString(for: kind))
+                .font(.system(size: 16, design: .monospaced))
+                .foregroundStyle(Palette.textSecondary)
+            ColorPicker(title,
+                        selection: toneBinding(for: kind),
+                        supportsOpacity: false)
+                .labelsHidden()
+                .accessibilityLabel("\(title) tone")
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 62)
+    }
+
+    private func toneBinding(for kind: JumpKind) -> Binding<Color> {
+        Binding(get: { jumpColors.color(for: kind) },
+                set: { jumpColors.setColor($0, for: kind) })
+    }
+
+    /// Puts both rules back to the grey and the red they shipped with. Dimmed while there is
+    /// nothing to reset.
+    private var resetTonesRow: some View {
+        Button {
+            jumpColors.reset()
+        } label: {
+            rowContent(title: "Reset Colors",
+                       systemImage: "arrow.counterclockwise",
+                       detail: nil,
+                       showsChevron: false)
+        }
+        .buttonStyle(.plain)
+        .disabled(jumpColors.isDefault)
+        .opacity(jumpColors.isDefault ? 0.45 : 1)
     }
 
     /// Puts all three modes back to the colours they shipped with. Dimmed while there is

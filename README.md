@@ -17,12 +17,13 @@ desaturated Apple map and lets you filter them by week / month / year.
 | **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as circle buttons on the opposite side. The map can be panned, pinched and turned with two fingers. The share button exports the current map as an image card. The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`); tapping the map itself brings the range's label back. |
 | **Map styles** | Apple Maps' own *Map Modes* panel: **Explore**, **Driving** (live traffic), **Transit** (stations only), **Satellite** (imagery) and **Legacy** — the grey map the app shipped with, which is also what it opens with. Each tile is Maps' own artwork for the style (the grey Explore tile for **Legacy**), so the panel is complete the moment it opens. The choice is kept in the settings, and the detail screen and the export card draw the map in it as well. The map itself — and every preview of it — is drawn in the system's own light or dark style, or in the one pinned under *Map Appearance*; **Legacy** is the grey map the app shipped with and stays dark either way. |
 | **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a panel: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map. Tapping one of the alternates on the map picks it, the same as tapping its pill on the card. Once Go is tapped the map shows that one route alone and the Go and the cross give way to a red **Stop**; the card can be swiped up out of the way without ending anything, and the binoculars bring it back — or open the panel again to plan another one. The route stays until Stop, a new plan, or a relaunch. The pin carries an info bubble with the name the geocoder resolved, the address, **how far away it is** (live, as the user walks) and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
-| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **gps jumps** — two independent rules, each *dotted* / *hidden* / *solid*: legs longer than a **distance** threshold (25 m to start with) and legs faster than a **speed** threshold (162 km/h to start with), see below; the combined detection that catches the big ones is fixed and never drawn, **mode colors** (the primary colour of Walk, Run and Ride — the routes, the position dot and its cone, and each mode's filter button — chosen in the system colour picker with its spectrum, sliders and hex field, plus *Reset to Defaults*), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered — feedback, share app, about, contact. |
+| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **gps jumps** — two independent rules, each *dotted* / *hidden* / *solid*: legs longer than a **distance** threshold (25 m to start with) and legs faster than a **speed** threshold (162 km/h to start with, and past 10 m of ground — a shorter leg is a rounded clock, not a jump), each with its own **colour** for the tone it draws in (the system colour picker and hex, as under *Mode Colors*, with *Reset Colors* beneath them), see below; the combined detection that catches the big ones is fixed and never drawn, **mode colors** (the primary colour of Walk, Run and Ride — the routes, the position dot and its cone, and each mode's filter button — chosen in the system colour picker with its spectrum, sliders and hex field, plus *Reset to Defaults*), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered — feedback, share app, about, contact. |
 
 Detail screen: map with the route, workout type, date, weather (temperature and
 humidity from the workout metadata), then time, distance, elevation, active
 calories, average pace and average heart rate, plus a share button that opens the
-export card.
+export card. It is drawn **edge to edge** — map, black and stat cards all run to the
+screen's own edges (see the rail notes below).
 
 Export card: the map with the *Workout Map* title, a 2×2 statistic grid and the
 app badge; **Save** writes the card to the photo library.
@@ -125,8 +126,8 @@ WorkoutMap/
                CoverageIndex + CoverageStore (where the user has been), DirectionsClient
                (MKDirections, behind a protocol), RoutePlanner (the explorer's algorithm)
   Theme/       Palette (measured colours), CategoryColorStore (the user's mode colours),
-               Metrics (measured geometry), Formatters, SystemAppearance (the phone's own
-               light/dark style), ControlAppearance
+               JumpColorStore (the tone each jump rule draws in), Metrics (measured geometry),
+               Formatters, SystemAppearance (the phone's own light/dark style), ControlAppearance
   Views/       RootView (TabView), WorkoutsListView, WorkoutCardView, WorkoutDetailView,
                MapTabView, RouteMapView, RangePickerPanel, MapModePanel, ExportPreviewView,
                SettingsView, RoutePlannerPanel, PlannedRouteBar
@@ -284,6 +285,15 @@ Notes on the map rendering, all measured from the original app:
   `.bottomBar` placement, which the system puts in one bubble of their own beneath the
   pill — the same two-button pill the hand-placed column draws (map style above, locate
   below).
+  The **detail screen hides the navigation bar**, so the system has no actions to put in that
+  rail at all — and it is drawn **edge to edge** for that reason: laid out inside the safe area,
+  the 84 pt the window reserves down that side was left as a band of empty black with nothing in
+  it, and the map stopped short of it as well. Its content ignores the safe area
+  (`.ignoresSafeArea()` on the map and the cards, which then run the full width of the window),
+  while the back and share buttons are placed on the `GeometryReader` above it — still inside
+  the safe area, so they keep clear of the rail and of the camera cut-out. Nothing this screen
+  draws lives in that strip, so there is no reason to keep out of it. Measured on the folded
+  panel: full width in the folded portrait and in the folded landscape.
   Screens **without** such a rail — the unfolded inner panel, and any portrait iPhone —
   get the same column **placed by hand** at the bottom trailing corner
   (`MapTabView.mapToolbar`), in the same glass shape and with its bottom edge on the tab
@@ -496,10 +506,18 @@ Notes on the map rendering, all measured from the original app:
   has to cover more than 25 m **and** beat 162 km/h, or cover 300 m when its timestamp cannot be
   used. That rule is fixed and **never drawn**: a leg it catches is left out of the map, gap and
   all. On top sit the **two independent rules** *Settings ▸ GPS Jumps* exposes: a leg longer
-  than the distance threshold is a distance leg, a leg faster than the speed threshold is a
-  speed leg, and each is drawn *dotted*, *hidden* or *solid* on its own — a leg that trips both
-  is drawn as a fast leg. Dotted and solid use the rule's own tone, not the route's colour:
-  grey for distance, red for speed. A dotted leg is a row of **dots**, each a zero-length dash
+  than the distance threshold is a distance leg, and a leg faster than the speed threshold is a
+  speed leg — provided it also covers more than 10 m (`JumpRules.speedMinimumDistance`). A
+  receiver's timestamps are rounded, and two fixes a metre apart a hundredth of a second apart
+  imply 100 m/s: that is a bad clock, not a jump, and flagging it put a lone dot on a fix the
+  user was standing on. Each rule is drawn *dotted*, *hidden* or *solid* on its own — a leg that
+  trips both is drawn as a fast leg. Dotted and solid use the rule's own **tone**, never the
+  route's colour, and that tone is the user's to set (`JumpColorStore`, through the two colour
+  rows under *Settings ▸ GPS Jumps* — the same system colour picker the mode colours use, with
+  the hex beside it): grey for the distance rule and the system red for a fast leg until another
+  one is picked, and a change lands on the map, the card thumbnails and the export card at once.
+  The tone belongs to the **rule**, so it is what a leg reads as whether the rule draws it
+  dotted or solid. A dotted leg is a row of **dots**, each a zero-length dash
   stroked with a round cap, and both the dot and its spacing are measured against the width the
   route itself is drawn at (`RouteJump`). Health stores a jump as an ordinary fix — the straight
   line is what a polyline draws between any two fixes, and the impossibility is in the time
@@ -510,9 +528,17 @@ Notes on the map rendering, all measured from the original app:
   dashed stroke grows with the map's zoom: measured with the camera pinned over the same routes,
   the dots came out ~4 px at a 1.5 km span and ~10 px at a 40 km one while the route line stayed
   put, so they ended up wider than the line they interrupt. The renderer keeps the dot and its
-  gap fixed against the zoom and is asked to redraw when the zoom actually changed. The walked
+  gap fixed against the zoom, and the coordinator asks it to redraw when the zoom has actually
+  moved the dots by more than a fraction of one. MapKit hands a renderer **one tile at a time**,
+  so the renderer keeps each leg with the rectangle it covers and strokes only the legs the tile
+  can reach, all of them in one path: stroking the whole overlay per tile is what made the map
+  crawl — measured at 8–11 ms a tile with a few thousand legs, every leg on the map stroked
+  again for each tile a pan brought in, whether or not it lay anywhere near it — and the cost of
+  a tile is now its own dots. The walked
   stretches are split around every leg either rule catches, which costs a handful of polylines
-  per workout and still one overlay — one draw call — per colour and dash pattern; each jump
+  per workout and still one overlay — one draw call — per colour and dash pattern; the split is
+  cut once per route and kept until the rules or the colour move (`RouteLineCache`), because the
+  map screen asks for its lines on every redraw of the screen. Each jump
   line carries the workout's id with a suffix, which a tap cuts off again
   (`Coordinator.baseRouteID`), so picking a route still picks that workout. Snapshots (card
   thumbnails and the export card) draw the same legs into their pixels, and the thumbnail cache

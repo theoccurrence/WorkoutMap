@@ -19,6 +19,8 @@ struct WorkoutDetailView: View {
     @AppStorage(JumpSettings.speedThresholdKey) private var jumpSpeedThreshold: Double = JumpRules.standard.speedThreshold
     @ObservedObject private var systemAppearance = SystemAppearance.shared
     @ObservedObject private var modeColors = CategoryColorStore.shared
+    /// The tone each jump rule draws in — the same choice the settings keep.
+    @ObservedObject private var jumpColors = JumpColorStore.shared
 
     private var lines: [MapRouteLine] {
         MapRouteLine.lines(for: workout,
@@ -27,7 +29,8 @@ struct WorkoutDetailView: View {
                                             distanceThreshold: jumpDistanceThreshold,
                                             speedStyle: jumpSpeedStyle,
                                             speedThreshold: jumpSpeedThreshold),
-                           color: modeColors.uiColor(for: workout.category))
+                           color: modeColors.uiColor(for: workout.category),
+                           tones: jumpColors.tones)
     }
 
     /// The style the map is drawn in — `legacy`, the stored style, stays dark.
@@ -50,6 +53,13 @@ struct WorkoutDetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(Color.black)
+            // Edge to edge, the way the map screen draws. Laid out inside the safe area, this
+            // screen left the strip the system reserves for its own rail (the Duo's vertical bar
+            // on the screen's side, in every pose but the unfolded portrait) as a band of empty
+            // black with nothing in it, and the map stopped short of it too. Nothing here lives
+            // in that rail — the back and share buttons are placed on the reader above, still
+            // clear of it — so the whole screen belongs to the screen.
+            .ignoresSafeArea()
         }
         .ignoresSafeArea(edges: .top)
         .overlay(alignment: .topLeading) { backButton }

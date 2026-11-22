@@ -19,6 +19,8 @@ struct WorkoutCardView: View {
     @AppStorage(JumpSettings.speedThresholdKey) private var jumpSpeedThreshold: Double = JumpRules.standard.speedThreshold
     /// The colour the mode is drawn in — the same choice the map screen uses.
     @ObservedObject private var modeColors = CategoryColorStore.shared
+    /// The tone each jump rule draws in — the same choice the map screen uses.
+    @ObservedObject private var jumpColors = JumpColorStore.shared
 
     private var thumbnailWidth: CGFloat { Metrics.thumbnailWidth }
 
@@ -81,16 +83,17 @@ struct WorkoutCardView: View {
                                                               route: route,
                                                               color: modeColors.uiColor(for: workout.category),
                                                               rules: jumpRules,
+                                                              tones: jumpColors.tones,
                                                               size: target,
                                                               scale: displayScale) {
             withAnimation(.easeOut(duration: 0.2)) { thumbnail = image }
         }
     }
 
-    /// What the thumbnail is drawn from: the card's own size, the jump rules and the mode's
-    /// colour, so a change to any of them draws it again.
+    /// What the thumbnail is drawn from: the card's own size, the jump rules, the tone they draw
+    /// in and the mode's colour, so a change to any of them draws it again.
     private var loadKey: String {
-        "\(size.width)x\(size.height)-\(jumpRules.key)-\(modeColors.hexString(for: workout.category))"
+        "\(size.width)x\(size.height)-\(jumpRules.key)-\(jumpColors.tones.key)-\(modeColors.hexString(for: workout.category))"
     }
 
     private var jumpRules: JumpRules {
