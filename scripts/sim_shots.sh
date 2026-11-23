@@ -24,6 +24,18 @@ shot() {
   xcrun simctl io booted screenshot "$OUT/$name.png" >/dev/null 2>&1
   echo "shot $name"
 }
+
+# The same, for a run that has to wait for something with its own timing — the device turning
+# (`WM_ROTATE` waits 6 s before its first request) or a plan arriving.
+shot_after() {
+  local name="$1" wait="$2"; shift 2
+  xcrun simctl terminate booted com.theoccurrence.workoutmap 2>/dev/null || true
+  sleep 0.6
+  env "SIMCTL_CHILD_WM_SAMPLE_DATA=1" "$@" xcrun simctl launch booted com.theoccurrence.workoutmap >/dev/null
+  sleep "$wait"
+  xcrun simctl io booted screenshot "$OUT/$name.png" >/dev/null 2>&1
+  echo "shot $name"
+}
 shot list      SIMCTL_CHILD_WM_START_TAB=0
 shot map_week  SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week
 shot map_month SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=month
@@ -32,6 +44,15 @@ shot map_all   SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=all
 shot map_run   SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_START_CATEGORY=run
 shot map_ride  SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_START_CATEGORY=ride
 shot modes      SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_START_MODES=1
+# The map screen's three menus are cards of their own now (`MapTabView.menuLayer`), so each gets a
+# shot of its own, settled: what the card's margins and corners are is checked against the detail
+# sheet's (`detail_sheet` below, and `map_bubble_open` under it).
+# The menus have a timing of their own — `WM_OPEN_MENU` waits 4 s from the screen's own task, which
+# is a couple of seconds after the launch — so they are shot with a wait rather than the plain 5 s:
+# a cold start could otherwise catch the map before the card has come up (measured: it did).
+shot_after menu_range 12 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_OPEN_MENU=range
+shot_after menu_modes 12 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_OPEN_MENU=modes
+shot_after menu_plan  12 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_OPEN_MENU=plan
 shot mode_explore   SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_START_MODE=explore
 shot mode_driving   SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_START_MODE=driving
 shot mode_transit   SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_START_MODE=transit
@@ -40,6 +61,15 @@ shot sheet_week  SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SI
 shot sheet_month SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=month SIMCTL_CHILD_WM_START_SHEET=1
 shot sheet_year  SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=year SIMCTL_CHILD_WM_START_SHEET=1
 shot detail    SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1
+# The detail screen's stats are laid out for the room there is — three rows of two upright, two rows
+# of three sideways — and the map gives up whatever they and the `*Data from …` label need, so the
+# same shots are taken lying down and as the sheet the map's range bubble opens, whose card the three
+# menus are cut from. The unfolded inner panel of the Duo cannot be shot in this setup (the device
+# boots folded and simctl has no way to unfold it), so the folded cover panel — the tighter of the
+# two portraits — is the one the portrait layout is measured on.
+shot_after detail_land 20 SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL_CHILD_WM_ROTATE=landscapeRight
+shot_after detail_sheet 12 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_SKIP_LOCATION=1 SIMCTL_CHILD_WM_START_WORKOUT_SHEET=1
+shot_after detail_sheet_land 24 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_SKIP_LOCATION=1 SIMCTL_CHILD_WM_START_WORKOUT_SHEET=1 SIMCTL_CHILD_WM_ROTATE=landscapeRight
 shot export    SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL_CHILD_WM_START_EXPORT=1
 # The range bubble: a tap on a route (WM_TAP_AT) puts that route's own date in it, and the bubble
 # itself is the way into the workout — the second shot taps it.

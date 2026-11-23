@@ -13,6 +13,26 @@ enum Metrics {
     /// between the three of them, so it reads as a group of its own.
     static let exploreGap: CGFloat = pillGap * 2
     static let statCardRadius: CGFloat = 12
+    /// The gap between the detail screen's stat cards, both ways. It was 20 across and 12 down while
+    /// the grid was fixed at two columns; one gap for both axes is what lets the same six cards be laid
+    /// out three rows by two or two rows by three without the block changing size.
+    static let statCardGap: CGFloat = 12
+    /// The margin a menu card of the map screen keeps from the display's own edges — the same on
+    /// all four sides, so the card reaches over the band the tab bar and the Duo's rail register
+    /// live in, and the bottom one ends it above the display's bottom edge instead of running off
+    /// it. Measured off the sheet the range bubble opens (the card the user wanted the menus to
+    /// look like): 24 px at 3x = 8 pt, on the Pro Max and on both of the Duo's displays.
+    static let menuCardInset: CGFloat = 8
+    /// The smallest corner a menu card is drawn with: the radius the system's own sheet card carries
+    /// on the folded Duo's *sharp* side (measured: 24 px of arc at 3x, an 8 pt radius, on a card inset
+    /// 8 pt from the display). The card asks `ConcentricRectangle` for the container's radius and this
+    /// is the floor under that answer, so the card never comes out with square corners: measured on the
+    /// Pro Max the resolution sees the display (the detail card's own corners there walk ~90 px, about
+    /// 30 pt); on the Duo's cover panel it resolves below this floor, and the floor is what decides —
+    /// which is why it is the measured 8 pt the system's own card uses there and not a rounder guess.
+    /// A floor *above* that answer is what a 16 pt one cost: every corner of the folded Duo's card came
+    /// out 16 pt, against 8 pt on its sharp side and 19 pt on its rounded one.
+    static let menuCardRadius: CGFloat = 8
     /// The side inset the system reserves for its own rail on a screen whose chrome lives
     /// in a vertical bar (84 pt on the iPhone Duo, 62 pt on a notched iPhone held sideways,
     /// so 70 tells them apart). `usesVerticalControls` switches the map screen to that

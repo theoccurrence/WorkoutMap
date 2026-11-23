@@ -4,12 +4,10 @@ import CoreLocation
 
 /// The explorer's input panel: a loop or a walk to a destination, and how far.
 ///
-/// Drawn as one of the map screen's own overlays — the same kind of panel as the range bubble and
-/// the result card — rather than presented as a sheet. A half-height sheet is given a glass
-/// background by the system that `presentationBackground(.clear)` does not remove, and its card is
-/// the full width of the window: on the Duo that card lies over the screen's rail, the toolbar and
-/// the tab registers with it. Drawn in the map screen, the panel keeps the insets the other
-/// overlays keep (`MapTabView.cardLeadingInset`) and never touches that chrome.
+/// Drawn as one of the map screen's own cards (`View.menuCard()`), the same shape as the sheet the
+/// range bubble opens — and the same card the map screen's other two menus are drawn on — rather
+/// than presented as a sheet: a sheet lies over the screen's rail on the Duo, and the panel has to
+/// be handed the room the keyboard leaves it, which a half-height sheet's own detent does not do.
 ///
 /// A destination is either a search result (`MKLocalSearchCompleter`, as Maps' own search does)
 /// or the pin the user dropped on the map — one pin at a time, a new one replacing the old.
@@ -58,7 +56,7 @@ struct RoutePlannerPanel: View {
                 .padding(.bottom, 16)
         }
         .frame(height: height)
-        .glassPanel()
+        .menuCard()
         .onAppear {
             search.region = region
             if DebugLaunch.focusSearch { searchFocused = true }

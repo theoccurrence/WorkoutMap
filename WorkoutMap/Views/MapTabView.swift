@@ -48,6 +48,10 @@ struct MapTabView: View {
     @State private var openedWorkout: Workout?
     @State private var showRange = DebugLaunch.openSheet
     @State private var showModes = DebugLaunch.openModes
+    /// Whether the screen's chrome (the rail, the bottom bar and the tab bar) is out of the way for a
+    /// menu. It is not `menusAreOpen`: it is taken away with the card and given back only once the
+    /// card has left (`restoreChrome`).
+    @State private var menuChromeHidden = DebugLaunch.openSheet || DebugLaunch.openModes || DebugLaunch.openPlanner
     @State private var showExport = DebugLaunch.openExport
     @State private var visibleMapRect: MKMapRect?
     /// The window's safe-area insets, reported by the map view.
@@ -324,7 +328,13 @@ struct MapTabView: View {
             //   that fold on screen for as long as the answer took — quarter of a second,
             //   every Live Activity. Priorities say which actions may go, and the system
             //   folds them in the same pass that makes the room.
-            .toolbar(usesVerticalControls ? .visible : .hidden, for: .navigationBar)
+            .toolbar(railIsVisible ? .visible : .hidden, for: .navigationBar, .bottomBar)
+            // The tab bar is the app's own control rather than this screen's, but a menu card reaches
+            // over the band it lives in (`Metrics.menuCardInset` from the display's bottom edge), and
+            // it is the one piece of chrome that is drawn *over* the map instead of in it — left up,
+            // it would sit on the card (measured on the folded Duo: its column lies over the card's
+            // trailing edge, and its own capsule over the card's Done button).
+            .toolbar(menuChromeHidden ? .hidden : .automatic, for: .tabBar)
             // The bar's own glass follows the map, too: the system draws it from the colour
             // scheme the toolbar is given, and `legacy` never asks for the light one.
             .toolbarColorScheme(controlsAreLight ? .light : .dark, for: .navigationBar, .bottomBar)
@@ -373,16 +383,31 @@ struct MapTabView: View {
                 case "plan": open(.plan)
                 default: break
                 }
+                // WM_CLOSE_MENU=<seconds> — see `DebugLaunch.closeMenuAfter`: the same menu is closed
+                // again through the call a tap on the dim makes, so the way it leaves is measurable.
+                if let after = DebugLaunch.closeMenuAfter {
+                    try? await Task.sleep(for: .seconds(after))
+                    closeMenus()
+                }
+            }
+            // WM_START_WORKOUT_SHEET=1 — see `DebugLaunch.openWorkoutSheet`: the sheet the range
+            // bubble opens, without the tap on the map that would be needed to name a workout. The
+            // wait comes *first*: what is on the map is what names the workout, and at this point the
+            // first reload has not landed yet.
+            if DebugLaunch.openWorkoutSheet, openedWorkout == nil {
+                try? await Task.sleep(for: .seconds(3))
+                if let workout = mostRecentInFilter { openedWorkout = workout }
             }
         }
         .task(id: reloadKey) { await reload() }
         // The explorer's index covers every workout, so it is rebuilt when the workout set
         // changes rather than when the map's range does.
         .task(id: health.workouts.count) { coverage.update(workouts: health.workouts) }
-        // The screen's menus are drawn in the map screen itself (`menuPanel`), not presented as
-        // sheets: see `View.glassPanel()` for what a half-height sheet's card does to the Duo's
-        // rail. The export preview is the one cover: a full-screen viewer for the image it
-        // produces rather than a panel over the map.
+        // The screen's menus are drawn in the map screen itself (`menuLayer`), not presented as
+        // sheets: a half-height sheet is handed a glass panel by the system that no value of
+        // `presentationBackground` removes, and its card is the full width of the window, so on
+        // the Duo it lies over the screen's rail. The export preview is the one cover: a
+        // full-screen viewer for the image it produces rather than a panel over the map.
         .fullScreenCover(isPresented: $showExport) {
             ExportPreviewView(workout: mostRecentInFilter,
                               rangeLabel: rangeBubbleText,
@@ -394,7 +419,7 @@ struct MapTabView: View {
         // The workout the bubble opened, as a sheet: this screen's navigation stack belongs to the
         // system's toolbar rail, and the detail is a screen of its own that draws its own way back.
         .sheet(item: $openedWorkout) { workout in
-            WorkoutDetailView(workout: workout)
+            WorkoutDetailView(workout: workout, presentation: .sheet)
         }
     }
 
@@ -529,6 +554,9 @@ struct MapTabView: View {
                     categoryFilters
                         .environment(\.colorScheme, controlsAreLight ? .light : .dark)
                         .id(controlsAreLight)
+                        // The screen's own controls leave with the menu (`menuControlsHidden`): a
+                        // menu is a card *over* the map, and the circles must not read through it.
+                        .opacity(menuControlsHidden ? 0 : 1)
                     if !filtersOnTrailingEdge { Spacer(minLength: 0) }
                 }
                 .padding(.horizontal, Metrics.screenInset)
@@ -546,6 +574,7 @@ struct MapTabView: View {
                 mapToolbar
                     .environment(\.colorScheme, controlsAreLight ? .light : .dark)
                     .id(controlsAreLight)
+                    .opacity(menuControlsHidden ? 0 : 1)
                     .padding(.trailing, Metrics.screenInset)
                     .padding(.bottom, toolbarBottomInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -553,58 +582,91 @@ struct MapTabView: View {
             }
 
             // The dim the menus draw over the map. A sheet gets one from the system — the one the
-            // range bubble's workout opens behind — and the screen's own panels are the same kind of
+            // range bubble's workout opens behind — and the screen's own cards are the same kind of
             // thing, so they get the same backdrop: the map, the bubble and the controls behind them
             // darken, and a tap anywhere on it closes the menu, the way a tap beside a sheet does.
-            if menusAreOpen {
-                Color.black.opacity(0.35)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .onTapGesture { closeMenus() }
-                    .accessibilityLabel("Close")
-                    .accessibilityAddTraits(.isButton)
-            }
+            //
+            // It is **always in the tree** and its opacity is what moves, rather than being a
+            // conditional view with an `.opacity` transition, because that transition only ever ran
+            // one way: measured, the dim faded *in* over the spring and vanished in a single frame on
+            // the way out (the 0.35 was gone from one frame to the next while the card was still
+            // falling). An animated `opacity` is a plain animatable property and runs with the
+            // transaction's animation in both directions. `allowsHitTesting` is what keeps it from
+            // eating the map's own taps while it is invisible.
+            Color.black
+                .opacity(menusAreOpen ? Self.menuDim : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(menusAreOpen)
+                .onTapGesture { closeMenus() }
+                .accessibilityLabel("Close")
+                .accessibilityAddTraits(.isButton)
 
             // The explorer's input, the calendar and the map-style picker, as the screen's own
-            // panels — above the controls, the way the sheets they used to be sat above them.
-            if showPlanner {
-                menuPanel { room in
+            // cards — above the controls, the way the sheets they used to be sat above them.
+            menuLayer
+        }
+    }
+
+    /// The container the screen's three menu cards are drawn in.
+    ///
+    /// It is in the tree whether or not a menu is up — a full-screen `ZStack` with nothing in it
+    /// costs nothing — and that is the whole point: SwiftUI runs the transition of the view that is
+    /// inserted or removed, so the transition has to sit on the *card* and the container it is
+    /// bottom-aligned in has to outlive it. Two smaller-looking arrangements do not work, and both
+    /// were on screen for a while: a `move(edge: .bottom)` on a container the size of the display
+    /// moves the card by the *screen's* height instead of its own, and a `move` on a descendant of
+    /// the inserted subtree is never run at all — which is exactly why these panels used to arrive in
+    /// a fade and leave in no time at all.
+    ///
+    /// `room` is measured here rather than in the card: the reader measures from the display's edges
+    /// (`.ignoresSafeArea(.container)`) and takes off the *keyboard's* inset, so a panel taller than
+    /// what the keyboard leaves shrinks instead of pushing its own header off the top.
+    private var menuLayer: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                if showPlanner {
                     RoutePlannerPanel(mode: $planMode,
                                       kilometers: $planKilometers,
                                       destination: $planDestination,
                                       droppedPin: droppedPin,
                                       region: currentRegion,
                                       isReadingRoutes: coverage.isFilling,
-                                      room: room,
+                                      room: proxy.size.height - Metrics.menuCardInset,
                                       onClose: { close(.plan) },
                                       onPlan: { request in
                                           close(.plan)
                                           startPlanning(request)
                                       })
+                        .menuCardInsets()
+                        // The rise: the card travels its own height plus the margin it keeps, so it
+                        // comes up out of the display's bottom edge and goes back down through it.
+                        .transition(.move(edge: .bottom))
                 }
-            }
-            if showRange {
-                menuPanel { room in
+                if showRange {
                     RangePickerPanel(selection: $selection,
                                      workouts: health.workouts,
-                                     room: room,
+                                     room: proxy.size.height - Metrics.menuCardInset,
                                      onClose: { close(.range) })
+                        .menuCardInsets()
+                        .transition(.move(edge: .bottom))
                 }
-            }
-            if showModes {
-                menuPanel { room in
+                if showModes {
                     MapModePanel(mode: $mapMode,
                                  appearance: mapAppearance,
                                  systemStyle: systemAppearance.style,
-                                 room: room,
+                                 room: proxy.size.height - Metrics.menuCardInset,
                                  onClose: { close(.modes) })
+                        .menuCardInsets()
+                        .transition(.move(edge: .bottom))
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
+        .ignoresSafeArea(.container)
     }
 
-    /// The screen's own menus, the three panels drawn **in** the map screen rather than presented as
-    /// sheets (`menuPanel`): the explorer's input, the calendar and the map-style picker.
+    /// The screen's own menus, the three cards drawn **in** the map screen rather than presented as
+    /// sheets (`menuLayer`): the explorer's input, the calendar and the map-style picker.
     ///
     /// `MapMenu` rather than `Menu`: a nested `Menu` would shadow SwiftUI's own inside this type, and
     /// the toolbar's range control is one of those.
@@ -635,52 +697,72 @@ struct MapTabView: View {
             case .modes: showModes = true
             }
         }
+        menuChromeHidden = true
     }
 
     private func close(_ menu: MapMenu) {
-        withAnimation(Self.menuAnimation) {
+        withAnimation(Self.menuAnimation, completionCriteria: .logicallyComplete) {
             switch menu {
             case .plan: showPlanner = false
             case .range: showRange = false
             case .modes: showModes = false
             }
+        } completion: {
+            restoreChrome()
         }
     }
 
     /// Closes whichever is up — what a tap on the dim does, the way a tap beside a sheet dismisses it.
     private func closeMenus() {
-        withAnimation(Self.menuAnimation) {
+        withAnimation(Self.menuAnimation, completionCriteria: .logicallyComplete) {
             showPlanner = false
             showRange = false
             showModes = false
+        } completion: {
+            restoreChrome()
         }
     }
 
-    /// Where a menu panel of the map screen sits: the width the range bubble and the result card
-    /// keep, so the panel reaches the rail the Duo's toolbar and tab registers live in without
-    /// touching it, and clear of the tab bar's own top edge.
+    /// True while the screen's own controls are out of the way for a menu: the Walk / Run / Ride and
+    /// explorer circles and the hand-placed pill fade with the card's own animation and fade back
+    /// when it leaves. The range bubble and the explorer's result card stay where they are — both
+    /// are readable through the dim, which is what the reference sheet does with them.
+    private var menuControlsHidden: Bool { menusAreOpen }
+
+    /// Gives the screen's chrome back once the card that is leaving has left.
     ///
-    /// The panel is handed the room it has to work with rather than a height of its own, so a
-    /// keyboard — which pushes the panel up but cannot make the screen taller — cannot take its
-    /// header and its close cross off the top. The container's own safe area is ignored (the panel
-    /// measures itself from the screen's edges, like the card does, instead of from the region left
-    /// over beside the rail); the keyboard's inset is what does the pushing, and it has to keep
-    /// doing it.
-    private func menuPanel<Content: View>(@ViewBuilder _ content: @escaping (CGFloat) -> Content) -> some View {
-        GeometryReader { proxy in
-            content(proxy.size.height - overlayBottomInset)
-                // The panel rises from the bottom edge of the display and leaves the same way — the
-                // transition is on the *card*, not on the reader that holds it, so it travels its own
-                // height and not the whole screen's. The animation itself comes from the `withAnimation`
-                // every open and close goes through (`menuAnimation`).
-                .transition(.move(edge: .bottom))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding(.leading, cardLeadingInset)
-                .padding(.trailing, cardTrailingInset)
-                .padding(.bottom, overlayBottomInset)
-        }
-        .ignoresSafeArea(.container)
+    /// The chrome — the rail, the bottom bar and the tab bar — has to come back **after** the card's
+    /// own slide and not with it: showing the tab bar lays the screen out again (it reserves a region
+    /// of the map view), and a layout pass in the middle of a transition cuts that transition short.
+    /// Measured on the Pro Max with the bar put back in the same turn as the close: the card and the
+    /// dim were both gone between two frames two seconds apart, while the same spring took about ten
+    /// seconds to bring that card *up*.
+    ///
+    /// So the restore hangs on the animation's own **completion** rather than on a guessed delay
+    /// (`withAnimation(_:completionCriteria:)`, in the two closers above): it fires the moment the
+    /// card has finished leaving, whatever the spring's response is — a slowed run
+    /// (`WM_MENU_DURATION`) waits as long as the animation does, and the production 0.34 s spring is
+    /// not cut short by a restore that came back halfway through it.
+    private func restoreChrome() {
+        // A menu opened again while the one that was leaving finished: the chrome belongs to that
+        // one now, and it will be restored when *it* closes.
+        guard !menusAreOpen else { return }
+        menuChromeHidden = false
     }
+
+    /// How strong the dim behind a menu is. It is the strength the system's own sheet measures at
+    /// (measured 0.35 off the sheet the range bubble opens, see the README), so a menu and that
+    /// sheet darken the map by the same amount.
+    private static let menuDim: Double = 0.35
+
+    /// Whether the system's rail of actions is on screen: it is the screen's chrome, so it goes
+    /// while a menu is up (`menuControlsHidden` is the same state, for the controls this screen
+    /// draws itself). A menu card is drawn over the band the rail and the tab bar register live in,
+    /// and its items must not read through it — the same reason the buttons the screen places by
+    /// hand are faded out, and the bottom bar (the map-style and locate pill) goes with it. It is read
+    /// from `menuChromeHidden` rather than `menusAreOpen` so that the chrome comes back only once the
+    /// card has left (`restoreChrome`).
+    private var railIsVisible: Bool { usesVerticalControls && !menuChromeHidden }
 
     /// Walk / Run / Ride as toolbar circles — symbol only, walk at the top, the selected
     /// one carrying its own colour. They sit opposite the toolbar.

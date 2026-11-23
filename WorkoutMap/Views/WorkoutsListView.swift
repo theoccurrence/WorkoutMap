@@ -40,7 +40,7 @@ struct WorkoutsListView: View {
                 content
             }
             .navigationDestination(for: Workout.self) { workout in
-                WorkoutDetailView(workout: workout)
+                WorkoutDetailView(workout: workout, presentation: .pushed)
             }
             .toolbar(.hidden, for: .navigationBar)
             .onChange(of: health.workouts.count) { _, _ in openDebugDetailIfNeeded() }

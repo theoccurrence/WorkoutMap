@@ -14,16 +14,25 @@ desaturated Apple map and lets you filter them by week / month / year.
 | Tab | What it does |
 | --- | --- |
 | **Workouts** | List of every walk / run / ride with distance, date and a small map thumbnail of the route, ordered by date or by length from the control in the header (the choice is kept), and an **Edited** badge on a row whose route has been edited in the app. Tapping a row opens the detail screen; the chevron at the top left returns to the list. The detail screen carries the **eraser** besides its share button: it opens the route editor, where the drawn route can be changed — ground erased, or a GPS jump flagged as ground that really was covered — and kept (see below). |
-| **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as circle buttons on the opposite side. The map can be panned, pinched and turned with two fingers. The share button exports the current map as an image card. The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`), which then carries a chevron and is itself the way into that workout: tapping the bubble opens the workout's own detail screen — the same screen the Workouts list pushes and the settings' edit list opens — while tapping the map itself brings the range's label back. The screen's own menus — the explorer's input, the calendar, the map-style picker — are drawn in the map screen, and each **rises from the bottom edge of the display and leaves the same way** over a spring, with the map, the bubble and the controls dimming behind it as it comes (a tap anywhere on the dim closes it), the way a sheet's backdrop does. The explorer's **result card** is deliberately *not* one of those: it appears without any dimming, because the suggested routes drawn on the map have to stay readable while one of them is picked. |
+| **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as circle buttons on the opposite side. The map can be panned, pinched and turned with two fingers. The share button exports the current map as an image card. The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`), which then carries a chevron and is itself the way into that workout: tapping the bubble opens the workout's own detail screen — the same screen the Workouts list pushes and the settings' edit list opens — while tapping the map itself brings the range's label back. The screen's own menus — the explorer's input, the calendar, the map-style picker — are drawn in the map screen as **cards of the same shape as the sheet the bubble opens** (inset from every edge of the display, corners that follow the display's own), and each **rises from the bottom edge of the display and leaves the same way** over a spring, with the map and the range bubble dimming behind it as it comes — the dim fades in *and* out, and a tap anywhere on it closes the menu. While a menu is up the screen's own controls — the Walk / Run / Ride and explorer circles, the hand-placed toolbar, and on the Duo the system rail itself — are **not on screen at all** (they fade out with the card's own animation and fade back when it leaves), because a card over the map must not have buttons reading through it. The explorer's **result card** is deliberately *not* one of those: it appears without any dimming of its own, because the suggested routes drawn on the map have to stay readable while one of them is picked. |
 | **Map styles** | Apple Maps' own *Map Modes* panel: **Explore**, **Driving** (live traffic), **Transit** (stations only), **Satellite** (imagery) and **Legacy** — the grey map the app shipped with, which is also what it opens with. Each tile is Maps' own artwork for the style (the grey Explore tile for **Legacy**), so the panel is complete the moment it opens. The choice is kept in the settings, and the detail screen and the export card draw the map in it as well. The map itself — and every preview of it — is drawn in the system's own light or dark style, or in the one pinned under *Map Appearance*; **Legacy** is the grey map the app shipped with and stays dark either way. |
 | **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a panel: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map. Tapping one of the alternates on the map picks it, the same as tapping its pill on the card. Once Go is tapped the map shows that one route alone and the Go and the cross give way to a red **Stop**; the card can be swiped up out of the way without ending anything, and the binoculars bring it back — or open the panel again to plan another one. The route stays until Stop, a new plan, or a relaunch. The pin carries an info bubble with the name the geocoder resolved, the address, **how far away it is** (live, as the user walks) and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
 | **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **gps jumps** — two independent rules, each *dotted* / *hidden* / *solid*: legs longer than a **distance** threshold (25 m to start with) and legs faster than a **speed** threshold (162 km/h to start with, and past 10 m of ground — a shorter leg is a rounded clock, not a jump), each with its own **colour** for the tone it draws in (the system colour picker and hex, as under *Mode Colors*, with *Reset Colors* beneath them), see below; the combined detection that catches the big ones is fixed and never drawn, **mode colors** (the primary colour of Walk, Run and Ride — the routes, the position dot and its cone, and each mode's filter button — chosen in the system colour picker with its spectrum, sliders and hex field, plus *Reset to Defaults*), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered, **workout edits** — *Edited Workouts*, its own list of every workout the editor has changed (most recent first, each row naming the workout and saying what was changed to it, with a bin that removes the edit without the workout being opened — a row opens the workout while this device has it), so the settings screen itself stays short however many there are, with *Export Edits* writing them all to a JSON file and *Import Edits* merging such a file in — feedback, share app, about, contact. |
 
 Detail screen: map with the route, workout type, date, weather (temperature and
-humidity from the workout metadata), then time, distance, elevation, active
-calories, average pace and average heart rate, plus a share button that opens the
-export card. It is drawn **edge to edge** — map, black and stat cards all run to the
-screen's own edges (see the rail notes below).
+humidity from the workout metadata), then the six numbers — time, distance,
+elevation, active calories, average pace and average heart rate — as cards laid out
+**three rows of two standing up and two rows of three lying down**, with the
+`*Data from …` line under them, plus a share button that opens the export card. It is
+opened in two ways and tells them apart (`WorkoutDetailView.Presentation`): the
+Workouts tab **pushes** it and it is drawn **edge to edge** (see the rail notes
+below), while the map's range bubble and the settings' edited list open it **inside a
+sheet**, where it is the same card the sheet is — inset from the display's edges, and
+its black backdrop ends above the display's bottom edge by the same margin as the
+other three sides, which is the one side the system's own card does not inset. The
+map takes whatever height the cards and that line leave it, rather than a fixed share
+of the screen, which is what keeps the sixth card and the source label inside the card
+on the smallest display the app runs on.
 
 Export card: the map with the *Workout Map* title, a 2×2 statistic grid and the
 app badge; **Save** writes the card to the photo library.
@@ -102,7 +111,9 @@ variables (Debug builds only):
 | `WM_TAP_BUBBLE=1` | Taps the range bubble a moment after `WM_TAP_AT`, through the action its button calls (checks the workout opening from the map) |
 | `WM_MAP_HEADING=<degrees>` | Turns the map once its camera has been placed (checks the two-finger pan on a turned map) |
 | `WM_OPEN_MENU=range\|modes\|plan` | Opens one of the map screen's own menus a few seconds after launch (checks the dimming and the rise) |
-| `WM_MENU_DURATION=<seconds>` | Slows that rise down, far enough for a screenshot to catch the panel halfway up |
+| `WM_MENU_DURATION=<seconds>` | Slows that rise down, far enough for a screenshot to catch the card halfway up |
+| `WM_CLOSE_MENU=<seconds>` | Closes the menu `WM_OPEN_MENU` opened that long after it went up, through the call a tap on the dim makes (checks the way it leaves) |
+| `WM_START_WORKOUT_SHEET=1` | Opens the workout the range bubble names as a sheet — the detail screen's `sheet` presentation — without a tap on the map |
 | `WM_MODE_COLORS="walk=FF00FF,run=00FFFF,ride=0000FF"` | Writes Walk / Run / Ride colours at launch through the same store the picker uses |
 | `WM_RESET_MODE_COLORS=1` | Puts Walk / Run / Ride back to their shipped colours at launch (checks *Reset to Defaults*) |
 | `WM_START_DETAIL=1` | Pushes the first workout's detail screen |
@@ -541,26 +552,99 @@ Notes on the map rendering, all measured from the original app:
     the panel again when it is already up. The card clears the top of the screen by its own
     height plus the gap it sits below, so nothing has to be clipped to hide it — clipping the
     overlay column is what used to cut the top off the range bubble.
-  * **Every panel of the map screen is glass**, through one modifier (`View.glassPanel()`): the
-    explorer's result card, the range bubble and the screen's three menus — the explorer's input
-    panel, the calendar picker and the map-style picker. **Liquid Glass** (`glassEffect`) rather
-    than a `Material`, because over a dark map a material — even `.ultraThin` — is a grey plate
-    with a blur on it: it neither lights its own edge nor reads as glass, while the glass does
-    both and still keeps the text readable. The **menus are drawn in the map screen itself**
-    (`MapTabView.menuPanel`) rather than presented as sheets, and that is not a style choice: a
-    half-height sheet is handed a glass panel of the system's own — Apple's note on adopting
-    Liquid Glass: "half sheets are inset from the edge of the display" — and no value of
-    `presentationBackground` removes it (measured on iOS 27: the card keeps its blurred panel
-    whatever the modifier is told, and only an opaque colour painted over it hides it). That card
-    is also the full width of the window, so on the Duo it lies over the rail the screen's toolbar
-    and tab registers live in. Drawn in the map screen instead, a menu keeps the width the range
-    bubble and the result card keep — reaching the rail without touching it — and is handed the
-    room the keyboard leaves it, so it shrinks rather than pushing its own header off the screen.
-    The explorer panel's own fields (the search box, the results, the chosen destination) are
+  * **Every panel of the map screen is glass**, and the three menus are **cards of their own**. The
+    explorer's result card and the range bubble keep the material they had; the three menus — the
+    explorer's input, the calendar picker and the map-style picker — are drawn on `View.menuCard()`,
+    which is the same **Liquid Glass** (`glassEffect`) in the shape of the sheet the range bubble
+    opens: the **display's own corners**, so a menu and that sheet are the same card. `ConcentricRectangle`
+    is what gives the corners, not a number: it resolves the container's corner radius minus the card's
+    own margin, which is the only way the folded Duo's cover panel can come out right — its corners are
+    **asymmetric** (measured off the sheet's card in the same orientation: the two on the rail's side are
+    nearly square, the two on the camera's side carry the display's radius), and a fixed radius cannot
+    be both. The card is inset by the same margin from **all four** display edges — see
+    `Metrics.menuCardInset`, measured off that sheet's card — so it reaches over the band the tab bar
+    and the Duo's rail register live in instead of stopping short of it, and its bottom edge ends above
+    the display's bottom edge, which is what makes it read as a card rather than as a sheet that runs
+    off it.
+  * A menu **rises out of the bottom edge of the display and goes back down through it**, and that is
+    a transition on the *card*: `menuLayer` keeps a full-screen container in the tree so the view that
+    is inserted and removed is the card itself. Two arrangements that look right do not work, and both
+    were on screen for a while: a `move(edge: .bottom)` on a container the size of the display moves
+    the card by the *screen's* height rather than its own, and a `move` on a **descendant** of the
+    inserted subtree is never run at all — the panels arrived in a fade and left in no time. Every path
+    out of a menu goes through the same `withAnimation` (`open`/`close`/`closeMenus`), the spring
+    being the one `WM_MENU_DURATION` slows down: the panel's X, a tap on the dim, the explorer's
+    *Plan route*, the range picker's own controls. The dim is the outermost view of its own conditional
+    subtree, so it fades in **and out** with the same spring.
+  * While a menu is up, **the screen's own controls are not behind it**. The two things that have to
+    *not* read through a card over the map are the Walk / Run / Ride and explorer circles and the
+    hand-placed pill: both are faded out with the menu's own animation (`opacity`, in the same
+    `withAnimation`), and fade back when it leaves, which is more than a sheet's dim would do — a
+    sheet only darkens what is behind it. On a screen whose actions are the system's own toolbar items
+    (the Duo's rail) the bar is hidden for as long as a menu is up, for the same reason: a toolbar item
+    cannot be animated (measured, see the rail notes above), so it may not be on screen at all. The
+    **range bubble** and the explorer's **result card** stay where they are and are merely dimmed —
+    the card is readable through it on purpose, and the sheet the range bubble opens leaves its bubble
+    visible in exactly the same way (the user's own screenshot of it shows the bubble above the card).
+  * The menus are still **drawn in the map screen itself** (`MapTabView.menuLayer`) rather than
+    presented as sheets, and that is not a style choice: a half-height sheet is handed a glass panel
+    of the system's own — Apple's note on adopting Liquid Glass: "half sheets are inset from the edge
+    of the display" — and no value of `presentationBackground` removes it (measured on iOS 27: the
+    card keeps its blurred panel whatever the modifier is told, and only an opaque colour painted over
+    it hides it). A menu also has to be handed **the room the keyboard leaves it**, so that the
+    explorer's header and its close cross cannot be pushed off the top of a short display; a sheet's
+    detent does not know about the keyboard, and the panel is the one screen here with a text field in
+    it. The map screen's own card gives both for free.
+  * The explorer panel's own fields (the search box, the results, the chosen destination) are
     `.thinMaterial` over it, and every panel's close cross is **white** — black read as a hole
     punched in the glass. The flat `Palette.sheetCard` / `Palette.pickerGlass` fills went with
     it. The export card is the one exception: it is a full-screen viewer for the image it
-    produces rather than a panel over the map, so it still sits on black.
+    produces rather than a panel over the map, so it still sits on black. The route editor's own
+    panel keeps the plain `glassPanel()` rectangle: it is not one of the map screen's menus and
+    its screen has no display corners to follow.
+  * Measured, with the spring frozen (`WM_MENU_DURATION=40`, a frame every ~1.9 s on the iPhone 18
+    Pro Max): the card comes up from **below** the display's bottom edge — the range picker's *Done*
+    button's own top edge 938.3 pt → 885.0 pt — while the dim's strength at a corner no card reaches
+    goes 1.000 → 0.653; on the way out that corner goes 0.653 → 0.686 → 0.720 → 0.765 → 0.803 → 0.845
+    → 0.877 → 0.905 → 0.928 → 0.951 → 0.965 → 0.975 → 1.000 while the card's top edge walks 757 →
+    933 pt before it leaves the screen. The build **before** this change (a scratch tree at HEAD with
+    only the close hook added) kept that same button at 798.0 pt in every frame it appeared in, and
+    took the card and the dim away between two consecutive frames (0.662 → 1.000): the rise that was
+    only a fade and the dismissal that was instant.
+  * The screen's own controls go with it, measured on the same device: the accent-yellow pixels of the
+    Walk / explorer filter circles number 1413 in the settled frame, **0** with a menu up (they are
+    faded out with the card's animation) and 1413 again once it has left. On a screen whose actions
+    are the system's (`usesVerticalControls`, the Duo) the rail, its bottom bar and the **tab bar** are
+    hidden for the same reason — measured on the folded panel: left up, the tab bar's column lies over
+    the card's trailing edge and its own capsule over the card's *Done*. That chrome comes back only
+    once the card has left, and the restore hangs on the animation's own **completion**
+    (`withAnimation(_:completionCriteria:)`) rather than on a guessed delay: showing the tab bar lays
+    the screen out again and a layout pass in the middle of a transition cut the card's slide short —
+    measured: the card and the dim were gone between two frames two seconds apart with the bar put
+    back in the same turn as the close, while the same spring took about ten seconds to bring that
+    card *up*. A completion is right at every spring response; a constant is not (measured with the
+    spring slowed: the chrome stays away while the card is still walking down — the dim mid-fade at
+    0.653 with the chrome still hidden, and back at 1.000 with the chrome back).
+  * The menus and the detail screen's card are the **same card**, measured on the same displays: on
+    the Duo's folded panel the menu card's own edges are 7.3 pt (leading) and 7.7 pt (trailing) from
+    the display, and the detail card's black backdrop 8.0 / 8.0 / 8.0 pt (leading / trailing /
+    bottom); on the Pro Max the detail's backdrop is 8.0 / 8.0 / 8.0 pt as well. The 8 pt is the
+    margin the system's own sheet card keeps on the Duo (`Metrics.menuCardInset`); on the Pro Max the
+    system's card is the **full width** of the display (measured 0 pt at the sides) and flush at the
+    bottom, so the detail screen insets its own backdrop by that margin there instead — which is what
+    makes the two cards agree on both devices rather than only where the system happens to inset.
+    The folded Duo's corners are **asymmetric**: the sheet card's top-left corner reaches its straight
+    edge about 24 px below the card's own top edge (an 8 pt radius — the display's own radius minus the
+    margin) against about 56 px on the top right (19 pt). The menu card is drawn with that 8 pt as its
+    floor (`Metrics.menuCardRadius`), so its corners match the sheet's sharp side there. What it cannot
+    match yet, and this is the honest half: `ConcentricRectangle` **does** resolve the display's own
+    corners on the Pro Max (the detail card's corners there walk ~90 px, about 30 pt) but on the Duo's
+    cover panel it resolves below the floor — measured: with the floor at 4 pt the card's corners walked
+    ~12 px on both sides, with it at 16 pt they walked ~48 px — so on the folded panel the floor and not
+    the display decides, and the card's two rounded corners come out 8 pt where the sheet's are 19. A
+    `UIView` probe with `UICornerConfiguration.corners(radius: .containerConcentricRadius)` and
+    `effectiveRadius(corner:)` (iOS 26, see the SDK's `UICornerConfiguration.h`) is the way to the
+    display's four radii if that last step is wanted; it is not in yet.
   * The dropped pin's **info bubble** heads with the name MapKit's reverse geocoder resolved for
     the coordinate, and carries the address and **how far away the pin is** under it, plus the bin.
     The two lower lines are not the annotation's `subtitle`: MapKit drops an annotation's subtitle

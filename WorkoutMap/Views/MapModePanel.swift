@@ -4,10 +4,10 @@ import MapKit
 /// The map style picker: Apple Maps' own "Map Modes" panel, with the app's grey map kept as
 /// the fifth entry, `Legacy`.
 ///
-/// Drawn as one of the map screen's own panels rather than presented as a sheet, so it keeps the
-/// screen's chrome (the Duo's rail and its tab registers) clear, and the row of tiles is centred
-/// on the panel itself whatever the window reserves at its edges. See `View.glassPanel()` for what
-/// a half-height sheet's card does to that chrome.
+/// Drawn as one of the map screen's own cards (`View.menuCard()`), the same shape as the sheet the
+/// range bubble opens, rather than presented as a sheet: a sheet lies over the screen's chrome on
+/// the Duo, and the row of tiles is centred on the card itself whatever the window reserves at its
+/// edges.
 ///
 /// Every tile is bundled artwork — Maps' own for its four styles, the grey Explore tile for
 /// `Legacy` — so the panel is complete the moment it opens. The tiles were snapshots of the
@@ -20,7 +20,7 @@ struct MapModePanel: View {
     /// set to. `legacy` keeps its grey tile either way.
     let appearance: MapAppearance
     let systemStyle: UIUserInterfaceStyle
-    /// How much room the panel has to work with (`MapTabView.menuPanel`).
+    /// How much room the card has to work with (`MapTabView.menuLayer`).
     let room: CGFloat
     var onClose: () -> Void
 
@@ -51,7 +51,7 @@ struct MapModePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(height: height)
-        .glassPanel()
+        .menuCard()
     }
 
     private var header: some View {

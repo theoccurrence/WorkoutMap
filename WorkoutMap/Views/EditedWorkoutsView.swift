@@ -35,7 +35,7 @@ struct EditedWorkoutsView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Workout.self) { workout in
-                WorkoutDetailView(workout: workout)
+                WorkoutDetailView(workout: workout, presentation: .sheet)
             }
         }
         .confirmationDialog("Remove this edit?",

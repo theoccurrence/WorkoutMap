@@ -26,6 +26,14 @@ enum DebugLaunch {
     /// WM_MENU_DURATION=<seconds> slows that rise down, far enough that a screenshot can catch the
     /// panel halfway up (Debug builds only).
     static var menuDuration: Double? { env["WM_MENU_DURATION"].flatMap(Double.init) }
+    /// WM_CLOSE_MENU=<seconds> closes the menu `WM_OPEN_MENU` opened that long after it went up,
+    /// through the same call a tap on the dim makes — so the way a menu *leaves* can be measured
+    /// the same way its rise is.
+    static var closeMenuAfter: Double? { env["WM_CLOSE_MENU"].flatMap(Double.init) }
+    /// WM_START_WORKOUT_SHEET=1 opens the workout the range bubble names — the sheet presentation of
+    /// the detail screen, the one the map's own card is measured against — without the tap on the
+    /// map the simulator cannot make, so it can be shot on the Duo's two displays as well.
+    static var openWorkoutSheet: Bool { env["WM_START_WORKOUT_SHEET"] == "1" }
     /// WM_EDIT_STROKE="x1,y1;x2,y2;…" runs one stroke of the edit brush along those screen points,
     /// once the editor is up. The simulator offers no way to drag a finger from the command line, so
     /// the stroke is run through the very path the brush's recognizer uses
@@ -257,6 +265,8 @@ enum DebugLaunch {
     static var mapHeading: Double? { nil }
     static var openMenu: String? { nil }
     static var menuDuration: Double? { nil }
+    static var closeMenuAfter: Double? { nil }
+    static var openWorkoutSheet: Bool { false }
     static var editStroke: [CGPoint]? { nil }
     static var editStrokeDelay: Double { 5 }
     static var editSave: Bool { false }

@@ -4,6 +4,15 @@ import CoreLocation
 
 struct WorkoutDetailView: View {
     let workout: Workout
+    /// How the screen was opened. `pushed` fills the window edge to edge: the Workouts tab pushes it
+    /// inside its own navigation stack, and the README says why that one keeps the Duo's rail band
+    /// empty rather than drawing a card in it. `sheet` is the same screen inside a sheet's card — the
+    /// map's range bubble and the settings' edited list — where the card's own top and side margins
+    /// are the system's and the **bottom** one is drawn here: the black backdrop ends above the
+    /// display's bottom edge with the same margin as the other three sides, so those four sides read
+    /// as one card, and the card's corners follow the display's the way the sheet's do.
+    enum Presentation { case pushed, sheet }
+    let presentation: Presentation
 
     @Environment(\.dismiss) private var dismiss
     @State private var route = WorkoutRoute(coordinates: [])
@@ -57,19 +66,43 @@ struct WorkoutDetailView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let mapHeight = (proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom) * 0.5996
+            // The card this screen was given, safe areas included: the content runs to the card's own
+            // edges, and the margins *it* keeps are the sheet's, not this screen's to invent.
+            let full = CGSize(width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
+                              height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
+            // How far the sheet's own card is held off the display's leading edge. A card the system
+            // has already inset (measured: 8 pt on the Duo's folded panel, on all three of its other
+            // sides with it) keeps that margin, and one it has not (measured: 0 pt on the iPhone 18
+            // Pro Max, whose sheet card is the full width of the display) is given the same margin the
+            // map screen's menu cards keep — so the two cards are the same card on either display.
+            // The bottom is the one side the system's card does not inset, which is why the backdrop
+            // used to run off the display there: it is inset here either way.
+            let cardInset = max(0, proxy.frame(in: .global).minX - proxy.safeAreaInsets.leading)
+            let sideInset = presentation == .sheet ? max(0, Metrics.menuCardInset - cardInset) : 0
+            let bottomInset = presentation == .sheet ? Metrics.menuCardInset : 0
             VStack(spacing: 0) {
-                mapSection(height: mapHeight)
-                stats
+                // The map takes what the stats and the source label leave rather than a fixed share of
+                // the screen: the reference display gave it 59.96 % (measured), and it gets that
+                // whenever the block below it is the size the reference had — but a smaller screen, or
+                // a wider one that lays the same six cards out in fewer rows, can never leave a card
+                // or the `*Data from …` label outside the card for want of the space.
+                mapSection
+                stats(landscape: full.width > full.height)
                     .padding(.horizontal, 23)
                     .padding(.top, 18)
                 footer
                     .padding(.horizontal, 23)
                     .padding(.top, 17)
-                Spacer(minLength: 0)
             }
+            .frame(width: full.width - 2 * sideInset,
+                   height: full.height - bottomInset,
+                   alignment: .top)
+            // The black backdrop, shaped: pushed it is the display's own rectangle (nothing is clipped
+            // that the display does not clip anyway), and inside a sheet it is the card the sheet's own
+            // card is — the display's corners, its bottom two included, which the system's card does
+            // not round on a card that runs off the bottom of the display.
+            .background(Color.black, in: cardShape)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color.black)
             // Edge to edge, the way the map screen draws. Laid out inside the safe area, this
             // screen left the strip the system reserves for its own rail (the Duo's vertical bar
             // on the screen's side, in every pose but the unfolded portrait) as a band of empty
@@ -101,14 +134,27 @@ struct WorkoutDetailView: View {
         }
     }
 
-    private func mapSection(height: CGFloat) -> some View {
+    /// The shape of that card. Pushed, it is the display's own rectangle, and a clip on one would cost
+    /// the map a mask for nothing. Inside a sheet it is the shape the sheet's own card is — the
+    /// display's corners, inset by the card's margin (`View.menuCard()`) — so the bottom two corners
+    /// are as round as the top two.
+    private var cardShape: AnyShape {
+        presentation == .sheet
+            ? AnyShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(Metrics.menuCardRadius))))
+            : AnyShape(Rectangle())
+    }
+
+    /// The map, as tall as the rest of the screen leaves it. Nothing is clipped off the stats or the
+    /// source label to make room for it: they are laid out at their own size and the map is what
+    /// gives.
+    private var mapSection: some View {
         RouteMapView(routes: lines,
                      camera: RouteGeometry.fittedRect(routes: [visibleCoordinates]).map { .fit($0) },
                      cameraToken: route.count,
                      mode: MapMode.stored,
                      interfaceStyle: mapInterfaceStyle,
                      onRegionChange: { visibleMapRect = $0 })
-            .frame(height: height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
             .overlay(alignment: .bottomLeading) { mapOverlay }
             .overlay(alignment: .bottomTrailing) { weatherOverlay }
@@ -152,29 +198,51 @@ struct WorkoutDetailView: View {
         .padding(.bottom, 44)
     }
 
-    private var stats: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 20) {
-                StatCard(label: "Time", value: Fmt.duration(workout.duration), unit: nil)
-                StatCard(label: "Distance",
-                         value: Fmt.distanceValue(workout.distance).value,
-                         unit: Fmt.distanceValue(workout.distance).unit)
-            }
-            HStack(spacing: 20) {
-                StatCard(label: "Elevation",
-                         value: workout.elevationAscended.map { Fmt.elevation($0) } ?? "--",
-                         unit: "m")
-                StatCard(label: "Active Calories",
-                         value: workout.activeCalories.map { Fmt.caloriesValue($0) } ?? "--",
-                         unit: "kcal")
-            }
-            HStack(spacing: 20) {
-                StatCard(label: "Avg. Pace",
-                         value: Fmt.pace(workout.duration, meters: workout.distance),
-                         unit: "/km")
-                StatCard(label: "Avg. Heart Rate",
-                         value: workout.avgHeartRate.map { Fmt.heartRate($0) } ?? "--",
-                         unit: "bpm")
+    /// One of the six numbers under the map, and the unit it is read in.
+    private struct Stat {
+        let label: String
+        let value: String
+        let unit: String?
+    }
+
+    private var statItems: [Stat] {
+        let distance = Fmt.distanceValue(workout.distance)
+        return [
+            Stat(label: "Time", value: Fmt.duration(workout.duration), unit: nil),
+            Stat(label: "Distance", value: distance.value, unit: distance.unit),
+            Stat(label: "Elevation",
+                 value: workout.elevationAscended.map { Fmt.elevation($0) } ?? "--",
+                 unit: "m"),
+            Stat(label: "Active Calories",
+                 value: workout.activeCalories.map { Fmt.caloriesValue($0) } ?? "--",
+                 unit: "kcal"),
+            Stat(label: "Avg. Pace",
+                 value: Fmt.pace(workout.duration, meters: workout.distance),
+                 unit: "/km"),
+            Stat(label: "Avg. Heart Rate",
+                 value: workout.avgHeartRate.map { Fmt.heartRate($0) } ?? "--",
+                 unit: "bpm")
+        ]
+    }
+
+    /// The six cards, in the grid the display asks for: **three rows of two standing up, two rows of
+    /// three lying down**, so the block is never taller than it has to be. The map above gives up the
+    /// room (`mapSection`), which is what puts all six of them and the `*Data from …` label inside the
+    /// card in every orientation — the folded Duo lost the third row and the label altogether when the
+    /// rows were fixed to the display's width and the map kept a fixed share of its height.
+    private func stats(landscape: Bool) -> some View {
+        let columns = landscape ? 3 : 2
+        let items = statItems
+        let rows = stride(from: 0, to: items.count, by: columns).map {
+            Array(items[$0..<min($0 + columns, items.count)])
+        }
+        return VStack(spacing: Metrics.statCardGap) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: Metrics.statCardGap) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, item in
+                        StatCard(label: item.label, value: item.value, unit: item.unit)
+                    }
+                }
             }
         }
     }
@@ -241,24 +309,28 @@ struct StatCard: View {
     let unit: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(label)
-                .font(.system(size: 17))
+                .font(.system(size: 15))
                 .foregroundStyle(Palette.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value)
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(Palette.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 if let unit {
                     Text(unit)
-                        .font(.system(size: 17))
+                        .font(.system(size: 14))
                         .foregroundStyle(.white)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 17)
-        .padding(.vertical, 10.5)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.statCardRadius, style: .continuous))
     }
 }

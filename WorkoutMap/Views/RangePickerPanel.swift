@@ -1,13 +1,13 @@
 import SwiftUI
 
 /// The range picker: the week / month / year the map is filtered to, as a wheel — drawn as one of
-/// the map screen's own panels rather than presented as a sheet, so it keeps the screen's chrome
-/// (the Duo's rail and its tab registers) clear, like the range bubble it is opened from. See
-/// `View.glassPanel()` for what a half-height sheet's card does to that chrome.
+/// the map screen's own cards (`View.menuCard()`), the same shape as the sheet the range bubble
+/// opens, rather than presented as a sheet: a sheet lies over the screen's chrome on the Duo, and
+/// the picker keeps the screen's rail and its tab registers clear.
 struct RangePickerPanel: View {
     @Binding var selection: RangeSelection
     let workouts: [Workout]
-    /// How much room the panel has to work with (`MapTabView.menuPanel`).
+    /// How much room the card has to work with (`MapTabView.menuLayer`).
     let room: CGFloat
     var onClose: () -> Void
 
@@ -31,7 +31,7 @@ struct RangePickerPanel: View {
                 .padding(.bottom, 16)
         }
         .frame(height: height)
-        .glassPanel()
+        .menuCard()
         .onAppear(perform: syncFromSelection)
         .onChange(of: weekOffset) { _, _ in pushSelection() }
         .onChange(of: month) { _, _ in pushSelection() }
