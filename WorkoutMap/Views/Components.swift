@@ -43,6 +43,19 @@ extension View {
     }
 }
 
+/// The hairline between two rows of a settings card: one physical pixel, inset to where the row's
+/// text starts, in the faint white the cards use.
+struct RowDivider: View {
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.09))
+            .frame(height: 1 / displayScale)
+            .padding(.leading, 56)
+    }
+}
+
 /// Full width yellow confirm button (sheet Done / export Save).
 struct PrimaryButton: View {
     let title: String

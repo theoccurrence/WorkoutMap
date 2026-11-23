@@ -18,12 +18,12 @@ struct WorkoutMapApp: App {
 #if DEBUG
                     // The settings screen's Edit Transfer, without a tap — see `DebugLaunch`.
                     if let path = DebugLaunch.exportEditsPath {
-                        let data = (try? EraseStore.shared.exportData()) ?? Data()
+                        let data = (try? RouteEditStore.shared.exportData()) ?? Data()
                         try? data.write(to: URL(fileURLWithPath: path))
                     }
                     if let path = DebugLaunch.importEditsPath,
                        let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
-                        try? EraseStore.shared.importData(data)
+                        try? RouteEditStore.shared.importData(data)
                     }
 #endif
                 }

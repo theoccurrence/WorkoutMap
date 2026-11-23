@@ -11,28 +11,45 @@ enum DebugLaunch {
     static var startTab: Int { Int(env["WM_START_TAB"] ?? "0") ?? 0 }
     static var openDetail: Bool { env["WM_START_DETAIL"] == "1" }
     static var openExport: Bool { env["WM_START_EXPORT"] == "1" }
-    /// WM_START_EDIT=1 opens the route-editing screen on the detail screen it pushes.
+    /// WM_START_EDIT=1 opens the route-editing screen on the detail screen it pushes, and
+    /// WM_EDIT_TOOL=erase|valid picks the tool it opens with.
     static var startEdit: Bool { env["WM_START_EDIT"] == "1" }
-    /// WM_ERASE="x1,y1;x2,y2;…" runs one eraser stroke along those screen points, once the editor
-    /// is up. The simulator offers no way to drag a finger from the command line, so the stroke is
-    /// run through the very path the eraser recognizer uses (`RouteMapView.Coordinator`).
-    static var eraseStroke: [CGPoint]? {
-        guard let raw = env["WM_ERASE"] else { return nil }
-        let points = raw.split(separator: ";").compactMap { item -> CGPoint? in
-            let parts = item.split(separator: ",").compactMap { Double($0) }
-            guard parts.count == 2 else { return nil }
-            return CGPoint(x: parts[0], y: parts[1])
-        }
-        return points.isEmpty ? nil : points
-    }
-    /// WM_ERASE_DELAY=<seconds> moves that stroke back, so it lands after the route has loaded.
-    static var eraseDelay: Double { Double(env["WM_ERASE_DELAY"] ?? "") ?? 5 }
-    /// WM_ERASE_SAVE=1 saves the edit after that stroke, through the call *Done* makes.
-    static var eraseSave: Bool { env["WM_ERASE_SAVE"] == "1" }
+    static var startEditTool: String? { env["WM_EDIT_TOOL"] }
+    /// WM_START_EDITS=1 opens the settings screen's own list of edited workouts.
+    static var startEditedWorkouts: Bool { env["WM_START_EDITS"] == "1" }
+    /// WM_EDIT_STROKE="x1,y1;x2,y2;…" runs one stroke of the edit brush along those screen points,
+    /// once the editor is up. The simulator offers no way to drag a finger from the command line, so
+    /// the stroke is run through the very path the brush's recognizer uses
+    /// (`RouteMapView.Coordinator`); what the stroke *does* — erase, or flag a jump — is the tool's
+    /// business.
+    static var editStroke: [CGPoint]? { points(env["WM_EDIT_STROKE"]) }
+    /// WM_EDIT_STROKE_DELAY=<seconds> moves that stroke back, so it can land after the route has
+    /// loaded.
+    static var editStrokeDelay: Double { Double(env["WM_EDIT_STROKE_DELAY"] ?? "") ?? 5 }
+    /// WM_EDIT_SAVE=1 saves the edit after that stroke, through the call *Done* makes.
+    static var editSave: Bool { env["WM_EDIT_SAVE"] == "1" }
+    /// WM_PAN="x1,y1;x2,y2" drives the two-finger pan through `panMap(by:)` — the very call the pan
+    /// recognizer makes — and WM_FAKE_PINCH_SCALE=<scale> stands in for a pinch. With a scale away
+    /// from 1 the pan must leave the camera alone, which is the whole of the zoom fix.
+    static var panSamples: [CGPoint] { points(env["WM_PAN"]) ?? [] }
+    static var panDelay: Double { Double(env["WM_PAN_DELAY"] ?? "") ?? 4 }
+    static var fakePinchScale: Double? { env["WM_FAKE_PINCH_SCALE"].flatMap(Double.init) }
     /// WM_EXPORT_EDITS=<path> writes the edits file there at launch, and WM_IMPORT_EDITS=<path>
     /// merges that file in — the two halves of the settings screen's Edit Transfer, without a tap.
     static var exportEditsPath: String? { env["WM_EXPORT_EDITS"] }
     static var importEditsPath: String? { env["WM_IMPORT_EDITS"] }
+
+    /// A `"x,y;x2,y2"` list, as the two stroke and pan hooks above read it.
+    private static func points(_ raw: String?) -> [CGPoint]? {
+        guard let raw else { return nil }
+        let values = raw.split(separator: ";").compactMap { item -> CGPoint? in
+            let parts = item.split(separator: ",").compactMap { Double($0) }
+            guard parts.count == 2 else { return nil }
+            return CGPoint(x: parts[0], y: parts[1])
+        }
+        return values.isEmpty ? nil : values
+    }
+
     /// WM_START_SHEET=1 opens the calendar picker (the flag keeps the name it shipped with).
     static var openSheet: Bool { env["WM_START_SHEET"] == "1" }
     static var startCategory: WorkoutCategory? { env["WM_START_CATEGORY"].flatMap(WorkoutCategory.init(rawValue:)) }
@@ -222,9 +239,14 @@ enum DebugLaunch {
     static var openDetail: Bool { false }
     static var openExport: Bool { false }
     static var startEdit: Bool { false }
-    static var eraseStroke: [CGPoint]? { nil }
-    static var eraseDelay: Double { 5 }
-    static var eraseSave: Bool { false }
+    static var startEditTool: String? { nil }
+    static var startEditedWorkouts: Bool { false }
+    static var editStroke: [CGPoint]? { nil }
+    static var editStrokeDelay: Double { 5 }
+    static var editSave: Bool { false }
+    static var panSamples: [CGPoint] { [] }
+    static var panDelay: Double { 4 }
+    static var fakePinchScale: Double? { nil }
     static var exportEditsPath: String? { nil }
     static var importEditsPath: String? { nil }
     static var openSheet: Bool { false }

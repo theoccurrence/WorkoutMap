@@ -78,14 +78,53 @@ struct WorkoutRoute {
         return legDistance(index) / intervals[index]
     }
 
+    // MARK: judging a leg
+
+    /// Whether the receiver cannot have made this leg: the **strict** three-part rule. Such a leg is
+    /// the receiver's invention, never drawn, and not a jump a rule judges — so the route editor's
+    /// *valid* tool will not flag it either.
+    static func isImplausible(distance: Double, speed: Double?) -> Bool {
+        distance > jumpMinimumDistance
+            && (speed.map { $0 > implausibleSpeed } ?? (distance > jumpDistanceWithoutTime))
+    }
+
+    /// What **softer** rule catches this leg, or `nil` when none does — an ordinary leg, or one the
+    /// strict rule already owns. The route editor asks this to know which legs are its to flag:
+    /// flagging an ordinary leg would say nothing, and flagging a leg the receiver invented would
+    /// draw a line across ground nobody covered.
+    static func jumpKind(distance: Double, speed: Double?, rules: JumpRules) -> JumpKind? {
+        guard !isImplausible(distance: distance, speed: speed) else { return nil }
+        if let speed, distance > JumpRules.speedMinimumDistance,
+           speed > rules.speedThresholdMetersPerSecond {
+            return .speed
+        }
+        if distance > rules.distanceThreshold {
+            return .distance
+        }
+        return nil
+    }
+
+    func isImplausible(_ index: Int) -> Bool {
+        Self.isImplausible(distance: legDistance(index), speed: legSpeed(index))
+    }
+
+    func jumpKind(_ index: Int, rules: JumpRules) -> JumpKind? {
+        Self.jumpKind(distance: legDistance(index), speed: legSpeed(index), rules: rules)
+    }
+
     // MARK: drawing
 
     /// How a track is split up for drawing.
     struct Drawing {
-        /// The stretches the user walked, separated where a jump interrupts them.
+        /// The stretches the user walked, separated where a jump interrupts them. A leg the user has
+        /// flagged as ground they covered joins these, unless the drawing is one that shows the flag
+        /// (see `showValidatedJumps`).
         let walked: [[CLLocationCoordinate2D]]
         /// The legs drawn as a line of their own, in the order they run.
         let legs: [JumpLeg]
+        /// The flagged legs the drawing still shows as the jumps they are — `showValidatedJumps`
+        /// only, and empty otherwise.
+        let validated: [[CLLocationCoordinate2D]]
     }
 
     /// One leg to draw, and what caught it.
@@ -94,16 +133,17 @@ struct WorkoutRoute {
         let kind: JumpKind
     }
 
-    /// The fixes that are still drawn after `erased` took some legs out — a fix is kept while a
-    /// leg on either side of it is. What frames the map on a route the user has edited uses this,
-    /// so an erased stretch does not leave a hole of empty map beside the route.
-    func visible(erased: EraseEdits) -> [CLLocationCoordinate2D] {
-        guard !erased.isEmpty else { return coordinates }
+    /// The fixes that are still drawn after `edits` took some legs out — a fix is kept while a leg
+    /// on either side of it is. What frames the map on a route the user has edited uses this, so an
+    /// erased stretch does not leave a hole of empty map beside the route. A flagged leg is drawn,
+    /// so it keeps its fixes.
+    func visible(_ edits: RouteEdits) -> [CLLocationCoordinate2D] {
+        guard !edits.erased.isEmpty else { return coordinates }
         var kept: [CLLocationCoordinate2D] = []
         kept.reserveCapacity(coordinates.count)
         for index in coordinates.indices {
-            let before = index > 0 && !erased.contains(index)
-            let after = index + 1 < coordinates.count && !erased.contains(index + 1)
+            let before = index > 0 && !edits.erased.contains(index)
+            let after = index + 1 < coordinates.count && !edits.erased.contains(index + 1)
             if before || after { kept.append(coordinates[index]) }
         }
         return kept
@@ -124,48 +164,65 @@ struct WorkoutRoute {
     /// line *is* one leg. Because the drawing only ever emits the legs it is given and never
     /// invents one between two fixes an erasure separated, erasing a stretch of the route cannot
     /// leave a phantom line across the gap.
-    func drawing(_ rules: JumpRules, erased: EraseEdits = .empty) -> Drawing {
-        guard coordinates.count > 1 else { return Drawing(walked: [coordinates], legs: []) }
+    ///
+    /// A leg the user **flagged** as ground they covered is the opposite statement: the softer rules
+    /// are not asked about it, and `showValidatedJumps` alone decides how it is drawn. Off — the map,
+    /// the list and the export from them — it joins the walked line and simply *is* the route, which
+    /// is the whole point of flagging it. On — the workout's own screens — it comes back as the jump
+    /// it still is, in `Drawing.validated`, so the flag can be seen where it can also be changed.
+    func drawing(_ rules: JumpRules,
+                 edits: RouteEdits = .empty,
+                 showValidatedJumps: Bool = false) -> Drawing {
+        guard coordinates.count > 1 else {
+            return Drawing(walked: [coordinates], legs: [], validated: [])
+        }
         var walked: [[CLLocationCoordinate2D]] = []
         var legs: [JumpLeg] = []
+        var validated: [[CLLocationCoordinate2D]] = []
         var run: [CLLocationCoordinate2D] = []
         for index in 1..<coordinates.count {
             // The line simply stops where it was erased and picks up at the leg after it.
-            guard !erased.contains(index) else {
+            guard !edits.erased.contains(index) else {
                 if run.count > 1 { walked.append(run) }
                 run = []
                 continue
             }
+            let leg = [self.coordinates[index - 1], self.coordinates[index]]
+            if edits.validated.contains(index) {
+                if showValidatedJumps {
+                    if run.count > 1 { walked.append(run) }
+                    run = []
+                    validated.append(leg)
+                    continue
+                }
+                // Flagged and not being shown as a jump: the leg is ground the user covered, like
+                // any other walked leg, and joins the run.
+                if run.isEmpty { run = [leg[0]] }
+                run.append(leg[1])
+                continue
+            }
             let distance = legDistance(index)
             let speed = legSpeed(index)
-            let strict = distance > Self.jumpMinimumDistance
-                && (speed.map { $0 > Self.implausibleSpeed } ?? (distance > Self.jumpDistanceWithoutTime))
-            let kind: JumpKind?
-            if strict {
-                kind = nil
-            } else if let speed, distance > JumpRules.speedMinimumDistance,
-                      speed > rules.speedThresholdMetersPerSecond {
-                kind = .speed
-            } else if distance > rules.distanceThreshold {
-                kind = .distance
-            } else {
-                kind = nil
-            }
-            if strict || kind != nil {
+            if Self.isImplausible(distance: distance, speed: speed) {
                 if run.count > 1 { walked.append(run) }
                 run = []
-                if let kind, rules.style(for: kind) != .hidden {
-                    legs.append(JumpLeg(coordinates: [coordinates[index - 1], coordinates[index]], kind: kind))
+                continue
+            }
+            if let kind = Self.jumpKind(distance: distance, speed: speed, rules: rules) {
+                if run.count > 1 { walked.append(run) }
+                run = []
+                if rules.style(for: kind) != .hidden {
+                    legs.append(JumpLeg(coordinates: leg, kind: kind))
                 }
                 continue
             }
             // A walked leg joins the run, and the run has to start at the leg's own first fix:
             // the leg before it may have been erased, or may have been a jump, and a fix that is
             // no longer joined to anything must not be drawn on its own.
-            if run.isEmpty { run = [coordinates[index - 1]] }
-            run.append(coordinates[index])
+            if run.isEmpty { run = [leg[0]] }
+            run.append(leg[1])
         }
         if run.count > 1 { walked.append(run) }
-        return Drawing(walked: walked, legs: legs)
+        return Drawing(walked: walked, legs: legs, validated: validated)
     }
 }

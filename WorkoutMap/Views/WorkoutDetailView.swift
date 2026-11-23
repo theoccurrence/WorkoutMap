@@ -23,16 +23,20 @@ struct WorkoutDetailView: View {
     @ObservedObject private var modeColors = CategoryColorStore.shared
     /// The tone each jump rule draws in — the same choice the settings keep.
     @ObservedObject private var jumpColors = JumpColorStore.shared
-    /// The legs the user erased in the route editor — read live, so an edit saved on the editor
-    /// draws here the moment it closes.
-    @ObservedObject private var eraseStore = EraseStore.shared
+    /// What the user changed about the route in the editor — read live, so an edit saved on the
+    /// editor draws here the moment it closes.
+    @ObservedObject private var editStore = RouteEditStore.shared
 
-    private var edits: EraseEdits { eraseStore.edits(for: workout.id) }
+    private var edits: RouteEdits { editStore.edits(for: workout.id) }
 
     /// What the map frames: the fixes still drawn, so an erased stretch does not leave a hole of
     /// empty map beside what is left of the route.
-    private var visibleCoordinates: [CLLocationCoordinate2D] { route.visible(erased: edits) }
+    private var visibleCoordinates: [CLLocationCoordinate2D] { route.visible(edits) }
 
+    /// The route as this screen draws it — and it is one of the two screens that shows the *flag*: a
+    /// leg the user marked as ground they covered is drawn here as the jump it still is, in the
+    /// route's own colour dotted, rather than as an ordinary part of the route the way the map and
+    /// the list draw it. This is where the flag can be seen, and from here it can be changed.
     private var lines: [MapRouteLine] {
         MapRouteLine.lines(for: workout,
                            route: route,
@@ -42,7 +46,8 @@ struct WorkoutDetailView: View {
                                             speedThreshold: jumpSpeedThreshold),
                            color: modeColors.uiColor(for: workout.category),
                            tones: jumpColors.tones,
-                           erased: edits)
+                           edits: edits,
+                           showValidatedJumps: true)
     }
 
     /// The style the map is drawn in — `legacy`, the stored style, stays dark.

@@ -21,13 +21,14 @@ struct WorkoutCardView: View {
     @ObservedObject private var modeColors = CategoryColorStore.shared
     /// The tone each jump rule draws in — the same choice the map screen uses.
     @ObservedObject private var jumpColors = JumpColorStore.shared
-    /// The legs the user erased in the route editor — the thumbnail is drawn without them, and
-    /// the row carries a badge while there are any.
-    @ObservedObject private var eraseEdits = EraseStore.shared
+    /// What the user changed about the route in the editor — erased ground, or a jump flagged as
+    /// ground they covered. The thumbnail is drawn with those edits, and the row carries a badge
+    /// while there are any.
+    @ObservedObject private var editStore = RouteEditStore.shared
 
     private var thumbnailWidth: CGFloat { Metrics.thumbnailWidth }
 
-    private var edits: EraseEdits { eraseEdits.edits(for: workout.id) }
+    private var edits: RouteEdits { editStore.edits(for: workout.id) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -108,7 +109,7 @@ struct WorkoutCardView: View {
                                                               color: modeColors.uiColor(for: workout.category),
                                                               rules: jumpRules,
                                                               tones: jumpColors.tones,
-                                                              erased: edits,
+                                                              edits: edits,
                                                               size: target,
                                                               scale: displayScale) {
             withAnimation(.easeOut(duration: 0.2)) { thumbnail = image }

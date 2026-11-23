@@ -8,12 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		00817EB7CA01A698DD46A7C8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5DAF003050049BA3E62B5DF2 /* Assets.xcassets */; };
-		00F034A9E994CA2063221B4B /* EraseEditsDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64E3385E69D957DC47191157 /* EraseEditsDocument.swift */; };
 		06E25D7A2B2F874D3269A75F /* MapMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261EAD446B5AC5B4F86D01F0 /* MapMode.swift */; };
 		0732BA69F360061119BC962D /* AppBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E953720D2A0F7CE9EADF8FE /* AppBackground.swift */; };
 		0D50A24C560BCAE0514B02D7 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1580B103C393940147C727E8 /* RouteStore.swift */; };
 		0ED5B5F04DDAF1A7EA290036 /* JumpColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09E5FE3CB71EE6914E91AE6 /* JumpColors.swift */; };
 		104A41C92B5B8D40EC68BA5F /* RouteJumpStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19FF8DC6198EEE24F3EBFD57 /* RouteJumpStyle.swift */; };
+		13D74B2B08F623E53E3D53F6 /* EditedWorkoutsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB60BAE33F3DE31621B1FC3C /* EditedWorkoutsView.swift */; };
 		1735056C58850B2B5F44AB99 /* CoverageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9978FD106F794C8E5F7E61F2 /* CoverageStore.swift */; };
 		26701C7E896A64F41CF9ACE2 /* Metrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9FCF0A046B333430CBACFB /* Metrics.swift */; };
 		2FE3B08CF6727FA53342E581 /* WorkoutDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 371F8FAB111E70EFAED48FDA /* WorkoutDetailView.swift */; };
@@ -28,19 +28,20 @@
 		5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E067599700C1579F86E5B45A /* ExportPreviewView.swift */; };
 		5FB46E23E7BE24A6EB05F868 /* WorkoutsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE6C11B7D46FCF2B7C9BC37 /* WorkoutsListView.swift */; };
 		636020DA50D5474720DFF24F /* HealthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C8374FFE8DA74D43CDF3D0 /* HealthStore.swift */; };
-		6B16B5189C70C95C2AB8E17B /* EraseEdits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F56286020331267E9E46698 /* EraseEdits.swift */; };
 		7131D644AACFAFACB6D34F08 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B10383FCD4C6961C1FC099A /* RootView.swift */; };
 		71F49ECC3F232EE299342BB3 /* WorkoutRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4586A1D91847FB9514DD8126 /* WorkoutRoute.swift */; };
 		7BB4A7BCE191B84F65794F27 /* JumpRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = D23113E626179A5E78CDF657 /* JumpRules.swift */; };
 		860DE2C06087E6D338E4F9FF /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB7B41C2C224D883B2841A0 /* Formatters.swift */; };
+		92BCBA11FD62DA575363A8B3 /* RouteEditStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 220C23714D3E2CC94B52E44D /* RouteEditStore.swift */; };
 		97C0361AE400FD9489827864 /* LocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F03628C72B3659DAB8738B /* LocationProvider.swift */; };
 		9C0464366C4261DCBC4238A4 /* DebugLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239FACC29E0EB5235839B714 /* DebugLaunch.swift */; };
 		9C16629B50448FB841A06D90 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44ADDDBD6D95EE6030B2887D /* Components.swift */; };
+		AC93612DB6CD42EF647415A7 /* RouteEdits.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEF48FE30B9ABEA0CA9CD706 /* RouteEdits.swift */; };
 		AE7D60C69F4446EDCE650B18 /* MapImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A9908A3117CF3CCD723410D /* MapImageRenderer.swift */; };
 		AF5367A93BE477457C50C10D /* ControlAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D508E97CB901197853D63B57 /* ControlAppearance.swift */; };
 		B17C8DBF93754E37F2752DEC /* RouteGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */; };
+		B3E528FDDC729D5068772EBA /* RouteEditsDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C09B3524D2C245226DD0E33 /* RouteEditsDocument.swift */; };
 		BFD98995650DAA108C639983 /* MapModePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD6B4A25ABEB5E42691317C /* MapModePanel.swift */; };
-		C13F6A1C76A3EFF7D27345A1 /* EraseStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DBD438216E14CE105D0947D /* EraseStore.swift */; };
 		CAB5B905D124764E36A6BB43 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCFFF76D1AD664F15B87FBBE /* SettingsView.swift */; };
 		CCC8E03F47C1CC9627965604 /* MapTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A231724BE3653A235B51A2F6 /* MapTabView.swift */; };
 		D8C904A29C9960D057A39248 /* RangePickerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B99557E5665B1E1491E0F9 /* RangePickerPanel.swift */; };
@@ -63,9 +64,9 @@
 		19FF8DC6198EEE24F3EBFD57 /* RouteJumpStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteJumpStyle.swift; sourceTree = "<group>"; };
 		1AB7B41C2C224D883B2841A0 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
 		21C11E2460B50DE52EC53055 /* WorkoutEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutEditView.swift; sourceTree = "<group>"; };
+		220C23714D3E2CC94B52E44D /* RouteEditStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteEditStore.swift; sourceTree = "<group>"; };
 		239FACC29E0EB5235839B714 /* DebugLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLaunch.swift; sourceTree = "<group>"; };
 		261EAD446B5AC5B4F86D01F0 /* MapMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapMode.swift; sourceTree = "<group>"; };
-		2DBD438216E14CE105D0947D /* EraseStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EraseStore.swift; sourceTree = "<group>"; };
 		2E2FFC8069B5A2B434293DAA /* RoutePlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutePlanner.swift; sourceTree = "<group>"; };
 		34EC549C8FC154240F7FB97A /* CoverageIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverageIndex.swift; sourceTree = "<group>"; };
 		371F8FAB111E70EFAED48FDA /* WorkoutDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDetailView.swift; sourceTree = "<group>"; };
@@ -75,7 +76,6 @@
 		4A63D8776C7CC508C221A2CF /* DebugSampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugSampleData.swift; sourceTree = "<group>"; };
 		4C9FCF0A046B333430CBACFB /* Metrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Metrics.swift; sourceTree = "<group>"; };
 		5DAF003050049BA3E62B5DF2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		64E3385E69D957DC47191157 /* EraseEditsDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EraseEditsDocument.swift; sourceTree = "<group>"; };
 		6A9908A3117CF3CCD723410D /* MapImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapImageRenderer.swift; sourceTree = "<group>"; };
 		6AF569EB5045DD43C9FE1EE3 /* SystemAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearance.swift; sourceTree = "<group>"; };
 		6B10383FCD4C6961C1FC099A /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -83,14 +83,15 @@
 		6F90752D46A1FDDCFD1D51E8 /* Workout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workout.swift; sourceTree = "<group>"; };
 		7BD6B4A25ABEB5E42691317C /* MapModePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapModePanel.swift; sourceTree = "<group>"; };
 		7BD84EFDB008F52F32BDA624 /* RoutePlannerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutePlannerPanel.swift; sourceTree = "<group>"; };
+		7C09B3524D2C245226DD0E33 /* RouteEditsDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteEditsDocument.swift; sourceTree = "<group>"; };
 		7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteGeometry.swift; sourceTree = "<group>"; };
-		7F56286020331267E9E46698 /* EraseEdits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EraseEdits.swift; sourceTree = "<group>"; };
 		862641A6A5F977298C3A9AE6 /* ExploreOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploreOptions.swift; sourceTree = "<group>"; };
 		86B99557E5665B1E1491E0F9 /* RangePickerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RangePickerPanel.swift; sourceTree = "<group>"; };
 		86BF5BAA0726A779B643C6F3 /* CategoryColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryColors.swift; sourceTree = "<group>"; };
 		90C8374FFE8DA74D43CDF3D0 /* HealthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthStore.swift; sourceTree = "<group>"; };
 		9978FD106F794C8E5F7E61F2 /* CoverageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverageStore.swift; sourceTree = "<group>"; };
 		A231724BE3653A235B51A2F6 /* MapTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapTabView.swift; sourceTree = "<group>"; };
+		AEF48FE30B9ABEA0CA9CD706 /* RouteEdits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteEdits.swift; sourceTree = "<group>"; };
 		B09E5FE3CB71EE6914E91AE6 /* JumpColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpColors.swift; sourceTree = "<group>"; };
 		BB0DC88292C68F483805EC0A /* TimeRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeRange.swift; sourceTree = "<group>"; };
 		BCFFF76D1AD664F15B87FBBE /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -105,6 +106,7 @@
 		DB43AA47D31BF875793C2277 /* WorkoutCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCardView.swift; sourceTree = "<group>"; };
 		E067599700C1579F86E5B45A /* ExportPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPreviewView.swift; sourceTree = "<group>"; };
 		E4C1094D0563FB01C619897C /* WorkoutCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCategory.swift; sourceTree = "<group>"; };
+		EB60BAE33F3DE31621B1FC3C /* EditedWorkoutsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditedWorkoutsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -136,10 +138,10 @@
 				9978FD106F794C8E5F7E61F2 /* CoverageStore.swift */,
 				4A63D8776C7CC508C221A2CF /* DebugSampleData.swift */,
 				D603CC3A9F9C2C651179854C /* DirectionsClient.swift */,
-				2DBD438216E14CE105D0947D /* EraseStore.swift */,
 				90C8374FFE8DA74D43CDF3D0 /* HealthStore.swift */,
 				C2F03628C72B3659DAB8738B /* LocationProvider.swift */,
 				6A9908A3117CF3CCD723410D /* MapImageRenderer.swift */,
+				220C23714D3E2CC94B52E44D /* RouteEditStore.swift */,
 				2E2FFC8069B5A2B434293DAA /* RoutePlanner.swift */,
 				1580B103C393940147C727E8 /* RouteStore.swift */,
 			);
@@ -151,13 +153,14 @@
 			children = (
 				6E953720D2A0F7CE9EADF8FE /* AppBackground.swift */,
 				44ADDDBD6D95EE6030B2887D /* Components.swift */,
-				64E3385E69D957DC47191157 /* EraseEditsDocument.swift */,
+				EB60BAE33F3DE31621B1FC3C /* EditedWorkoutsView.swift */,
 				E067599700C1579F86E5B45A /* ExportPreviewView.swift */,
 				7BD6B4A25ABEB5E42691317C /* MapModePanel.swift */,
 				A231724BE3653A235B51A2F6 /* MapTabView.swift */,
 				BD8AAD1EB3A748454CE34A23 /* PlannedRouteBar.swift */,
 				86B99557E5665B1E1491E0F9 /* RangePickerPanel.swift */,
 				6B10383FCD4C6961C1FC099A /* RootView.swift */,
+				7C09B3524D2C245226DD0E33 /* RouteEditsDocument.swift */,
 				3D9355199A652B873059B5A6 /* RouteMapView.swift */,
 				7BD84EFDB008F52F32BDA624 /* RoutePlannerPanel.swift */,
 				BCFFF76D1AD664F15B87FBBE /* SettingsView.swift */,
@@ -180,10 +183,10 @@
 		BFD64A34B3501B12432ACC86 /* Model */ = {
 			isa = PBXGroup;
 			children = (
-				7F56286020331267E9E46698 /* EraseEdits.swift */,
 				862641A6A5F977298C3A9AE6 /* ExploreOptions.swift */,
 				D23113E626179A5E78CDF657 /* JumpRules.swift */,
 				261EAD446B5AC5B4F86D01F0 /* MapMode.swift */,
+				AEF48FE30B9ABEA0CA9CD706 /* RouteEdits.swift */,
 				7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */,
 				19FF8DC6198EEE24F3EBFD57 /* RouteJumpStyle.swift */,
 				CAC7B9B7F0700D15D156BE5C /* RoutePlan.swift */,
@@ -290,9 +293,7 @@
 				9C0464366C4261DCBC4238A4 /* DebugLaunch.swift in Sources */,
 				E955ADB8CF98796125D1E5D9 /* DebugSampleData.swift in Sources */,
 				E5E14CFB5D3EF838CC314995 /* DirectionsClient.swift in Sources */,
-				6B16B5189C70C95C2AB8E17B /* EraseEdits.swift in Sources */,
-				00F034A9E994CA2063221B4B /* EraseEditsDocument.swift in Sources */,
-				C13F6A1C76A3EFF7D27345A1 /* EraseStore.swift in Sources */,
+				13D74B2B08F623E53E3D53F6 /* EditedWorkoutsView.swift in Sources */,
 				3D197CBFCD46719C0AD9FE24 /* ExploreOptions.swift in Sources */,
 				5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */,
 				860DE2C06087E6D338E4F9FF /* Formatters.swift in Sources */,
@@ -309,6 +310,9 @@
 				37D35BDBC58482AC1AA5DE0B /* PlannedRouteBar.swift in Sources */,
 				D8C904A29C9960D057A39248 /* RangePickerPanel.swift in Sources */,
 				7131D644AACFAFACB6D34F08 /* RootView.swift in Sources */,
+				92BCBA11FD62DA575363A8B3 /* RouteEditStore.swift in Sources */,
+				AC93612DB6CD42EF647415A7 /* RouteEdits.swift in Sources */,
+				B3E528FDDC729D5068772EBA /* RouteEditsDocument.swift in Sources */,
 				B17C8DBF93754E37F2752DEC /* RouteGeometry.swift in Sources */,
 				104A41C92B5B8D40EC68BA5F /* RouteJumpStyle.swift in Sources */,
 				F2E4AA2D2B6CD7C0810BB69A /* RouteMapView.swift in Sources */,

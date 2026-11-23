@@ -37,9 +37,9 @@ struct MapTabView: View {
     @ObservedObject private var modeColors = CategoryColorStore.shared
     /// The tone each jump rule draws its legs in, as the settings keep those.
     @ObservedObject private var jumpColors = JumpColorStore.shared
-    /// The legs the user erased in the route editor — read live, so an edit saved on the detail
+    /// What the user changed about a route in the editor — read live, so an edit saved on the detail
     /// screen draws here as well.
-    @ObservedObject private var eraseStore = EraseStore.shared
+    @ObservedObject private var editStore = RouteEditStore.shared
     /// The route the user last tapped. While one is selected the range bubble shows its own
     /// date and time instead of the range's label.
     @State private var tappedRouteID: String?
@@ -147,7 +147,7 @@ struct MapTabView: View {
         lineCache.lines(for: loaded,
                         rules: jumpRules,
                         tones: jumpColors.tones,
-                        erased: { eraseStore.edits(for: $0.id) }) { modeColors.uiColor(for: $0) }
+                        edits: { editStore.edits(for: $0.id) }) { modeColors.uiColor(for: $0) }
     }
 
     /// The explorer's planned route and its alternates, as map lines: the selected one in the
@@ -1078,9 +1078,9 @@ struct MapTabView: View {
 /// The map screen asks for its lines on every redraw of the screen (`mapLines`), and turning a
 /// route into its lines is the expensive half of that: the track is walked leg by leg, a
 /// great-circle distance and a speed per leg, and the runs and jump legs are cut out of it. The
-/// answer only depends on the route, the two jump rules, the legs the user erased and the colour
-/// the category is drawn in, so it is kept under the route's own id and handed back untouched
-/// until one of those moves.
+/// answer only depends on the route, the two jump rules, the user's edits and the colour the
+/// category is drawn in, so it is kept under the route's own id and handed back untouched until one
+/// of those moves.
 ///
 /// Touched from the map screen's body alone, and so from the main thread alone; the routes
 /// themselves stay plain data.
@@ -1098,7 +1098,7 @@ final class RouteLineCache {
     func lines(for loaded: [(Workout, WorkoutRoute)],
                rules: JumpRules,
                tones: JumpTones,
-               erased: (Workout) -> EraseEdits,
+               edits: (Workout) -> RouteEdits,
                color: (WorkoutCategory) -> UIColor) -> [MapRouteLine] {
         var result: [MapRouteLine] = []
         var live: Set<UUID> = []
@@ -1106,17 +1106,17 @@ final class RouteLineCache {
         for (workout, route) in loaded {
             live.insert(workout.id)
             let routeColor = color(workout.category)
-            let edits = erased(workout)
+            let routeEdits = edits(workout)
             // The track's own length is part of the key as well: the store hands the same route
             // back for an id, and a route that arrives with another size is a different one. The
-            // erased legs are in it too, so a route the user edited is cut again — and only it.
-            let key = "\(rules.key)-\(tones.key)-\(routeColor.hexRGB)-\(route.count)-\(edits.key)"
+            // user's edits are in it too, so a route that was edited is cut again — and only it.
+            let key = "\(rules.key)-\(tones.key)-\(routeColor.hexRGB)-\(route.count)-\(routeEdits.key)"
             if let entry = entries[workout.id], entry.key == key {
                 result.append(contentsOf: entry.lines)
                 continue
             }
             let lines = MapRouteLine.lines(for: workout, route: route, rules: rules,
-                                           color: routeColor, tones: tones, erased: edits)
+                                           color: routeColor, tones: tones, edits: routeEdits)
             entries[workout.id] = Entry(key: key, lines: lines)
             result.append(contentsOf: lines)
         }
