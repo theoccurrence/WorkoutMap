@@ -983,13 +983,23 @@ struct RouteMapView: UIViewRepresentable {
         /// The centre is the only thing written, so a zoom cannot be undone from here; and while a
         /// pinch is scaling, nothing is written at all — the zoom is MapKit's and the fingers' own.
         /// Split out of the recognizer so a debug run can drive it (`WM_PAN`).
+        ///
+        /// The fingers move the **screen**, and a turned map has to take that turn back out before the
+        /// push becomes a shift of the centre: without it a map turned a quarter turn walked sideways
+        /// when it was pushed up, and a swipe to the right sent the ground *down* instead of right —
+        /// the translation was being read as if north were still up. The heading is the compass
+        /// bearing of the top of the screen, so the drag is rotated by it here and the content always
+        /// follows the fingers, turned map or not.
         func panMap(by translation: CGPoint) {
             guard let map, map.bounds.width > 1, map.bounds.height > 1, !isZooming else { return }
             let perPointX = map.region.span.longitudeDelta / Double(map.bounds.width)
             let perPointY = map.region.span.latitudeDelta / Double(map.bounds.height)
+            let heading = map.camera.heading * .pi / 180
+            let east = -Double(translation.x) * cos(heading) + Double(translation.y) * sin(heading)
+            let north = Double(translation.x) * sin(heading) + Double(translation.y) * cos(heading)
             map.centerCoordinate = CLLocationCoordinate2D(
-                latitude: map.centerCoordinate.latitude + Double(translation.y) * perPointY,
-                longitude: map.centerCoordinate.longitude - Double(translation.x) * perPointX)
+                latitude: map.centerCoordinate.latitude + north * perPointY,
+                longitude: map.centerCoordinate.longitude + east * perPointX)
         }
 
         /// Whether a pinch is actually scaling — MapKit's own, as the watcher above sees it.
@@ -1168,6 +1178,19 @@ struct RouteMapView: UIViewRepresentable {
                                                  longitudinalMeters: spanMeters),
                               animated: true)
             }
+#if DEBUG
+            // WM_MAP_HEADING=<degrees> turns the map once the camera has been placed, so a run can
+            // start on a turned map — the simulator cannot turn it with two fingers, and the pan's
+            // own arithmetic is what a turned map changes.
+            if let degrees = DebugLaunch.mapHeading {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak map] in
+                    guard let map else { return }
+                    let camera = map.camera
+                    camera.heading = degrees
+                    map.setCamera(camera, animated: false)
+                }
+            }
+#endif
         }
 
         // MARK: routes

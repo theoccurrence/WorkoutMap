@@ -17,6 +17,15 @@ enum DebugLaunch {
     static var startEditTool: String? { env["WM_EDIT_TOOL"] }
     /// WM_START_EDITS=1 opens the settings screen's own list of edited workouts.
     static var startEditedWorkouts: Bool { env["WM_START_EDITS"] == "1" }
+    /// WM_MAP_HEADING=<degrees> turns the map once its camera has been placed, so a run can start on
+    /// a turned map (the simulator cannot turn it with two fingers).
+    static var mapHeading: Double? { env["WM_MAP_HEADING"].flatMap(Double.init) }
+    /// WM_OPEN_MENU=range|modes|plan opens one of the map screen's own menus a few seconds after
+    /// launch, so the dimming behind it and the way it rises can be looked at without a tap.
+    static var openMenu: String? { env["WM_OPEN_MENU"] }
+    /// WM_MENU_DURATION=<seconds> slows that rise down, far enough that a screenshot can catch the
+    /// panel halfway up (Debug builds only).
+    static var menuDuration: Double? { env["WM_MENU_DURATION"].flatMap(Double.init) }
     /// WM_EDIT_STROKE="x1,y1;x2,y2;…" runs one stroke of the edit brush along those screen points,
     /// once the editor is up. The simulator offers no way to drag a finger from the command line, so
     /// the stroke is run through the very path the brush's recognizer uses
@@ -245,6 +254,9 @@ enum DebugLaunch {
     static var startEdit: Bool { false }
     static var startEditTool: String? { nil }
     static var startEditedWorkouts: Bool { false }
+    static var mapHeading: Double? { nil }
+    static var openMenu: String? { nil }
+    static var menuDuration: Double? { nil }
     static var editStroke: [CGPoint]? { nil }
     static var editStrokeDelay: Double { 5 }
     static var editSave: Bool { false }

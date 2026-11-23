@@ -362,6 +362,18 @@ struct MapTabView: View {
                 try? await Task.sleep(for: .seconds(DebugLaunch.tapDelay + 2))
                 openTappedWorkout()
             }
+            // WM_OPEN_MENU=range|modes|plan — see `DebugLaunch.openMenu`. The simulator cannot tap
+            // the toolbar from the command line, so a menu opens from here, through the very call its
+            // button makes — with the dim and the rise that call carries.
+            if let name = DebugLaunch.openMenu {
+                try? await Task.sleep(for: .seconds(4))
+                switch name {
+                case "range": open(.range)
+                case "modes": open(.modes)
+                case "plan": open(.plan)
+                default: break
+                }
+            }
         }
         .task(id: reloadKey) { await reload() }
         // The explorer's index covers every workout, so it is rebuilt when the workout set
@@ -540,6 +552,19 @@ struct MapTabView: View {
                     .ignoresSafeArea()
             }
 
+            // The dim the menus draw over the map. A sheet gets one from the system — the one the
+            // range bubble's workout opens behind — and the screen's own panels are the same kind of
+            // thing, so they get the same backdrop: the map, the bubble and the controls behind them
+            // darken, and a tap anywhere on it closes the menu, the way a tap beside a sheet does.
+            if menusAreOpen {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .onTapGesture { closeMenus() }
+                    .accessibilityLabel("Close")
+                    .accessibilityAddTraits(.isButton)
+            }
+
             // The explorer's input, the calendar and the map-style picker, as the screen's own
             // panels — above the controls, the way the sheets they used to be sat above them.
             if showPlanner {
@@ -551,9 +576,9 @@ struct MapTabView: View {
                                       region: currentRegion,
                                       isReadingRoutes: coverage.isFilling,
                                       room: room,
-                                      onClose: { showPlanner = false },
+                                      onClose: { close(.plan) },
                                       onPlan: { request in
-                                          showPlanner = false
+                                          close(.plan)
                                           startPlanning(request)
                                       })
                 }
@@ -563,7 +588,7 @@ struct MapTabView: View {
                     RangePickerPanel(selection: $selection,
                                      workouts: health.workouts,
                                      room: room,
-                                     onClose: { showRange = false })
+                                     onClose: { close(.range) })
                 }
             }
             if showModes {
@@ -572,9 +597,62 @@ struct MapTabView: View {
                                  appearance: mapAppearance,
                                  systemStyle: systemAppearance.style,
                                  room: room,
-                                 onClose: { showModes = false })
+                                 onClose: { close(.modes) })
                 }
             }
+        }
+    }
+
+    /// The screen's own menus, the three panels drawn **in** the map screen rather than presented as
+    /// sheets (`menuPanel`): the explorer's input, the calendar and the map-style picker.
+    ///
+    /// `MapMenu` rather than `Menu`: a nested `Menu` would shadow SwiftUI's own inside this type, and
+    /// the toolbar's range control is one of those.
+    private enum MapMenu {
+        case plan, range, modes
+    }
+
+    /// How a menu of this screen opens and closes: it rises from the bottom edge of the display and
+    /// leaves the same way, over a spring, so it settles the way a sheet does instead of appearing
+    /// from nowhere. The map dims behind it as it comes — the layer `menusAreOpen` draws — which is
+    /// what tells the eye the panel belongs to the map and is *over* it.
+    ///
+    /// The response is a debug hook as well (`WM_MENU_DURATION`): a run can slow it down far enough
+    /// for a screenshot to catch the panel halfway up.
+    private static var menuAnimation: Animation {
+        .spring(response: DebugLaunch.menuDuration ?? 0.34, dampingFraction: 0.86)
+    }
+
+    /// True while one of them is up — what draws the dim.
+    private var menusAreOpen: Bool { showPlanner || showRange || showModes }
+
+    /// Every open and close of the three goes through these, so nothing can pop into being.
+    private func open(_ menu: MapMenu) {
+        withAnimation(Self.menuAnimation) {
+            switch menu {
+            case .plan: showPlanner = true
+            case .range: showRange = true
+            case .modes: showModes = true
+            }
+        }
+    }
+
+    private func close(_ menu: MapMenu) {
+        withAnimation(Self.menuAnimation) {
+            switch menu {
+            case .plan: showPlanner = false
+            case .range: showRange = false
+            case .modes: showModes = false
+            }
+        }
+    }
+
+    /// Closes whichever is up — what a tap on the dim does, the way a tap beside a sheet dismisses it.
+    private func closeMenus() {
+        withAnimation(Self.menuAnimation) {
+            showPlanner = false
+            showRange = false
+            showModes = false
         }
     }
 
@@ -591,6 +669,11 @@ struct MapTabView: View {
     private func menuPanel<Content: View>(@ViewBuilder _ content: @escaping (CGFloat) -> Content) -> some View {
         GeometryReader { proxy in
             content(proxy.size.height - overlayBottomInset)
+                // The panel rises from the bottom edge of the display and leaves the same way — the
+                // transition is on the *card*, not on the reader that holds it, so it travels its own
+                // height and not the whole screen's. The animation itself comes from the `withAnimation`
+                // every open and close goes through (`menuAnimation`).
+                .transition(.move(edge: .bottom))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .padding(.leading, cardLeadingInset)
                 .padding(.trailing, cardTrailingInset)
@@ -626,7 +709,7 @@ struct MapTabView: View {
             if (plan != nil || isPlanning) && cardParked {
                 showCard()
             } else {
-                showPlanner = true
+                open(.plan)
             }
         } label: {
             toolbarGlyph("binoculars.fill", tint: exploreIsOn ? RouteBlue.primary : controlGlyph)
@@ -660,7 +743,7 @@ struct MapTabView: View {
             VStack(spacing: 0) {
                 toolbarButton("square.and.arrow.up", label: "Share") { showExport = true }
                 toolbarButton("calendar", label: "Pick a period") {
-                    if kind != .all { showRange = true }
+                    if kind != .all { open(.range) }
                 }
                 .disabled(kind == .all)
                 Menu {
@@ -676,7 +759,7 @@ struct MapTabView: View {
 
             VStack(spacing: 0) {
                 Button {
-                    showModes = true
+                    open(.modes)
                 } label: {
                     toolbarGlyph("map.fill")
                 }
@@ -836,7 +919,7 @@ struct MapTabView: View {
 
     private var calendarToolbarItem: some View {
         Button {
-            if kind != .all { showRange = true }
+            if kind != .all { open(.range) }
         } label: {
             Label("Pick a period", systemImage: "calendar")
         }
@@ -855,7 +938,7 @@ struct MapTabView: View {
 
     private var mapModeToolbarItem: some View {
         Button {
-            showModes = true
+            open(.modes)
         } label: {
             Label("Map mode", systemImage: "map.fill")
         }

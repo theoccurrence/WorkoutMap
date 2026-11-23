@@ -50,5 +50,8 @@ shot edit_erase  SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMC
 # With the distance rule at 5 m every leg of the sample route is one the ruler catches, so the
 # *Jump valid* tool has something to flag — which is the point of the shot.
 shot edit_valid  SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL_CHILD_WM_START_EDIT=1 SIMCTL_CHILD_WM_JUMP_DISTANCE_M=5 SIMCTL_CHILD_WM_EDIT_TOOL=valid "SIMCTL_CHILD_WM_EDIT_STROKE=336,415;339,476;323,525;293,561"
+# The explorer's result card is the one panel that leaves the map *undimmed*: the suggested routes
+# have to be readable while one of them is picked.
+shot plan_card     SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_FAKE_PLAN=1 SIMCTL_CHILD_WM_PLAN_AUTORUN=1 SIMCTL_CHILD_WM_PLAN_KM=3
 shot edited_workouts SIMCTL_CHILD_WM_START_TAB=2 SIMCTL_CHILD_WM_START_EDITS=1
 shot settings  SIMCTL_CHILD_WM_START_TAB=2
