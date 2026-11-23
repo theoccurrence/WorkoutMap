@@ -23,7 +23,7 @@ struct WorkoutMapApp: App {
                     }
                     if let path = DebugLaunch.importEditsPath,
                        let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
-                        try? RouteEditStore.shared.importData(data)
+                        _ = try? RouteEditStore.shared.importData(data)
                     }
 #endif
                 }

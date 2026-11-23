@@ -102,6 +102,10 @@ enum DebugLaunch {
     /// WM_TAP_DELAY=<seconds> moves the `WM_TAP_AT` tap back, so it can land after a plan has
     /// arrived rather than before it.
     static var tapDelay: Double { Double(env["WM_TAP_DELAY"] ?? "") ?? 4 }
+    /// WM_TAP_BUBBLE=1 taps the range bubble a moment after `WM_TAP_AT` picked a route — through the
+    /// very action the bubble's own button calls — so the workout it opens can be seen without a tap
+    /// the simulator cannot make.
+    static var tapBubble: Bool { env["WM_TAP_BUBBLE"] == "1" }
     /// WM_HIDE_CARD=1 parks the explorer's result card a few seconds after it appears and brings
     /// it back a few seconds later, so both states can be seen without a drag.
     static var hideCard: Bool { env["WM_HIDE_CARD"] == "1" }
@@ -278,6 +282,7 @@ enum DebugLaunch {
     static var focusSearch: Bool { false }
     static var pinDelete: Bool { false }
     static var tapDelay: Double { 4 }
+    static var tapBubble: Bool { false }
     static var hideCard: Bool { false }
     static var skipLocation: Bool { false }
     static var zoomSpan: Double? { nil }

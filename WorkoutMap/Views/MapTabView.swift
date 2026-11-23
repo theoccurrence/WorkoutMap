@@ -43,6 +43,9 @@ struct MapTabView: View {
     /// The route the user last tapped. While one is selected the range bubble shows its own
     /// date and time instead of the range's label.
     @State private var tappedRouteID: String?
+    /// The workout the range bubble opened, if any. The bubble is the screen's way into a workout:
+    /// it is the one thing that says *which* workout the tap on the map picked.
+    @State private var openedWorkout: Workout?
     @State private var showRange = DebugLaunch.openSheet
     @State private var showModes = DebugLaunch.openModes
     @State private var showExport = DebugLaunch.openExport
@@ -353,6 +356,12 @@ struct MapTabView: View {
                 try? await Task.sleep(for: .seconds(8))
                 showCard()
             }
+            // WM_TAP_BUBBLE=1 — see `DebugLaunch.tapBubble`. The simulator cannot tap the bubble,
+            // so the tap is made after the `WM_TAP_AT` tap that put a route's date in it.
+            if DebugLaunch.tapBubble {
+                try? await Task.sleep(for: .seconds(DebugLaunch.tapDelay + 2))
+                openTappedWorkout()
+            }
         }
         .task(id: reloadKey) { await reload() }
         // The explorer's index covers every workout, so it is rebuilt when the workout set
@@ -369,6 +378,11 @@ struct MapTabView: View {
                               routes: mapLines,
                               mode: mapMode,
                               interfaceStyle: mapInterfaceStyle)
+        }
+        // The workout the bubble opened, as a sheet: this screen's navigation stack belongs to the
+        // system's toolbar rail, and the detail is a screen of its own that draws its own way back.
+        .sheet(item: $openedWorkout) { workout in
+            WorkoutDetailView(workout: workout)
         }
     }
 
@@ -705,17 +719,46 @@ struct MapTabView: View {
         tappedWorkout.map { Fmt.routeDateTime.string(from: $0.start) } ?? rangeLabel
     }
 
+    /// The bubble, and with it the way into a workout.
+    ///
+    /// While a route is selected the bubble names that route's own date and time, and it is the only
+    /// thing on the screen that says which workout the tap picked — so it is where a tap on the route
+    /// can be followed up, and a chevron says so. Without a selection it is the range's label and
+    /// nothing else, as it has always been.
     private var rangeBubble: some View {
-        Text(rangeBubbleText)
-            .font(.system(size: 14))
-            .foregroundStyle(controlsAreLight ? Palette.rangeLabelLight : Palette.rangeLabel)
-            .lineLimit(1)
-            .padding(.horizontal, 13)
-            .frame(height: Metrics.controlHeight)
-            // The same frosted glass as the explorer's own card, so the map shows through the
-            // pill rather than sitting under a grey plate.
-            .background(.regularMaterial, in: Capsule())
-            .environment(\.colorScheme, controlsAreLight ? .light : .dark)
+        Group {
+            if tappedWorkout == nil {
+                Text(rangeBubbleText)
+            } else {
+                Button(action: openTappedWorkout) {
+                    HStack(spacing: 7) {
+                        Text(rangeBubbleText)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .opacity(0.75)
+                    }
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the workout")
+            }
+        }
+        .font(.system(size: 14))
+        .foregroundStyle(controlsAreLight ? Palette.rangeLabelLight : Palette.rangeLabel)
+        .lineLimit(1)
+        .padding(.horizontal, 13)
+        .frame(height: Metrics.controlHeight)
+        // The same frosted glass as the explorer's own card, so the map shows through the
+        // pill rather than sitting under a grey plate.
+        .background(.regularMaterial, in: Capsule())
+        .environment(\.colorScheme, controlsAreLight ? .light : .dark)
+    }
+
+    /// Opens the workout the bubble names — the very screen the settings' list of edited workouts
+    /// opens, and the one the Workouts tab pushes.
+    private func openTappedWorkout() {
+        guard let workout = tappedWorkout else { return }
+        openedWorkout = workout
     }
 
     /// What the screen shows while a route is being planned: `MKDirections` answers in about a
