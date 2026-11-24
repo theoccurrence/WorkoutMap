@@ -48,10 +48,6 @@ struct MapTabView: View {
     @State private var openedWorkout: Workout?
     @State private var showRange = DebugLaunch.openSheet
     @State private var showModes = DebugLaunch.openModes
-    /// Whether the screen's chrome (the rail, the bottom bar and the tab bar) is out of the way for a
-    /// menu. It is not `menusAreOpen`: it is taken away with the card and given back only once the
-    /// card has left (`restoreChrome`).
-    @State private var menuChromeHidden = DebugLaunch.openSheet || DebugLaunch.openModes || DebugLaunch.openPlanner
     @State private var showExport = DebugLaunch.openExport
     @State private var visibleMapRect: MKMapRect?
     /// The window's safe-area insets, reported by the map view.
@@ -328,13 +324,11 @@ struct MapTabView: View {
             //   that fold on screen for as long as the answer took — quarter of a second,
             //   every Live Activity. Priorities say which actions may go, and the system
             //   folds them in the same pass that makes the room.
-            .toolbar(railIsVisible ? .visible : .hidden, for: .navigationBar, .bottomBar)
-            // The tab bar is the app's own control rather than this screen's, but a menu card reaches
-            // over the band it lives in (`Metrics.menuCardInset` from the display's bottom edge), and
-            // it is the one piece of chrome that is drawn *over* the map instead of in it — left up,
-            // it would sit on the card (measured on the folded Duo: its column lies over the card's
-            // trailing edge, and its own capsule over the card's Done button).
-            .toolbar(menuChromeHidden ? .hidden : .automatic, for: .tabBar)
+            //
+            // The chrome is **not** hidden for a menu — it is *faded*, and not from here: a toolbar's
+            // visibility cannot be animated from SwiftUI (measured: `.toolbar(.hidden)` inside the
+            // menu's own `withAnimation` swaps the bar in one frame), so the bars are left declared and
+            // `SystemChromeFade` moves their own `alpha` over the menu's spring instead.
             // The bar's own glass follows the map, too: the system draws it from the colour
             // scheme the toolbar is given, and `legacy` never asks for the light one.
             .toolbarColorScheme(controlsAreLight ? .light : .dark, for: .navigationBar, .bottomBar)
@@ -396,7 +390,15 @@ struct MapTabView: View {
             // first reload has not landed yet.
             if DebugLaunch.openWorkoutSheet, openedWorkout == nil {
                 try? await Task.sleep(for: .seconds(3))
-                if let workout = mostRecentInFilter { openedWorkout = workout }
+                if let workout = mostRecentInFilter {
+                    withAnimation(Self.menuAnimation) { openedWorkout = workout }
+                }
+                // `WM_CLOSE_MENU=<seconds>` closes it again that long after it went up, through the
+                // call its own way back makes, so the way the card *leaves* is measurable too.
+                if let after = DebugLaunch.closeMenuAfter {
+                    try? await Task.sleep(for: .seconds(after))
+                    closeWorkout()
+                }
             }
         }
         .task(id: reloadKey) { await reload() }
@@ -416,11 +418,12 @@ struct MapTabView: View {
                               mode: mapMode,
                               interfaceStyle: mapInterfaceStyle)
         }
-        // The workout the bubble opened, as a sheet: this screen's navigation stack belongs to the
-        // system's toolbar rail, and the detail is a screen of its own that draws its own way back.
-        .sheet(item: $openedWorkout) { workout in
-            WorkoutDetailView(workout: workout, presentation: .sheet)
-        }
+        // The workout the range bubble opened is **not** presented as a sheet: it is drawn as one of
+        // this screen's own cards (`menuLayer`), so the margin around it shows the map it floats over.
+        // A sheet's own background runs flush to the display's bottom edge — the one side its card is
+        // not inset on — and no value of `presentationBackground` clears it (measured on iOS 27:
+        // `.clear` leaves a flat system fill there, and `.thinMaterial` blurs that same fill rather
+        // than the map), which is what put a grey bar under the card instead of the map's own edge.
     }
 
     private var exportRect: MKMapRect? {
@@ -548,38 +551,11 @@ struct MapTabView: View {
                 }
 
                 Spacer(minLength: 0)
-
-                HStack(spacing: 0) {
-                    if filtersOnTrailingEdge { Spacer(minLength: 0) }
-                    categoryFilters
-                        .environment(\.colorScheme, controlsAreLight ? .light : .dark)
-                        .id(controlsAreLight)
-                        // The screen's own controls leave with the menu (`menuControlsHidden`): a
-                        // menu is a card *over* the map, and the circles must not read through it.
-                        .opacity(menuControlsHidden ? 0 : 1)
-                    if !filtersOnTrailingEdge { Spacer(minLength: 0) }
-                }
-                .padding(.horizontal, Metrics.screenInset)
-                .padding(.bottom, overlayBottomInset)
             }
             // Measured against the display edges rather than the safe area: the bubble keeps
             // the gap below the top of the screen that it has below the grey bar in the
             // reference, and the overlays line up with the tab bar's own edges.
             .ignoresSafeArea()
-
-            // Screens without a side rail get no vertical toolbar from the system, so the
-            // same column is placed by hand: the action capsule with the locate circle
-            // directly beneath it, flush above the tab bar.
-            if !usesVerticalControls {
-                mapToolbar
-                    .environment(\.colorScheme, controlsAreLight ? .light : .dark)
-                    .id(controlsAreLight)
-                    .opacity(menuControlsHidden ? 0 : 1)
-                    .padding(.trailing, Metrics.screenInset)
-                    .padding(.bottom, toolbarBottomInset)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .ignoresSafeArea()
-            }
 
             // The dim the menus draw over the map. A sheet gets one from the system — the one the
             // range bubble's workout opens behind — and the screen's own cards are the same kind of
@@ -601,9 +577,65 @@ struct MapTabView: View {
                 .accessibilityLabel("Close")
                 .accessibilityAddTraits(.isButton)
 
+            // The system chrome — the Duo's rail of toolbar items and the tab bar — leaves with the
+            // card and comes back with it, **faded** rather than hidden: a toolbar's visibility
+            // cannot be animated from SwiftUI, and hiding the tab bar lays the screen out again, which
+            // cuts the card's own transition short. See `SystemChromeFade`; a zero-size probe, in the
+            // tree only so its window can be reached.
+            SystemChromeFade(hidden: menusAreOpen,
+                             response: Self.menuSpringResponse,
+                             damping: Self.menuSpringDamping)
+                .frame(width: 0, height: 0)
+
             // The explorer's input, the calendar and the map-style picker, as the screen's own
-            // cards — above the controls, the way the sheets they used to be sat above them.
+            // cards — the screen's chrome, over the map.
+            //
+            // The order below is the point of this layer: the screen's *controls* are drawn over the
+            // cards, not under them.
             menuLayer
+
+            // The filter circles — and, on a screen the system gives no side rail, the hand-placed
+            // pill — leave with the menu (`menuControlsHidden`, the same spring the card moves on,
+            // which the system chrome is faded on too — see `SystemChromeFade`).
+            // They are drawn **over** the cards rather than under them, and that is what makes their
+            // fade visible: a card is opaque, and the card the range bubble opens is *full height*, so
+            // under it the fade ran the whole time and never showed — the card's top edge sweeps the
+            // whole column away inside a couple of frames, which reads as the card sliding over the
+            // icons (measured on the folded cover panel with the spring slowed: the right column's mean
+            // walks 84.8 → 72.9 → 38.1 over the fade while the left column is simply gone). Over the
+            // card the fade *is* what is seen, which is what the shorter menus were doing with the top
+            // of the column all along. Nothing of them reads through the card once it has arrived —
+            // they are at zero by then — and they stop taking taps with it: a SwiftUI view at opacity 0
+            // is **still hit-testable**, so without that the circles would sit over the card's own
+            // controls (the range picker's *Done* is under the foot of that column).
+            HStack(spacing: 0) {
+                if filtersOnTrailingEdge { Spacer(minLength: 0) }
+                categoryFilters
+                    .environment(\.colorScheme, controlsAreLight ? .light : .dark)
+                    .id(controlsAreLight)
+                    .opacity(menuControlsHidden ? 0 : 1)
+                if !filtersOnTrailingEdge { Spacer(minLength: 0) }
+            }
+            .padding(.horizontal, Metrics.screenInset)
+            .padding(.bottom, overlayBottomInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .ignoresSafeArea()
+            .allowsHitTesting(!menuControlsHidden)
+
+            // Screens without a side rail get no vertical toolbar from the system, so the same column
+            // is placed by hand: the action capsule with the locate circle directly beneath it, flush
+            // above the tab bar. It goes with the circles above, over the cards for the same reason.
+            if !usesVerticalControls {
+                mapToolbar
+                    .environment(\.colorScheme, controlsAreLight ? .light : .dark)
+                    .id(controlsAreLight)
+                    .opacity(menuControlsHidden ? 0 : 1)
+                    .padding(.trailing, Metrics.screenInset)
+                    .padding(.bottom, toolbarBottomInset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(!menuControlsHidden)
+            }
         }
     }
 
@@ -637,6 +669,7 @@ struct MapTabView: View {
                                           close(.plan)
                                           startPlanning(request)
                                       })
+                        .menuCard(display: proxy.size, onDismiss: { close(.plan) })
                         .menuCardInsets()
                         // The rise: the card travels its own height plus the margin it keeps, so it
                         // comes up out of the display's bottom edge and goes back down through it.
@@ -647,6 +680,7 @@ struct MapTabView: View {
                                      workouts: health.workouts,
                                      room: proxy.size.height - Metrics.menuCardInset,
                                      onClose: { close(.range) })
+                        .menuCard(display: proxy.size, onDismiss: { close(.range) })
                         .menuCardInsets()
                         .transition(.move(edge: .bottom))
                 }
@@ -656,6 +690,22 @@ struct MapTabView: View {
                                  systemStyle: systemAppearance.style,
                                  room: proxy.size.height - Metrics.menuCardInset,
                                  onClose: { close(.modes) })
+                        .menuCard(display: proxy.size, onDismiss: { close(.modes) })
+                        .menuCardInsets()
+                        .transition(.move(edge: .bottom))
+                }
+                // The workout the range bubble opened: the detail screen, as this screen's fourth card.
+                // It is the one card that is *tall* — the whole screen — so unlike the three menus, whose
+                // own height is what leaves their top margin, it has to be told to keep the same margin
+                // at the top (`menuCardInsets` insets the other three sides). It draws its own black
+                // card for itself (`WorkoutDetailView.Presentation.card`), so the four margins around it
+                // show the map the card floats over.
+                if let workout = openedWorkout {
+                    WorkoutDetailView(workout: workout,
+                                      presentation: .card,
+                                      onClose: { closeWorkout() })
+                        .menuCard(display: proxy.size, clipped: true, onDismiss: { closeWorkout() })
+                        .padding(.top, Metrics.menuCardInset)
                         .menuCardInsets()
                         .transition(.move(edge: .bottom))
                 }
@@ -682,11 +732,27 @@ struct MapTabView: View {
     /// The response is a debug hook as well (`WM_MENU_DURATION`): a run can slow it down far enough
     /// for a screenshot to catch the panel halfway up.
     private static var menuAnimation: Animation {
-        .spring(response: DebugLaunch.menuDuration ?? 0.34, dampingFraction: 0.86)
+        .spring(response: menuSpringResponse, dampingFraction: menuSpringDamping)
     }
 
-    /// True while one of them is up — what draws the dim.
-    private var menusAreOpen: Bool { showPlanner || showRange || showModes }
+    /// The spring's own numbers, kept apart from the `Animation`: the system chrome is faded on the
+    /// same spring, and `SystemChromeFade` has to be handed a UIKit timing rather than a SwiftUI
+    /// `Animation`.
+    ///
+    /// Handed **these numbers**, not `UISpringTimingParameters(dampingRatio:)`: that convenience runs
+    /// on UIKit's own frequency, not the menu's (the duration passed to the animator does not drive
+    /// it), so the rail faded on a different spring than the filter circles — measured on the folded
+    /// cover panel with the menu's spring stretched (`WM_MENU_DURATION=6`, a sample every 0.45 s), the
+    /// rail ran ahead: 0.37 against the circles' 0.52 alpha at the same instant, 0.05 against 0.13 two
+    /// samples later, mean |Δalpha| 0.068 over the leave. Mass 1 with ω₀ = 2π/response and ζ = the
+    /// damping brings the two to a mean |Δalpha| of 0.009 over the same leave, 0.037 at worst.
+    private static var menuSpringResponse: Double { DebugLaunch.menuDuration ?? 0.34 }
+    private static let menuSpringDamping: Double = 0.86
+
+    /// True while one of the screen's cards is up — the three menus, or the workout the range bubble
+    /// opened, which is drawn as one of them (`menuLayer`) — which is what draws the dim, fades the
+    /// screen's own controls and its system chrome, and takes a tap as a dismissal.
+    private var menusAreOpen: Bool { showPlanner || showRange || showModes || openedWorkout != nil }
 
     /// Every open and close of the three goes through these, so nothing can pop into being.
     private func open(_ menu: MapMenu) {
@@ -697,72 +763,46 @@ struct MapTabView: View {
             case .modes: showModes = true
             }
         }
-        menuChromeHidden = true
     }
 
     private func close(_ menu: MapMenu) {
-        withAnimation(Self.menuAnimation, completionCriteria: .logicallyComplete) {
+        withAnimation(Self.menuAnimation) {
             switch menu {
             case .plan: showPlanner = false
             case .range: showRange = false
             case .modes: showModes = false
             }
-        } completion: {
-            restoreChrome()
         }
     }
 
     /// Closes whichever is up — what a tap on the dim does, the way a tap beside a sheet dismisses it.
     private func closeMenus() {
-        withAnimation(Self.menuAnimation, completionCriteria: .logicallyComplete) {
+        withAnimation(Self.menuAnimation) {
             showPlanner = false
             showRange = false
             showModes = false
-        } completion: {
-            restoreChrome()
+            openedWorkout = nil
         }
+    }
+
+    /// Closes the workout the range bubble opened — its own way back (the card's chevron) and a swipe
+    /// down both go through here.
+    private func closeWorkout() {
+        withAnimation(Self.menuAnimation) { openedWorkout = nil }
     }
 
     /// True while the screen's own controls are out of the way for a menu: the Walk / Run / Ride and
     /// explorer circles and the hand-placed pill fade with the card's own animation and fade back
     /// when it leaves. The range bubble and the explorer's result card stay where they are — both
-    /// are readable through the dim, which is what the reference sheet does with them.
+    /// are readable through the dim, which is what the reference sheet does with them. The system
+    /// chrome — the Duo's rail and the tab bar — goes with them, faded where it lives
+    /// (`SystemChromeFade`).
     private var menuControlsHidden: Bool { menusAreOpen }
-
-    /// Gives the screen's chrome back once the card that is leaving has left.
-    ///
-    /// The chrome — the rail, the bottom bar and the tab bar — has to come back **after** the card's
-    /// own slide and not with it: showing the tab bar lays the screen out again (it reserves a region
-    /// of the map view), and a layout pass in the middle of a transition cuts that transition short.
-    /// Measured on the Pro Max with the bar put back in the same turn as the close: the card and the
-    /// dim were both gone between two frames two seconds apart, while the same spring took about ten
-    /// seconds to bring that card *up*.
-    ///
-    /// So the restore hangs on the animation's own **completion** rather than on a guessed delay
-    /// (`withAnimation(_:completionCriteria:)`, in the two closers above): it fires the moment the
-    /// card has finished leaving, whatever the spring's response is — a slowed run
-    /// (`WM_MENU_DURATION`) waits as long as the animation does, and the production 0.34 s spring is
-    /// not cut short by a restore that came back halfway through it.
-    private func restoreChrome() {
-        // A menu opened again while the one that was leaving finished: the chrome belongs to that
-        // one now, and it will be restored when *it* closes.
-        guard !menusAreOpen else { return }
-        menuChromeHidden = false
-    }
 
     /// How strong the dim behind a menu is. It is the strength the system's own sheet measures at
     /// (measured 0.35 off the sheet the range bubble opens, see the README), so a menu and that
     /// sheet darken the map by the same amount.
     private static let menuDim: Double = 0.35
-
-    /// Whether the system's rail of actions is on screen: it is the screen's chrome, so it goes
-    /// while a menu is up (`menuControlsHidden` is the same state, for the controls this screen
-    /// draws itself). A menu card is drawn over the band the rail and the tab bar register live in,
-    /// and its items must not read through it — the same reason the buttons the screen places by
-    /// hand are faded out, and the bottom bar (the map-style and locate pill) goes with it. It is read
-    /// from `menuChromeHidden` rather than `menusAreOpen` so that the chrome comes back only once the
-    /// card has left (`restoreChrome`).
-    private var railIsVisible: Bool { usesVerticalControls && !menuChromeHidden }
 
     /// Walk / Run / Ride as toolbar circles — symbol only, walk at the top, the selected
     /// one carrying its own colour. They sit opposite the toolbar.
@@ -920,10 +960,11 @@ struct MapTabView: View {
     }
 
     /// Opens the workout the bubble names — the very screen the settings' list of edited workouts
-    /// opens, and the one the Workouts tab pushes.
+    /// opens, and the one the Workouts tab pushes — as this screen's own card, on the menu's spring,
+    /// so it rises out of the display's bottom edge the way the three menus do.
     private func openTappedWorkout() {
         guard let workout = tappedWorkout else { return }
-        openedWorkout = workout
+        withAnimation(Self.menuAnimation) { openedWorkout = workout }
     }
 
     /// What the screen shows while a route is being planned: `MKDirections` answers in about a
@@ -1331,6 +1372,96 @@ final class RouteLineCache {
         // Routes that left the range keep nothing: the cache is as big as the map's own filter.
         entries = entries.filter { live.contains($0.key) }
         return result
+    }
+}
+
+/// Fades the **system chrome** — the Duo's rail of toolbar items and the tab bar — with the menu.
+///
+/// SwiftUI cannot do this, and that is measured rather than assumed: `.toolbar(.hidden)` inside the
+/// menu's own `withAnimation` swaps the bar in a single frame. A slowed spring (`WM_MENU_DURATION`),
+/// frame by frame: the rail's own glyphs sit at full strength in the frame the card has come a fifth
+/// of the way up, and are gone, with no frame in between, in the next. An item's *content* cannot be
+/// animated from inside a `ToolbarItem` either (the rail notes in `body` carry that measurement too).
+/// So the bars are left **declared** and are faded where they actually live: their own `alpha` moves,
+/// over the menu's own spring — written out by hand here, because the convenience initialiser carries
+/// UIKit's frequency rather than the menu's — so both sides of the screen run the same one.
+///
+/// Leaving them in the tree is the point rather than a compromise. Hiding the tab bar lays the screen
+/// out again — it reserves a region of the map view — and a layout pass in the middle of a transition
+/// cuts that transition short, which is why the chrome used to be given back a whole spring *after*
+/// the card had left. A fade changes no layout at all, so the chrome leaves *with* the card and comes
+/// back with it.
+private struct SystemChromeFade: UIViewRepresentable {
+    /// True while a menu of the map screen is up: the chrome is faded out.
+    var hidden: Bool
+    /// The menu spring's own numbers, so the two sides of the screen leave together (`menuSpringResponse`,
+    /// which keeps the debug hook that stretches it).
+    var response: Double
+    var damping: Double
+
+    final class Coordinator {
+        /// What the bars were last told; `nil` until the first update that found them, so the first
+        /// one — the launch state — is applied like any other change.
+        var applied: Bool?
+        var animator: UIViewPropertyAnimator?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// A zero-size probe: it draws nothing and takes no touches, and is in the tree for one reason
+    /// only — its `window` is the way to the bars.
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        let coordinator = context.coordinator
+        guard let window = view.window else { return }
+        // Every other redraw of the screen is a no-op: an alpha already where it belongs is not written
+        // again, so a rebuild of the body can never fight the animation in flight. Nothing is recorded
+        // until the bars were actually found, so a window that is not up yet is retried.
+        guard coordinator.applied != hidden else { return }
+        let bars = Self.chrome(in: window)
+        guard !bars.isEmpty else { return }
+        coordinator.applied = hidden
+        coordinator.animator?.stopAnimation(true)
+        let target: CGFloat = hidden ? 0 : 1
+        // The menu's spring, written out rather than asked for by `dampingRatio:`: that convenience
+        // carries UIKit's own frequency, which left this fade ahead of the circles that fade from
+        // SwiftUI (`menuSpringResponse` carries the measurement).
+        let omega = 2 * Double.pi / response
+        let animator = UIViewPropertyAnimator(
+            duration: response,
+            timingParameters: UISpringTimingParameters(mass: 1,
+                                                       stiffness: omega * omega,
+                                                       damping: 2 * damping * omega,
+                                                       initialVelocity: .zero))
+        animator.addAnimations { for bar in bars { bar.alpha = target } }
+        animator.startAnimation()
+        coordinator.animator = animator
+    }
+
+    /// The container the system draws the tab bar's chrome in — matched by class name, as the map
+    /// screen already matches the tab bar's capsule to measure it (`FittableMapView.tabBar`); it is a
+    /// private class with no public equivalent. On a screen whose actions are the system's (the Duo) it
+    /// is also the container the **rail** and the tab registers are drawn in: one floating bar holds
+    /// the share / calendar / range pill, the map-style / locate bubble and the tab capsule together
+    /// (measured on the folded cover panel, one view holding all three), so fading it takes the whole
+    /// column with it. On every other screen it is the floating tab bar.
+    private static func chrome(in root: UIView) -> [UIView] {
+        var found: [UIView] = []
+        func walk(_ view: UIView) {
+            if String(describing: type(of: view)).contains("TabContainerView") {
+                found.append(view)
+                return
+            }
+            for sub in view.subviews { walk(sub) }
+        }
+        walk(root)
+        return found
     }
 }
 

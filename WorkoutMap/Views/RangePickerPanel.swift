@@ -31,7 +31,6 @@ struct RangePickerPanel: View {
                 .padding(.bottom, 16)
         }
         .frame(height: height)
-        .menuCard()
         .onAppear(perform: syncFromSelection)
         .onChange(of: weekOffset) { _, _ in pushSelection() }
         .onChange(of: month) { _, _ in pushSelection() }

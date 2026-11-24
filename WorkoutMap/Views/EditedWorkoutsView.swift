@@ -35,8 +35,21 @@ struct EditedWorkoutsView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Workout.self) { workout in
-                WorkoutDetailView(workout: workout, presentation: .sheet)
+                // Pushed, not drawn as a card of its own: inside this sheet the *sheet's* card is the
+                // card, and a screen that insets itself again leaves the system's own fill showing in
+                // the margin — the grey bar under the card's bottom edge (measured: the band stays
+                // `(28, 28, 30)` whatever `presentationBackground` is told). Filling the card whole
+                // leaves nothing of it to show.
+                WorkoutDetailView(workout: workout, presentation: .pushed)
             }
+        }
+        // WM_EDITS_DETAIL=1 — see `DebugLaunch.openEditsDetail`: the row the simulator cannot tap, so
+        // the card it pushes can be shot. The wait comes first because the workouts are read from
+        // Health, which is still bootstrapping when this screen opens.
+        .task {
+            guard DebugLaunch.openEditsDetail, path.isEmpty else { return }
+            try? await Task.sleep(for: .seconds(2))
+            if let workout = health.workouts.first { path = [workout] }
         }
         .confirmationDialog("Remove this edit?",
                             isPresented: Binding(get: { pendingDelete != nil },

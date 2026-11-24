@@ -23,16 +23,37 @@ enum Metrics {
     /// it. Measured off the sheet the range bubble opens (the card the user wanted the menus to
     /// look like): 24 px at 3x = 8 pt, on the Pro Max and on both of the Duo's displays.
     static let menuCardInset: CGFloat = 8
-    /// The smallest corner a menu card is drawn with: the radius the system's own sheet card carries
-    /// on the folded Duo's *sharp* side (measured: 24 px of arc at 3x, an 8 pt radius, on a card inset
-    /// 8 pt from the display). The card asks `ConcentricRectangle` for the container's radius and this
-    /// is the floor under that answer, so the card never comes out with square corners: measured on the
-    /// Pro Max the resolution sees the display (the detail card's own corners there walk ~90 px, about
-    /// 30 pt); on the Duo's cover panel it resolves below this floor, and the floor is what decides —
-    /// which is why it is the measured 8 pt the system's own card uses there and not a rounder guess.
-    /// A floor *above* that answer is what a 16 pt one cost: every corner of the folded Duo's card came
-    /// out 16 pt, against 8 pt on its sharp side and 19 pt on its rounded one.
-    static let menuCardRadius: CGFloat = 8
+    /// The corner a menu card is drawn with where the display's own corner is not what decides.
+    ///
+    /// The card asks `ConcentricRectangle` for a **dynamic** radius — `UICornerConfiguration`'s
+    /// `containerConcentricRadius`, documented as letting *each corner* resolve to its own answer from
+    /// the geometry of the view and its container — and that is what this value scales down where the
+    /// display's own corner is willing to answer: a corner resting on a display edge is drawn with the
+    /// display's radius (round on a round side, nearly square on the folded Duo's cover panel, which is
+    /// what the display's own corner is there), and a corner out in the open is drawn with **this** —
+    /// the strongly rounded look every floating card has. Out in the open no geometry is left to ask —
+    /// the container answers nothing at all there — which is why this one corner is a number.
+    ///
+    /// Measured off Apple Maps' own card on the same 466 pt display, corner against corner with this
+    /// app's: both of the Maps card's top corners are circles of 120.5 px = 40.2 pt, while this app's
+    /// read 96.4 px = 32.1 pt at the 32 it carried before — 8 pt tighter than the card it is meant to
+    /// match. The older reading of that same corner agrees with 40 from the other end: six pixels down
+    /// from the card's top edge the Maps boundary is 86 px in, a radius of ~41 pt (against 49 px, a
+    /// radius of 25 pt, for this app's card at the 26 pt it had then). The change is blended over
+    /// `menuCardBlend` points of approach, so it is a slow one rather than a jump (`menuCardShape`).
+    static let menuCardRadius: CGFloat = 40
+    /// The smallest radius a card's corner is ever drawn with, however square the display's own corner
+    /// is there: the radius the system's own cards carry on the folded Duo's *sharp* side (measured off
+    /// the sheet's card on that panel: 24 px of arc at 3x, an 8 pt radius, on a card inset 8 pt from the
+    /// display). Without it a card's corner would come out *square* where that display is nearly square
+    /// — measured: the card's bottom-left corner was the straight edge itself, on every row — and a card
+    /// wants to keep the small rounding the display's own cards have there.
+    static let menuCardFloor: CGFloat = 8
+    /// How far a card's corner has to come from a display corner before it is drawn with the default
+    /// radius above rather than with the display's own: the shape is blended over this many points of
+    /// approach (`menuCardShape`), which is the slow change the system's own sheets show as they are
+    /// dragged towards one.
+    static let menuCardBlend: CGFloat = 64
     /// The side inset the system reserves for its own rail on a screen whose chrome lives
     /// in a vertical bar (84 pt on the iPhone Duo, 62 pt on a notched iPhone held sideways,
     /// so 70 tells them apart). `usesVerticalControls` switches the map screen to that

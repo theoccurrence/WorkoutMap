@@ -4,15 +4,25 @@ import CoreLocation
 
 struct WorkoutDetailView: View {
     let workout: Workout
-    /// How the screen was opened. `pushed` fills the window edge to edge: the Workouts tab pushes it
-    /// inside its own navigation stack, and the README says why that one keeps the Duo's rail band
-    /// empty rather than drawing a card in it. `sheet` is the same screen inside a sheet's card — the
-    /// map's range bubble and the settings' edited list — where the card's own top and side margins
-    /// are the system's and the **bottom** one is drawn here: the black backdrop ends above the
-    /// display's bottom edge with the same margin as the other three sides, so those four sides read
-    /// as one card, and the card's corners follow the display's the way the sheet's do.
-    enum Presentation { case pushed, sheet }
+    /// How the screen was opened. `pushed` fills its container edge to edge: the Workouts tab pushes it
+    /// inside its own navigation stack, and so does the settings screen's list of edited workouts —
+    /// inside *that* screen's sheet the sheet's own card is the card, so the detail fills it whole
+    /// rather than insetting itself inside it (which left the system's fill showing as a grey bar under
+    /// the card's bottom edge, measured: the band stays `(28, 28, 30)` whatever `presentationBackground`
+    /// is told). The README says why the Workouts tab's push keeps the Duo's rail band empty rather than
+    /// drawing a card in it.
+    ///
+    /// `card` is the map screen's own way in (the range bubble): the same screen drawn **in the map
+    /// screen** like that screen's three menus (`MapTabView.menuLayer`), so the margin it keeps shows the
+    /// *map* the card floats over — a sheet's own background runs flush to the display's bottom edge,
+    /// which is the one side its card is not inset on, and no value of `presentationBackground` clears it
+    /// (measured on iOS 27: `.clear` leaves a flat system fill, and `.thinMaterial` blurs that same fill
+    /// rather than the map behind it).
+    enum Presentation { case pushed, card }
     let presentation: Presentation
+    /// What the back button does where the screen is drawn as a card of the map screen's own: there is
+    /// no presentation to dismiss, so the screen that opened it closes it (`MapTabView`).
+    var onClose: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var route = WorkoutRoute(coordinates: [])
@@ -66,20 +76,14 @@ struct WorkoutDetailView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            // The card this screen was given, safe areas included: the content runs to the card's own
-            // edges, and the margins *it* keeps are the sheet's, not this screen's to invent.
-            let full = CGSize(width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
-                              height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
-            // How far the sheet's own card is held off the display's leading edge. A card the system
-            // has already inset (measured: 8 pt on the Duo's folded panel, on all three of its other
-            // sides with it) keeps that margin, and one it has not (measured: 0 pt on the iPhone 18
-            // Pro Max, whose sheet card is the full width of the display) is given the same margin the
-            // map screen's menu cards keep — so the two cards are the same card on either display.
-            // The bottom is the one side the system's card does not inset, which is why the backdrop
-            // used to run off the display there: it is inset here either way.
-            let cardInset = max(0, proxy.frame(in: .global).minX - proxy.safeAreaInsets.leading)
-            let sideInset = presentation == .sheet ? max(0, Metrics.menuCardInset - cardInset) : 0
-            let bottomInset = presentation == .sheet ? Metrics.menuCardInset : 0
+            // The card this screen was given: as the map screen's own card it has already been inset by
+            // its caller (`MapTabView.menuLayer`, whose container ignores the safe area), so what it reads
+            // here *is* the card; pushed, the screen is its container and that container's safe areas
+            // belong to it.
+            let full = presentation == .card
+                ? proxy.size
+                : CGSize(width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
+                         height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
             VStack(spacing: 0) {
                 // The map takes what the stats and the source label leave rather than a fixed share of
                 // the screen: the reference display gave it 59.96 % (measured), and it gets that
@@ -94,14 +98,15 @@ struct WorkoutDetailView: View {
                     .padding(.horizontal, 23)
                     .padding(.top, 17)
             }
-            .frame(width: full.width - 2 * sideInset,
-                   height: full.height - bottomInset,
-                   alignment: .top)
-            // The black backdrop, shaped: pushed it is the display's own rectangle (nothing is clipped
-            // that the display does not clip anyway), and inside a sheet it is the card the sheet's own
-            // card is — the display's corners, its bottom two included, which the system's card does
-            // not round on a card that runs off the bottom of the display.
-            .background(Color.black, in: cardShape)
+            .frame(width: full.width, height: full.height, alignment: .top)
+            // The black backdrop is a plain fill, and the *shape* it is cut to is the caller's: the
+            // screen this is a card of is the one that knows where the card sits on the display and
+            // therefore what each of its corners resolves to (`menuCardShape`), so it clips this whole
+            // screen to that (`MapTabView.menuLayer`). Asking for the shape here as well would resolve
+            // it a second time, differently — measured on the folded cover panel, whose display is
+            // rounded differently at each corner, the two resolutions left the backdrop's sharper
+            // corner showing as a black wedge behind the card's round one.
+            .background(Color.black)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             // Edge to edge, the way the map screen draws. Laid out inside the safe area, this
             // screen left the strip the system reserves for its own rail (the Duo's vertical bar
@@ -109,13 +114,24 @@ struct WorkoutDetailView: View {
             // black with nothing in it, and the map stopped short of it too. Nothing here lives
             // in that rail — the back and share buttons are placed on the reader above, still
             // clear of it — so the whole screen belongs to the screen.
-            .ignoresSafeArea()
+            //
+            // As a card of the map screen's own it does **not**: the safe area read inside that card
+            // is still the *window's*, so reaching for it there pushed the black backdrop out of the
+            // frame it was given — measured on the folded cover panel, it ran off the top of the
+            // display and came out 11.3 pt from the leading edge against 3.0 pt from the trailing one.
+            // A card is geometry its own caller has already placed (`MapTabView.menuLayer`); it fills
+            // exactly that and nothing more.
+            .ignoresSafeArea(edges: presentation == .card ? [] : .all)
         }
-        .ignoresSafeArea(edges: .top)
+        // As the map screen's own card the geometry is already the card's, and that screen's chrome —
+        // the rail and the tab bar — is *faded* by it (`MapTabView.SystemChromeFade`) rather than hidden
+        // from here: nothing about the bars is declared in this case, so the fade is the only thing
+        // moving them.
+        .ignoresSafeArea(edges: presentation == .card ? [] : .top)
         .overlay(alignment: .topLeading) { backButton }
         .overlay(alignment: .topTrailing) { topTrailingButtons }
-        .toolbar(.hidden, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
+        .toolbar(presentation == .card ? .automatic : .hidden, for: .navigationBar)
+        .toolbar(presentation == .card ? .automatic : .hidden, for: .tabBar)
         .task(id: workout.id) {
             route = RouteStore.shared.cached(workout.id) ?? WorkoutRoute(coordinates: [])
             let full = await RouteStore.shared.route(for: workout.hk)
@@ -132,16 +148,6 @@ struct WorkoutDetailView: View {
         .fullScreenCover(isPresented: $showEdit) {
             WorkoutEditView(workout: workout)
         }
-    }
-
-    /// The shape of that card. Pushed, it is the display's own rectangle, and a clip on one would cost
-    /// the map a mask for nothing. Inside a sheet it is the shape the sheet's own card is — the
-    /// display's corners, inset by the card's margin (`View.menuCard()`) — so the bottom two corners
-    /// are as round as the top two.
-    private var cardShape: AnyShape {
-        presentation == .sheet
-            ? AnyShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(Metrics.menuCardRadius))))
-            : AnyShape(Rectangle())
     }
 
     /// The map, as tall as the rest of the screen leaves it. Nothing is clipped off the stats or the
@@ -255,7 +261,11 @@ struct WorkoutDetailView: View {
     }
 
     private var backButton: some View {
-        Button { dismiss() } label: {
+        Button {
+            // As the map screen's own card there is no presentation of this screen's to dismiss, so the
+            // screen that drew the card is the one that closes it.
+            if let onClose { onClose() } else { dismiss() }
+        } label: {
             Image(systemName: "chevron.left")
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(.white)

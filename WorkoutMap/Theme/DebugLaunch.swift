@@ -17,6 +17,10 @@ enum DebugLaunch {
     static var startEditTool: String? { env["WM_EDIT_TOOL"] }
     /// WM_START_EDITS=1 opens the settings screen's own list of edited workouts.
     static var startEditedWorkouts: Bool { env["WM_START_EDITS"] == "1" }
+    /// WM_EDITS_DETAIL=1 opens a workout's detail **inside** that list's navigation stack — the same
+    /// screen a row pushes, the `sheet` presentation of the detail — without the tap on a row the
+    /// simulator cannot make, so that card can be shot as well.
+    static var openEditsDetail: Bool { env["WM_EDITS_DETAIL"] == "1" }
     /// WM_MAP_HEADING=<degrees> turns the map once its camera has been placed, so a run can start on
     /// a turned map (the simulator cannot turn it with two fingers).
     static var mapHeading: Double? { env["WM_MAP_HEADING"].flatMap(Double.init) }
@@ -26,13 +30,13 @@ enum DebugLaunch {
     /// WM_MENU_DURATION=<seconds> slows that rise down, far enough that a screenshot can catch the
     /// panel halfway up (Debug builds only).
     static var menuDuration: Double? { env["WM_MENU_DURATION"].flatMap(Double.init) }
-    /// WM_CLOSE_MENU=<seconds> closes the menu `WM_OPEN_MENU` opened that long after it went up,
-    /// through the same call a tap on the dim makes — so the way a menu *leaves* can be measured
-    /// the same way its rise is.
+    /// WM_CLOSE_MENU=<seconds> closes the menu `WM_OPEN_MENU` opened that long after it went up — or,
+    /// with `WM_START_WORKOUT_SHEET`, the workout card — through the same call a tap on the dim makes,
+    /// so the way a menu *leaves* can be measured the same way its rise is.
     static var closeMenuAfter: Double? { env["WM_CLOSE_MENU"].flatMap(Double.init) }
-    /// WM_START_WORKOUT_SHEET=1 opens the workout the range bubble names — the sheet presentation of
-    /// the detail screen, the one the map's own card is measured against — without the tap on the
-    /// map the simulator cannot make, so it can be shot on the Duo's two displays as well.
+    /// WM_START_WORKOUT_SHEET=1 opens the workout the range bubble names — the detail screen as one of
+    /// the map screen's own cards (the flag keeps the name it shipped with) — without the tap on the
+    /// map that would be needed to name a workout, so it can be shot on the Duo's two displays as well.
     static var openWorkoutSheet: Bool { env["WM_START_WORKOUT_SHEET"] == "1" }
     /// WM_EDIT_STROKE="x1,y1;x2,y2;…" runs one stroke of the edit brush along those screen points,
     /// once the editor is up. The simulator offers no way to drag a finger from the command line, so
@@ -262,6 +266,7 @@ enum DebugLaunch {
     static var startEdit: Bool { false }
     static var startEditTool: String? { nil }
     static var startEditedWorkouts: Bool { false }
+    static var openEditsDetail: Bool { false }
     static var mapHeading: Double? { nil }
     static var openMenu: String? { nil }
     static var menuDuration: Double? { nil }

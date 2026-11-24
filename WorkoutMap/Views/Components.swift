@@ -38,37 +38,167 @@ extension View {
         glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// The card a menu of the map screen is drawn on: the same Liquid Glass, on **the display's own
-    /// corners**.
-    ///
-    /// `ConcentricRectangle` asks the container for its corner shape instead of being told a
-    /// number, which is the whole of why a menu now matches the sheet the range bubble opens: that
-    /// sheet is a system card, and its corners are the display's, inset by the sheet's own margin.
-    /// Concentric then has to resolve to the same thing here — the card sits in the map screen with
-    /// the same margin from the same display — so the two are the same shape, on every display the
-    /// app runs on. Where that resolution is measured to work (the Pro Max: the detail card's own
-    /// corners walk ~90 px, about 30 pt) the two agree; on the Duo's folded cover panel it resolves
-    /// below the floor, so there the floor — the 8 pt the system's own card carries on that panel's
-    /// sharp side — is what decides (the README's numbers have both).
-    ///
-    /// The minimum is `Metrics.menuCardRadius`: the radius the system's own sheet card measured at on
-    /// the folded Duo, so the card's corners match the sheet's sharp side there.
-    func menuCard() -> some View {
-        glassEffect(.regular,
-                    in: ConcentricRectangle(corners: .concentric(minimum: .fixed(Metrics.menuCardRadius))))
+    /// One of the map screen's own cards: the glass, in the shape its **position** asks for
+    /// (`menuCardShape`), together with the swipe that throws it away. See `MenuCardModifier` for why
+    /// the position has to be measured, and why the one card that draws its own background asks for
+    /// `clipped` instead of the glass.
+    func menuCard(display: CGSize, clipped: Bool = false, onDismiss: @escaping () -> Void) -> some View {
+        modifier(MenuCardModifier(display: display, clipped: clipped, onDismiss: onDismiss))
     }
+
+    /// A menu card can be **swiped down out of the way**, the way a sheet is — the drag, and where it
+    /// settles, are `MenuCardModifier`'s, which is also what knows where the card sits on the display.
 
     /// The margin a menu card keeps from the display's own edges — the same on all four sides, and
     /// measured from the display rather than from the safe area, so the card reaches over the band
     /// the tab bar and the Duo's rail register live in instead of stopping short of it. The bottom
     /// one is what makes it a card rather than a sheet that runs off the edge.
     ///
-    /// It is the margin the detail sheet's card keeps (`Metrics.menuCardInset`, measured), so a menu
-    /// and that card sit in the same place on the same display.
+    /// It is the margin the system's own sheet card keeps (`Metrics.menuCardInset`, measured), so a
+    /// menu and that card sit in the same place on the same display.
     func menuCardInsets() -> some View {
         padding(.leading, Metrics.menuCardInset)
             .padding(.trailing, Metrics.menuCardInset)
             .padding(.bottom, Metrics.menuCardInset)
+    }
+}
+
+/// The shape a menu card of the map screen keeps where it sits `insets` from the display's edges: one
+/// `ConcentricRectangle`, its four corners asked for one at a time.
+///
+/// `ConcentricRectangle` asks the container for its corner shape instead of being told a number, and —
+/// since iOS 26 — **per corner**, which is the whole of this. The card sits in the map screen
+/// `Metrics.menuCardInset` from the display on every side but the top, and *where* it sits on the
+/// display is what each corner resolves to: one resting on a display edge is answered by the display —
+/// round on a round side, nearly square where the folded Duo's cover panel is, which is what the
+/// display's own corner is there — while one out in the open, where the display's answer is nothing at
+/// all, keeps `Metrics.menuCardRadius` instead, the rounded look every floating card has.
+///
+/// A corner's `minimum` is the default radius **scaled by how far out in the open that corner is**:
+/// resting on the display's own corner (`excess` zero) the minimum is nothing, so the display's own
+/// answer is what the corner is drawn with — which is the whole point, and on the folded Duo's cover
+/// panel means a nearly square corner on one side and a sweeping one on the other, because that is what
+/// the display has; out in the open the minimum is the whole default; and in between the two, over
+/// `Metrics.menuCardBlend` points of approach, it is the blend — the slow change of shape the system's
+/// own sheets show as they are dragged towards a corner. `Edge.Corner.Style` is `Animatable`, so that
+/// blend is an animation of its own rather than a jump.
+///
+/// `excess` is measured past `Metrics.menuCardInset`, the gap a card keeps at rest: a corner that is
+/// *at* the display's corner is at rest on both of its edges, and anything further out than that — the
+/// top corners of a short menu, or any corner of a card dragged away from the edge — is out in the open.
+func menuCardShape(insets: EdgeInsets) -> ConcentricRectangle {
+    func corner(_ across: CGFloat, _ down: CGFloat) -> Edge.Corner.Style {
+        let excess = max(0, max(across, down) - Metrics.menuCardInset)
+        let openness = min(1, excess / Metrics.menuCardBlend)
+        let minimum = max(Metrics.menuCardFloor, Metrics.menuCardRadius * openness)
+        return .concentric(minimum: .fixed(minimum))
+    }
+    return ConcentricRectangle(topLeadingCorner: corner(insets.leading, insets.top),
+                               topTrailingCorner: corner(insets.trailing, insets.top),
+                               bottomLeadingCorner: corner(insets.leading, insets.bottom),
+                               bottomTrailingCorner: corner(insets.trailing, insets.bottom))
+}
+
+/// One of the map screen's own cards: **where it sits on the display**, which its shape is resolved
+/// from (`menuCardShape`), the glass that card is drawn on, and the swipe that throws it away.
+///
+/// The position has to be *measured* rather than handed down: the screen's cards are laid out
+/// bottom-aligned in one column (`MapTabView.menuLayer`) and their own heights differ, so how far a
+/// card's top corners are from the top of the display is its own business. The measurement is taken in
+/// the window's space, which is the display's — this screen fills it.
+///
+/// The swipe's offset is added to that measurement **by hand**: `.offset` does not move a view's layout
+/// frame, so a measurement taken while the card is being dragged reports where it rests, and the corner
+/// that is being dragged away from a display edge has to know that it has moved.
+///
+/// `clipped` is for the one card that draws its own background — the workout card, which is the detail
+/// screen in black — and wants only the shape; every other card is drawn on the glass here.
+private struct MenuCardModifier: ViewModifier {
+    /// The display's size, from the container the card is laid out in.
+    let display: CGSize
+    let clipped: Bool
+    /// What a swipe down does to it.
+    let onDismiss: () -> Void
+
+    /// Where the card was measured. Nothing until the first measurement lands, and a card drawn from
+    /// nothing is drawn open — every corner away from the display — which is what `insets` answers.
+    @State private var frame: CGRect = .zero
+    /// How far the card has been pulled down by the finger.
+    @State private var dragOffset: CGFloat = 0
+    /// The card's own height, measured off the card, so the drag's threshold and its rubber band are
+    /// the card's rather than a fixed guess.
+    @State private var height: CGFloat = 320
+
+    func body(content: Content) -> some View {
+        card(content)
+            .offset(y: dragOffset)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            .gesture(dismissDrag)
+    }
+
+    /// The card's own background, in the shape its position asks for.
+    @ViewBuilder
+    private func card(_ content: Content) -> some View {
+        if clipped {
+            content.clipShape(menuCardShape(insets: insets))
+        } else {
+            content.glassEffect(.regular, in: menuCardShape(insets: insets))
+        }
+    }
+
+    /// Where the card sits, in points from each edge of the display — including how far the finger has
+    /// pulled it, so a corner dragged away from the display edge resolves as one out in the open.
+    private var insets: EdgeInsets {
+        guard frame != .zero, display != .zero else { return EdgeInsets() }
+        return EdgeInsets(top: frame.minY + dragOffset,
+                          leading: frame.minX,
+                          bottom: display.height - frame.maxY - dragOffset,
+                          trailing: display.width - frame.maxX)
+    }
+
+    /// The drag a card answers to: it follows the finger down, springs back when the release does not
+    /// carry it far enough, and lets itself go through `onDismiss` when it does.
+    ///
+    /// It is a plain `.gesture`, not a high-priority one, so a wheel inside the card still spins and a
+    /// scroll view inside it still scrolls: a child's own gesture wins inside its own bounds, and the
+    /// card's drag takes only the header and the room around the controls — which is where a sheet's
+    /// own grabber drag lives, too. The card is left exactly where the finger dropped it as it leaves:
+    /// the dismissal is the card's own `move(edge: .bottom)` transition, which carries it on down from
+    /// there rather than snapping it back to rest first.
+    private var dismissDrag: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in dragOffset = pull(value.translation.height) }
+            .onEnded { value in
+                let settled = max(value.translation.height, value.predictedEndTranslation.height)
+                if settled > max(120, height / 3) {
+                    onDismiss()
+                } else {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { dragOffset = 0 }
+                }
+            }
+    }
+
+    /// How far the card is pulled for a finger movement: one to one *down*, which is the direction it
+    /// can go at all, and a rubber band the other way — a pull *up* has nowhere to go, so the edge
+    /// gives there instead of the card following the finger off its place. Past its own travel it is
+    /// a rubber band down as well, so the bottom edge gives the same way.
+    private func pull(_ dy: CGFloat) -> CGFloat {
+        let down = max(0, dy)
+        let up = max(0, -dy)
+        let travel = height + Metrics.menuCardInset
+        let past = max(0, down - travel)
+        return min(down, travel) + rubberBand(past, limit: height * 0.25)
+                       - rubberBand(up, limit: height * 0.12)
+    }
+
+    /// `UIScrollView`'s own rubber band, the one the explorer's result card uses (`cardOffset`): the
+    /// displacement approaches `limit` as the pull grows, and a small pull moves it about half as far
+    /// as the finger.
+    private func rubberBand(_ distance: CGFloat, limit: CGFloat) -> CGFloat {
+        guard distance > 0, limit > 0 else { return 0 }
+        let constant: CGFloat = 0.55
+        return (distance * limit * constant) / (limit + constant * distance)
     }
 }
 

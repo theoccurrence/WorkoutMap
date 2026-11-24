@@ -51,7 +51,6 @@ struct MapModePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(height: height)
-        .menuCard()
     }
 
     private var header: some View {

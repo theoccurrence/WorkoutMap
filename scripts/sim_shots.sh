@@ -44,9 +44,9 @@ shot map_all   SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=all
 shot map_run   SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_START_CATEGORY=run
 shot map_ride  SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_START_CATEGORY=ride
 shot modes      SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_START_MODES=1
-# The map screen's three menus are cards of their own now (`MapTabView.menuLayer`), so each gets a
-# shot of its own, settled: what the card's margins and corners are is checked against the detail
-# sheet's (`detail_sheet` below, and `map_bubble_open` under it).
+# The map screen's menus are cards of their own (`MapTabView.menuLayer`), so each gets a shot of its
+# own, settled — and the workout card the range bubble opens is the fourth, the detail screen itself
+# (`WM_START_WORKOUT_SHEET`), so its margins and corners are checked against the same three.
 # The menus have a timing of their own — `WM_OPEN_MENU` waits 4 s from the screen's own task, which
 # is a couple of seconds after the launch — so they are shot with a wait rather than the plain 5 s:
 # a cold start could otherwise catch the map before the card has come up (measured: it did).
@@ -63,10 +63,11 @@ shot sheet_year  SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=year SI
 shot detail    SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1
 # The detail screen's stats are laid out for the room there is — three rows of two upright, two rows
 # of three sideways — and the map gives up whatever they and the `*Data from …` label need, so the
-# same shots are taken lying down and as the sheet the map's range bubble opens, whose card the three
-# menus are cut from. The unfolded inner panel of the Duo cannot be shot in this setup (the device
-# boots folded and simctl has no way to unfold it), so the folded cover panel — the tighter of the
-# two portraits — is the one the portrait layout is measured on.
+# same shots are taken lying down and as the card the map's range bubble opens (that screen's own card,
+# the same one its three menus are cut from), and as the screen the settings' edited list pushes (the
+# detail filling that sheet's own card). The unfolded inner panel of the Duo cannot be shot in
+# this setup (the device boots folded and simctl has no way to unfold it), so the folded cover panel —
+# the tighter of the two portraits — is the one the portrait layout is measured on.
 shot_after detail_land 20 SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL_CHILD_WM_ROTATE=landscapeRight
 shot_after detail_sheet 12 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_SKIP_LOCATION=1 SIMCTL_CHILD_WM_START_WORKOUT_SHEET=1
 shot_after detail_sheet_land 24 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_SKIP_LOCATION=1 SIMCTL_CHILD_WM_START_WORKOUT_SHEET=1 SIMCTL_CHILD_WM_ROTATE=landscapeRight
@@ -84,4 +85,8 @@ shot edit_valid  SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMC
 # have to be readable while one of them is picked.
 shot plan_card     SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_FAKE_PLAN=1 SIMCTL_CHILD_WM_PLAN_AUTORUN=1 SIMCTL_CHILD_WM_PLAN_KM=3
 shot edited_workouts SIMCTL_CHILD_WM_START_TAB=2 SIMCTL_CHILD_WM_START_EDITS=1
+# The detail a row of that list pushes: it fills the sheet's own card, which is what taking the grey
+# band under its bottom edge away meant (a screen that insets itself *inside* that card leaves the
+# system's own fill showing there).
+shot_after edits_detail 12 SIMCTL_CHILD_WM_START_TAB=2 SIMCTL_CHILD_WM_START_EDITS=1 SIMCTL_CHILD_WM_EDITS_DETAIL=1
 shot settings  SIMCTL_CHILD_WM_START_TAB=2

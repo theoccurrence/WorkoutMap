@@ -24,12 +24,17 @@ humidity from the workout metadata), then the six numbers — time, distance,
 elevation, active calories, average pace and average heart rate — as cards laid out
 **three rows of two standing up and two rows of three lying down**, with the
 `*Data from …` line under them, plus a share button that opens the export card. It is
-opened in two ways and tells them apart (`WorkoutDetailView.Presentation`): the
-Workouts tab **pushes** it and it is drawn **edge to edge** (see the rail notes
-below), while the map's range bubble and the settings' edited list open it **inside a
-sheet**, where it is the same card the sheet is — inset from the display's edges, and
-its black backdrop ends above the display's bottom edge by the same margin as the
-other three sides, which is the one side the system's own card does not inset. The
+opened in two ways and tells them apart (`WorkoutDetailView.Presentation`): **pushed**,
+from the Workouts tab and from the settings' edited list — edge to edge in whatever
+container pushed it (see the rail notes below), which inside that settings *sheet* means
+the sheet's own card, filled whole rather than inset inside a second time (insetting it
+again left the system's fill showing as a grey bar under the card's bottom edge:
+measured, the band stays `(28, 28, 30)` whatever `presentationBackground` is told); and
+**as the map screen's own card** (`Presentation.card`, `MapTabView.menuLayer`) when the
+range bubble opens it, the same card that screen's three menus are — which is what lets
+the margin it keeps show the *map* it floats over instead of a sheet's own background,
+which runs flush to the display's bottom edge (the one side its card is not inset on) and
+cannot be cleared. The
 map takes whatever height the cards and that line leave it, rather than a fixed share
 of the screen, which is what keeps the sixth card and the source label inside the card
 on the smallest display the app runs on.
@@ -112,8 +117,8 @@ variables (Debug builds only):
 | `WM_MAP_HEADING=<degrees>` | Turns the map once its camera has been placed (checks the two-finger pan on a turned map) |
 | `WM_OPEN_MENU=range\|modes\|plan` | Opens one of the map screen's own menus a few seconds after launch (checks the dimming and the rise) |
 | `WM_MENU_DURATION=<seconds>` | Slows that rise down, far enough for a screenshot to catch the card halfway up |
-| `WM_CLOSE_MENU=<seconds>` | Closes the menu `WM_OPEN_MENU` opened that long after it went up, through the call a tap on the dim makes (checks the way it leaves) |
-| `WM_START_WORKOUT_SHEET=1` | Opens the workout the range bubble names as a sheet — the detail screen's `sheet` presentation — without a tap on the map |
+| `WM_CLOSE_MENU=<seconds>` | Closes the menu `WM_OPEN_MENU` opened — or, with `WM_START_WORKOUT_SHEET`, the workout card — that long after it went up, through the call a tap on the dim makes (checks the way it leaves) |
+| `WM_START_WORKOUT_SHEET=1` | Opens the workout the range bubble names as one of the map screen's own cards (the flag keeps the name it shipped with) — without a tap on the map |
 | `WM_MODE_COLORS="walk=FF00FF,run=00FFFF,ride=0000FF"` | Writes Walk / Run / Ride colours at launch through the same store the picker uses |
 | `WM_RESET_MODE_COLORS=1` | Puts Walk / Run / Ride back to their shipped colours at launch (checks *Reset to Defaults*) |
 | `WM_START_DETAIL=1` | Pushes the first workout's detail screen |
@@ -126,7 +131,8 @@ variables (Debug builds only):
 | `WM_PAN="x,y;x2,y2"` | Drives the two-finger pan through the call its recognizer makes (checks the map moving) |
 | `WM_PAN_DELAY=<seconds>` | Moves that pan back, so it lands after the map has been laid out |
 | `WM_FAKE_PINCH_SCALE=<scale>` | Stands in for a pinch: with a scale away from 1 the pan must leave the camera alone (checks the zoom not being fought) |
-| `WM_START_EDITS=1` | Opens the settings screen's own list of edited workouts |
+| `WM_START_EDITS=1` | Opens the settings screen's list of edited workouts |
+| `WM_EDITS_DETAIL=1` | Opens a workout's detail inside that list's navigation stack — the same screen a row pushes — without a tap on a row |
 | `WM_EXPORT_EDITS=<path>` | Writes the edits file there at launch (the settings screen's *Export Edits*, without a tap) |
 | `WM_IMPORT_EDITS=<path>` | Merges that edits file in at launch (the settings screen's *Import Edits*, without a tap) |
 | `WM_SKIP_LOCATION=1` | Skips the location prompt (screenshots) |
@@ -554,14 +560,29 @@ Notes on the map rendering, all measured from the original app:
     overlay column is what used to cut the top off the range bubble.
   * **Every panel of the map screen is glass**, and the three menus are **cards of their own**. The
     explorer's result card and the range bubble keep the material they had; the three menus — the
-    explorer's input, the calendar picker and the map-style picker — are drawn on `View.menuCard()`,
-    which is the same **Liquid Glass** (`glassEffect`) in the shape of the sheet the range bubble
-    opens: the **display's own corners**, so a menu and that sheet are the same card. `ConcentricRectangle`
-    is what gives the corners, not a number: it resolves the container's corner radius minus the card's
-    own margin, which is the only way the folded Duo's cover panel can come out right — its corners are
-    **asymmetric** (measured off the sheet's card in the same orientation: the two on the rail's side are
-    nearly square, the two on the camera's side carry the display's radius), and a fixed radius cannot
-    be both. The card is inset by the same margin from **all four** display edges — see
+    explorer's input, the calendar picker and the map-style picker — are drawn on the map screen's
+    `menuCard(_:_:)`, which is the same **Liquid Glass** (`glassEffect`) in the shape **the card's own
+    position asks for**: one `ConcentricRectangle` (`menuCardShape`), asked for *per corner*. A corner
+    resting on a display edge is answered by the display — its radius minus the card's margin — which is
+    the only way the folded Duo's cover panel can come out right, because its corners are **asymmetric**
+    and *which* way each goes is its own business: measured on that panel now, the card's bottom-left
+    corner is a straight edge where the display's corner is nearly square, and its bottom-right sweeps
+    ~69 pt where the display's is round. A corner out in the open, where the display's answer is nothing
+    at all, is drawn with `Metrics.menuCardRadius` instead — the strongly rounded default every floating
+    card of the system's has, measured off Apple Maps' own card on the same 466 pt display, corner
+    against corner (**40 pt**: both of the Maps card's top corners are circles of 120.5 px = 40.2 pt,
+    where this app's card read 96.4 px = 32.1 pt at the 32 it carried before, and the older reading of
+    that same corner — 86 px in, six pixels down from the card's top edge — is a radius of ~41 pt, not
+    32) —
+    and the change from one to the other is **blended** over `Metrics.menuCardBlend` points of approach,
+    which is what the system's own sheets do as they are dragged up to a corner: a slow change of shape
+    rather than a jump at the end of the movement (`Edge.Corner.Style` is `Animatable`, so the blend is
+    an animation of its own).
+    `MenuCardModifier` is what knows where a card sits: it measures the card's own frame in the window's
+    space — the cards are bottom-aligned in one column and their heights differ, so nothing else knows a
+    card's distance from the top of the display — and adds the swipe's offset **by hand**, because
+    `.offset` does not move a layout frame and the corner being dragged away from a display edge has to
+    know that it has moved. The card is inset by the same margin from **all four** display edges — see
     `Metrics.menuCardInset`, measured off that sheet's card — so it reaches over the band the tab bar
     and the Duo's rail register live in instead of stopping short of it, and its bottom edge ends above
     the display's bottom edge, which is what makes it read as a card rather than as a sheet that runs
@@ -576,16 +597,58 @@ Notes on the map rendering, all measured from the original app:
     being the one `WM_MENU_DURATION` slows down: the panel's X, a tap on the dim, the explorer's
     *Plan route*, the range picker's own controls. The dim is the outermost view of its own conditional
     subtree, so it fades in **and out** with the same spring.
-  * While a menu is up, **the screen's own controls are not behind it**. The two things that have to
-    *not* read through a card over the map are the Walk / Run / Ride and explorer circles and the
-    hand-placed pill: both are faded out with the menu's own animation (`opacity`, in the same
-    `withAnimation`), and fade back when it leaves, which is more than a sheet's dim would do — a
-    sheet only darkens what is behind it. On a screen whose actions are the system's own toolbar items
-    (the Duo's rail) the bar is hidden for as long as a menu is up, for the same reason: a toolbar item
-    cannot be animated (measured, see the rail notes above), so it may not be on screen at all. The
+  * The workout card the range bubble opens is the **one card that is tall** — the whole screen — so it
+    is the one whose top margin `menuCardInsets` does not leave it (that insets the other three sides;
+    the three menus' own height is what leaves theirs) and its caller adds the fourth
+    (`MapTabView.menuLayer`). Two things about it were measured the hard way:
+    * The safe area read **inside** that card is still the *window's*, so a card that reaches for it —
+      `WorkoutDetailView` does, to fill its container edge to edge when it is a pushed screen — pushes
+      its black backdrop out of the frame it was given: measured on the folded cover panel, it ran off
+      the top of the display and came out 11.3 pt from the leading edge against 3.0 pt from the trailing
+      one, with the margins square rather than round. Drawn as a card it fills exactly what it was given
+      and nothing more. Measured after the fix, off a frame of the same screen with the card on it and
+      one without: the rows above the card are the map behind at the dim's own ratio of **0.650**, and
+      the card starts on the 24th pixel — 8 pt — on every side.
+    * The card is **clipped** to its shape, not merely backed by one: the map inside it is a rectangle
+      of its own, so it is the map's square corner, not the backdrop's round one, that reaches the
+      card's corner (measured: the corner came out square). And it is *one* clip on the one view rather
+      than the same shape asked for twice (a shape on the background and the same shape on the clip) —
+      those two resolutions do not come out the same, and on that display they left a black wedge of
+      backdrop behind the card's round corner (measured: a pixel inside the corner was `(0, 0, 0)`
+      before and the map itself `(60, 71, 39)` after). That clip is the **screen's** rather than the
+      card's own: the shape is resolved from where the card sits on the display (`menuCardShape`), and
+      the detail screen — which is handed nothing about that — would resolve it a second time, its own
+      way. It draws a plain black fill and the map screen cuts it to shape.
+  * While a menu is up, **the screen's own controls are not behind it** — and, unlike the system's
+    chrome, they are drawn **over** the cards rather than under them. The two things that have to *not*
+    read through a card over the map are the Walk / Run / Ride and explorer circles and the hand-placed
+    pill: both are faded out with the menu's own animation (`opacity`, in the same `withAnimation`), and
+    fade back when it leaves, which is more than a sheet's dim would do — a sheet only darkens what is
+    behind it. Over the card is what makes that fade *visible*: a card is opaque, and the card the
+    workout opens is **full height**, so under it the fade ran the whole time and was never on screen —
+    the card's top edge swept the whole column away inside a couple of frames, which read as the card
+    sliding over the icons (the user caught exactly that; the shorter menus showed their own fade only
+    because the top of the column stayed above their card's edge). Nothing of them reads through the
+    card once it has arrived — they are at zero by then — and they stop taking taps with it, which they
+    must: a SwiftUI view at opacity 0 is **still hit-testable**, and the range picker's *Done* sits
+    under the foot of that column. On a screen whose actions are the system's own toolbar items
+    (the Duo's rail) the rail, its bottom bar and the **tab bar** fade the same way — and *not* from
+    SwiftUI: a toolbar's visibility cannot be animated there (`.toolbar(.hidden)` inside the menu's own
+    `withAnimation` swaps the bar in one frame, measured), so `SystemChromeFade` leaves the bars
+    declared and moves their own `alpha` over the menu's spring instead. The
     **range bubble** and the explorer's **result card** stay where they are and are merely dimmed —
-    the card is readable through it on purpose, and the sheet the range bubble opens leaves its bubble
-    visible in exactly the same way (the user's own screenshot of it shows the bubble above the card).
+    the card is readable through it on purpose, and the workout card the bubble itself opens is drawn
+    *above* it for the same reason: the bubble stays readable over the card it put up (the user's own
+    screenshot of the sheet it used to be shows the bubble above the card).
+  * A menu can also be **swiped down out of the way**, the way a sheet is (`MenuCardModifier`):
+    the card follows the finger, and the release decides where it settles — past a third of its own
+    height, or flicked fast enough that it *would* have got there, it leaves; otherwise it springs
+    back. It is a plain `.gesture`, not a high-priority one, so the calendar's wheels still spin and
+    the explorer's own scroll view still scrolls — a child's gesture wins inside its own bounds, and
+    the card's drag takes the header and the room around the controls, which is where a sheet's own
+    grabber drag lives too. The card is left exactly where the finger dropped it as it goes: the
+    dismissal is the card's own `move(edge: .bottom)` transition, which carries it on down from there
+    rather than snapping it back to rest first.
   * The menus are still **drawn in the map screen itself** (`MapTabView.menuLayer`) rather than
     presented as sheets, and that is not a style choice: a half-height sheet is handed a glass panel
     of the system's own — Apple's note on adopting Liquid Glass: "half sheets are inset from the edge
@@ -614,17 +677,34 @@ Notes on the map rendering, all measured from the original app:
   * The screen's own controls go with it, measured on the same device: the accent-yellow pixels of the
     Walk / explorer filter circles number 1413 in the settled frame, **0** with a menu up (they are
     faded out with the card's animation) and 1413 again once it has left. On a screen whose actions
-    are the system's (`usesVerticalControls`, the Duo) the rail, its bottom bar and the **tab bar** are
-    hidden for the same reason — measured on the folded panel: left up, the tab bar's column lies over
-    the card's trailing edge and its own capsule over the card's *Done*. That chrome comes back only
-    once the card has left, and the restore hangs on the animation's own **completion**
-    (`withAnimation(_:completionCriteria:)`) rather than on a guessed delay: showing the tab bar lays
-    the screen out again and a layout pass in the middle of a transition cut the card's slide short —
-    measured: the card and the dim were gone between two frames two seconds apart with the bar put
-    back in the same turn as the close, while the same spring took about ten seconds to bring that
-    card *up*. A completion is right at every spring response; a constant is not (measured with the
-    spring slowed: the chrome stays away while the card is still walking down — the dim mid-fade at
-    0.653 with the chrome still hidden, and back at 1.000 with the chrome back).
+    are the system's (`usesVerticalControls`, the Duo) the rail, its bottom bar and the **tab bar**
+    fade with it, measured with the spring slowed (`WM_MENU_DURATION=6`, on the folded cover panel):
+    the rail's own glyphs' mean brightness walks 84.8 → 84.8 → 72.9 → 38.1 → 32.3 over the leave
+    rather than arriving at 32.3 in one frame, and comes back the same way. Left and right fade on
+    **one** spring, and that took writing it out: handed `UISpringTimingParameters(dampingRatio:)` the
+    rail ran a different spring than the circles that fade from SwiftUI — UIKit's own frequency, not the
+    menu's, since the duration passed to the animator does not drive it. Measured on that same panel
+    with the spring stretched (`WM_MENU_DURATION=6`, a sample every 0.45 s): the rail at 0.37 alpha
+    where the circles were at 0.52, and 0.05 where they were 0.13 — mean |Δalpha| 0.068 over the leave.
+    Mass 1 with ω₀ = 2π/response and ζ = the menu's damping *is* that spring, and puts the two at a mean
+    |Δalpha| of 0.009 over the same leave, 0.037 at worst. Handing both sides the spring's own cubic
+    approximation instead — one curve, verbatim for each — measured worse still (0.073), so the spring
+    is what stays. What is left is the one frame they start on: the circles move in the frame the state
+    changes and the rail's own `alpha` one frame later, which is what a UIKit animator started from a
+    SwiftUI update costs. Measured on the Pro Max
+    as well: the hand-placed column goes 94.5 → 74.8 → 45.7 as the menu opens. It used to be
+    **hidden** for as long as a menu was up instead — measured on the folded panel: left up, the tab
+    bar's column lies over the card's trailing edge and its own capsule over the card's *Done* — and
+    that hide had to be given back only once the card had left, on the animation's own **completion**
+    (`withAnimation(_:completionCriteria:)`) rather than on a guessed delay: hiding a bar lays the
+    screen out again (the tab bar reserves a region of the map view) and a layout pass in the middle of
+    a transition cut the card's slide short — measured: the card and the dim were gone between two
+    frames two seconds apart with the bar put back in the same turn as the close, while the same
+    spring took about ten seconds to bring that card *up*. A completion is right at every spring
+    response; a constant is not (measured with the spring slowed: the chrome stayed away while the
+    card was still walking down — the dim mid-fade at 0.653 with the chrome still hidden, and back at
+    1.000 with the chrome back). A fade changes no layout at all, so the chrome leaves and returns
+    *with* the card now, and the completion went with the hide.
   * The menus and the detail screen's card are the **same card**, measured on the same displays: on
     the Duo's folded panel the menu card's own edges are 7.3 pt (leading) and 7.7 pt (trailing) from
     the display, and the detail card's black backdrop 8.0 / 8.0 / 8.0 pt (leading / trailing /
@@ -635,16 +715,17 @@ Notes on the map rendering, all measured from the original app:
     makes the two cards agree on both devices rather than only where the system happens to inset.
     The folded Duo's corners are **asymmetric**: the sheet card's top-left corner reaches its straight
     edge about 24 px below the card's own top edge (an 8 pt radius — the display's own radius minus the
-    margin) against about 56 px on the top right (19 pt). The menu card is drawn with that 8 pt as its
-    floor (`Metrics.menuCardRadius`), so its corners match the sheet's sharp side there. What it cannot
-    match yet, and this is the honest half: `ConcentricRectangle` **does** resolve the display's own
-    corners on the Pro Max (the detail card's corners there walk ~90 px, about 30 pt) but on the Duo's
-    cover panel it resolves below the floor — measured: with the floor at 4 pt the card's corners walked
-    ~12 px on both sides, with it at 16 pt they walked ~48 px — so on the folded panel the floor and not
-    the display decides, and the card's two rounded corners come out 8 pt where the sheet's are 19. A
-    `UIView` probe with `UICornerConfiguration.corners(radius: .containerConcentricRadius)` and
-    `effectiveRadius(corner:)` (iOS 26, see the SDK's `UICornerConfiguration.h`) is the way to the
-    display's four radii if that last step is wanted; it is not in yet.
+    margin) against about 56 px on the top right (19 pt). That asymmetry is what the per-corner shape
+    above is for, and it is measurable on the app's own cards now — off a settled workout card on that
+    panel, its bottom-left corner is the **straight edge itself** (the pixel at the card's own left
+    edge, 24 px, on every row down from the card's bottom, against 121 px at the first row when the same
+    card was drawn with one radius for every corner), while its bottom-right corner sweeps: the card's
+    black reaches no further right than 1166 px at its bottom row, 1255 at 6 px up, 1326 at 42, and only
+    reaches the straight edge 1374 about 170 px up — a ~69 pt radius, the display's own, since the card
+    is 8 pt inside it. A corner in the open, which is what a short menu's top corners are, comes out at
+    the default instead — 32 pt, measured against Apple Maps' own card on the same display (see above) —
+    and the app asks for the default only where the display's own answer is *nothing*, so the two never
+    fight.
   * The dropped pin's **info bubble** heads with the name MapKit's reverse geocoder resolved for
     the coordinate, and carries the address and **how far away the pin is** under it, plus the bin.
     The two lower lines are not the annotation's `subtitle`: MapKit drops an annotation's subtitle

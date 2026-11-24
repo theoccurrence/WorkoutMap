@@ -56,7 +56,6 @@ struct RoutePlannerPanel: View {
                 .padding(.bottom, 16)
         }
         .frame(height: height)
-        .menuCard()
         .onAppear {
             search.region = region
             if DebugLaunch.focusSearch { searchFocused = true }
