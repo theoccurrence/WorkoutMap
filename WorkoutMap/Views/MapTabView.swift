@@ -719,7 +719,9 @@ struct MapTabView: View {
                 if let workout = openedWorkout {
                     WorkoutDetailView(workout: workout,
                                       presentation: .card,
-                                      onClose: { closeWorkout() })
+                                      onClose: { closeWorkout() },
+                                      statusColumn: usesVerticalControls ? Metrics.statusColumnInsetFolded
+                                                                         : Metrics.screenInset)
                         .menuCard(display: proxy.size, clipped: true, onDismiss: { closeWorkout() })
                         .padding(.top, Metrics.menuCardInset)
                         .menuCardInsets()

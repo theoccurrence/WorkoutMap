@@ -23,6 +23,13 @@ struct WorkoutDetailView: View {
     /// What the back button does where the screen is drawn as a card of the map screen's own: there is
     /// no presentation to dismiss, so the screen that opened it closes it (`MapTabView`).
     var onClose: (() -> Void)? = nil
+    /// The inset that puts this screen's rail on the status cluster's own column, **handed in** by the
+    /// map screen where this is its card (`MapTabView` knows it — `usesVerticalControls` is the folded
+    /// panel). A card cannot work it out for itself: its reader reports **no** window safe area at all on
+    /// that panel (measured trailing 0), so the 84 pt the window reserves for its rail — the one thing
+    /// that tells that display apart — is not visible from in here. `nil` for the pushed screen, which
+    /// reads the window itself.
+    var statusColumn: CGFloat? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var route = WorkoutRoute(coordinates: [])
@@ -92,16 +99,15 @@ struct WorkoutDetailView: View {
                 ? proxy.size
                 : CGSize(width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
                          height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
-            // A column measured from the **display** has two things to take back out, and the two
-            // presentations differ by both: `pushed` is laid out in the display itself, while `card`
-            // sits in the card's box — `menuCardInset` inside the display *and* inset by the window's
-            // safe area (84 pt of it on the folded cover panel's trailing side, which the panel
-            // reserves for its rail). Without the second one the card's rail stood 84 pt inboard of the
-            // pushed screen's, which is exactly what the user saw.
-            let column = folded ? Metrics.statusColumnInsetFolded : Metrics.screenInset
-            let railTrailing = presentation == .card
-                ? column - Metrics.menuCardInset - proxy.safeAreaInsets.trailing
-                : column
+            // The rail's trailing inset: the status cluster's own column, measured from the **display**.
+            // The two presentations differ by the box they are laid out in, and the probe says exactly
+            // what that is — `pushed` fills the display (its 48.5 pt disc lands at 393.75..442.25, centre
+            // **418.00**, on the cluster's own centre), while a card's box ends `menuCardInset` short of
+            // it (the same `column` gave 385.75..434.25, 8 pt inboard), so a card takes that margin back
+            // out again. Its reader reports no window safe area on that panel either, so there is nothing
+            // else to allow for: 0 there, `menuCardInset` here.
+            let column = statusColumn ?? (folded ? Metrics.statusColumnInsetFolded : Metrics.screenInset)
+            let railTrailing = presentation == .card ? column - Metrics.menuCardInset : column
             ZStack(alignment: .bottomTrailing) {
                 VStack(spacing: 0) {
                     // The map takes what the stats and the source label leave rather than a fixed share of

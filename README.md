@@ -763,11 +763,13 @@ Notes on the map rendering, all measured from the original app:
     two displays place differently: on the folded panel the clock and the radio arc are centred 48 pt
     from the trailing edge, so `Metrics.statusColumnInsetFolded` (23.75) puts the 48.5 pt disc's
     centre exactly there, while a notched iPhone keeps the app's `screenInset` (18, a centre 42.25 pt
-    in). **Both** presentations draw that one rail in the same place, and the card is the one that
-    needs arithmetic for it: its box is `menuCardInset` inside the display *and* inset by the window's
-    safe area on that panel, so a column measured from the display is pulled out of both again
-    (`railTrailing`) — without that the card's rail stood 84 pt inboard of the pushed screen's, which
-    is exactly what the user saw.
+    in). **Both** presentations put that one rail on that one column, and the difference between them
+    is the box they are laid out in — read off a probe rather than reasoned about, after two wrong
+    guesses: `pushed` fills the display (its 48.5 pt disc lands at 393.75..442.25, centre **418.00** on
+    the folded panel), while a card's box ends `Metrics.menuCardInset` short of the display, so the same
+    column put the card's disc 8 pt inboard and the card takes that margin back out again
+    (`railTrailing`). Its reader reports **no** window safe area on that panel either, so nothing else
+    is allowed for; the card measured 417.67 pt after the correction, against the cluster's own 418.00.
   * A card's height is capped by the band the **status elements** keep at the top
     (`MapTabView.menuRoom`): the display, less the card's own margin, less
     `max(windowInsets.top, menuCardInset)` — the window's own safe area, which the map reports and a
