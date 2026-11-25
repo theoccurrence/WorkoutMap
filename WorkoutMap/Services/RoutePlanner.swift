@@ -21,7 +21,7 @@ import CoreLocation
 struct RoutePlanner {
     struct Config {
         /// How many shapes are scored before any network request, at the start itself.
-        var candidates = 8
+        var candidates = 12
         /// And how many more on rings around it — the ground under the user's feet is the ground
         /// they have covered most, so a loop that only ever centres there can never be mostly
         /// new. Each factor is a share of the radius a circle of the requested length would have.
@@ -47,9 +47,9 @@ struct RoutePlanner {
         /// that doubles back is multiplied by this. A dead end is the one time a double-back is
         /// unavoidable, so the share it produces is small enough that the route is still ranked
         /// ahead of a genuinely worse one.
-        var backtrackingPenalty = 1.0
+        var backtrackingPenalty = 3.0
         /// How close two points have to be to count as the same street, in metres.
-        var backtrackingSameStreetMeters = 15.0
+        var backtrackingSameStreetMeters = 25.0
         /// How far apart along the route two visits have to be, in metres, so a turn is not a
         /// double-back.
         var backtrackingMinGapMeters = 40.0
@@ -112,28 +112,30 @@ struct RoutePlanner {
         let history = PlanHistory.load()
         // How tight the shape is: the setting, but pulled tighter still when the user is asking
         // for a lot of new ground — filling the streets around the route is how that is found.
-        let steps = max(2, min(config.maxLegsPerRoute,
+        // Three legs is the floor: two legs is a line, and a line is walked out and back along
+        // the same street. A closed polygon needs at least a triangle, and its two legs at the
+        // start leave in different directions, so the walk cannot double back on itself there.
+        let steps = max(3, min(config.maxLegsPerRoute,
                                Config.steps(for: max(shape, minimumNew))))
 
         var candidates: [(waypoints: [CLLocationCoordinate2D], rough: Double)] = []
-        for centre in loopCentres(start: start, target: target, generator: &generator) {
+        for bearing in loopBearings(generator: &generator) {
             // A little wobble on every turning point, so two shapes that set off the same way are
             // still not the same walk.
             let jitters = (0..<steps).map { _ in
                 (along: Double.random(in: -0.16...0.16, using: &generator),
                  across: Double.random(in: -0.16...0.16, using: &generator))
             }
-            guard let waypoints = loopShape(start: start, centre: centre.centre,
-                                            bearing: centre.bearing, steps: steps,
+            guard let waypoints = loopShape(start: start, bearing: bearing, steps: steps,
                                             target: target, roadFactor: roadFactor,
-                                            coverage: coverage, jitters: jitters) else { continue }
+                                            jitters: jitters) else { continue }
 
             let straight = [start] + waypoints + [start]
             let length: Double = max(1, CoverageIndex.length(of: straight))
             let uncovered: Double = coverage.uncoveredMeters(of: straight)
             let fraction: Double = uncovered / length
             let fit: Double = 1 - min(1, abs(length - target) / target)
-            let penalty: Double = history.penalty(start: start, bearing: centre.bearing,
+            let penalty: Double = history.penalty(start: start, bearing: bearing,
                                                   meters: target, config: config)
             let shortfall: Double = max(0, minimumNew - fraction)
             let noise: Double = Double.random(in: -1...1, using: &generator)
@@ -164,87 +166,58 @@ struct RoutePlanner {
         return plan
     }
 
-    /// Where the loop's zigzag is tried: at the start itself, and then on rings around it. The
-    /// ground right under the user's feet is the ground they have covered most, so a shape that
-    /// only ever centres there can never be mostly new — a park two streets away whose little
-    /// paths were never walked can.
-    private func loopCentres(start: CLLocationCoordinate2D,
-                             target: Double,
-                             generator: inout SplitMix64) -> [(centre: CLLocationCoordinate2D, bearing: Double)] {
-        let reach = target / (2 * .pi)
-        var centres: [(centre: CLLocationCoordinate2D, bearing: Double)] = []
+    /// The directions a loop's polygon is tried in. A polygon's centre is fixed by the start and
+    /// the bearing — it sits one circumradius away — so the only free choice is which way the
+    /// first leg leaves the start. Spreading that around the compass is what keeps the same
+    /// request from returning the same walk.
+    private func loopBearings(generator: inout SplitMix64) -> [Double] {
+        var bearings: [Double] = []
         for index in 0..<config.candidates {
             let base = Double(index) / Double(config.candidates) * 360
-            let bearing = (base + Double.random(in: -22...22, using: &generator))
-                .truncatingRemainder(dividingBy: 360)
-            centres.append((start, bearing))
+            bearings.append((base + Double.random(in: -22...22, using: &generator))
+                .truncatingRemainder(dividingBy: 360))
         }
-        for factor in config.ringFactors {
+        for _ in config.ringFactors {
             for index in 0..<config.ringBearings {
                 let base = Double(index) / Double(config.ringBearings) * 360
-                let bearing = base + Double.random(in: -18...18, using: &generator)
-                let centre = Geo.destination(from: start, bearing: bearing, distance: reach * factor)
-                let row = (bearing + Double.random(in: -35...35, using: &generator))
-                    .truncatingRemainder(dividingBy: 360)
-                centres.append((centre, row))
+                bearings.append((base + Double.random(in: -18...18, using: &generator))
+                    .truncatingRemainder(dividingBy: 360))
             }
         }
-        return centres
+        return bearings
     }
 
-    /// A loop as a zigzag over a square centred on `centre`: `steps` rows, the route turning at
-    /// each row's far end, and the start as both ends of the whole thing.
+    /// A loop as a closed polygon: `steps` vertices on a circle, the start as one of them. The
+    /// route runs start → v1 → … → v(steps-1) → start, so the first and last legs are two
+    /// different edges of the polygon and leave the start at the polygon's interior angle
+    /// (60° for a triangle, 108° for a pentagon). That is the whole point of the shape: a walk
+    /// cannot set off up a street and come straight back down it, because the way out and the
+    /// way home are not the same direction.
     ///
-    /// The square is sized by bisection so the zigzag's straight-line length is the distance
-    /// asked for — including the legs out to a square that is not centred on the start, which is
-    /// what rules out a centre too far away to be reached and still come back. `roadFactor`
-    /// corrects for a real route being longer than the straight lines it follows.
+    /// The polygon is sized so its perimeter is the distance asked for, corrected for a real
+    /// route being longer than the straight lines it follows. `steps` is the number of legs:
+    /// three is a wide sweep, five is a tight one.
     ///
-    /// Returns `nil` when even a square of no size cannot be reached and returned within the
-    /// distance, which is what prunes the far rings.
+    /// Returns `nil` when the polygon would be too small to be a walk at all.
     private func loopShape(start: CLLocationCoordinate2D,
-                           centre: CLLocationCoordinate2D,
                            bearing: Double,
                            steps: Int,
                            target: Double,
                            roadFactor: Double,
-                           coverage: CoverageIndex,
                            jitters: [(along: Double, across: Double)]) -> [CLLocationCoordinate2D]? {
-        func points(scale: Double) -> [CLLocationCoordinate2D] {
-            let radians = bearing * .pi / 180
-            let spacing = 2 * scale / Double(steps)
-            return (0..<steps).map { row in
-                let jitter = row < jitters.count ? jitters[row] : (along: 0, across: 0)
-                let along = (row.isMultiple(of: 2) ? scale : -scale) * (1 + jitter.along)
-                let across = -scale + (Double(row) + 0.5) * spacing + scale * jitter.across
-                return Geo.offset(centre,
-                                  east: along * sin(radians) + across * cos(radians),
-                                  north: along * cos(radians) - across * sin(radians))
-            }
-        }
-        func length(_ scale: Double) -> Double {
-            CoverageIndex.length(of: [start] + points(scale: scale) + [start])
-        }
-
-        let wanted = target / roadFactor
-        var low = 0.0
-        var high = max(50, target)
-        guard length(high) > wanted else {
-            let sized = points(scale: high)
-            return sized.map { bias($0, across: bearing, span: high * 0.3, coverage: coverage) }
-        }
-        for _ in 0..<20 {
-            let mid = (low + high) / 2
-            if length(mid) < wanted { low = mid } else { high = mid }
-        }
-        let scale = (low + high) / 2
-        // The start has to be reached and left again whatever the square does.
+        let perimeter = target / roadFactor
+        let scale = perimeter / (Double(steps) * 2 * sin(.pi / Double(steps)))
         guard scale > 1 else { return nil }
-        // No bias here: nudging every turning point towards the least covered ground pulls
-        // all of them onto the same street when the coverage is uniform, which is exactly
-        // how a zigzag collapses into an out-and-back. The zigzag itself already covers new
-        // ground; the ranking is what keeps a route that doubles back from being offered.
-        return points(scale: scale)
+        // The centre sits one circumradius from the start, in the direction the first leg leaves.
+        let centre = Geo.destination(from: start, bearing: bearing, distance: scale)
+        let startAngle = bearing + 180
+        return (1..<steps).map { index in
+            let jitter = index < jitters.count ? jitters[index] : (along: 0, across: 0)
+            let radius = scale * (1 + jitter.along)
+            let angle = startAngle + Double(index) * 360 / Double(steps)
+                + atan(jitter.across) * 180 / .pi
+            return Geo.destination(from: centre, bearing: angle, distance: radius)
+        }
     }
 
     /// Slides a turning point across its row until it sits on the least covered ground within
@@ -514,7 +487,7 @@ struct RoutePlanner {
                 endMeters: config.backtrackingEndMeters)
             candidates.append((route, backtrack))
         }
-        let clean = candidates.filter { $0.backtrack <= 0.1 }
+        let clean = candidates.filter { $0.backtrack <= 0.05 }
         let pool = clean.isEmpty ? candidates : clean
 
         var scored: [(route: PlannedRoute, score: Double)] = []

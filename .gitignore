@@ -17,3 +17,6 @@ xcuserdata/
 
 # Swift Package Manager
 .swiftpm/
+
+# Simulator derived data
+build-sim/
