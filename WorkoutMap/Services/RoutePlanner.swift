@@ -63,11 +63,22 @@ struct RoutePlanner {
         /// second is the ceiling the settings' own maximums ask for — five routes of five legs —
         /// plus a little slack, so asking for five routes never silently yields three. What
         /// keeps a burst from being throttled is `maxConcurrentLegs` and the retry, not this.
-        var maxLegsPerRoute = 5
+        var maxLegsPerRoute = 8
         var maxLegsPerPlan = 30
 
-        /// The number of legs a shape asks for: one at the widest, five at the tightest.
-        static func steps(for shape: Double) -> Int {
+        /// The number of legs a loop asks for. Tight means "fill the streets around here" rather
+        /// than "walk a big circle": on the map the triangle's long legs between far-apart
+        /// vertices are what the routing service cuts across, so a triangle reads as a big circle
+        /// and a many-sided polygon reads as a compact fill. Tight is therefore the triangle and
+        /// wide is the octagon — the opposite of what the vertex count alone suggests.
+        static func loopSteps(for shape: Double) -> Int {
+            8 - Int((min(max(shape, 0), 1) * 5).rounded())
+        }
+
+        /// The number of legs a start-to-destination route asks for. Tight means "do not wander
+        /// off the direct line", so a tight route is a gentle zigzag with many waypoints close to
+        /// the line; wide is one waypoint far to the side, which is the most a detour can bulge.
+        static func destinationSteps(for shape: Double) -> Int {
             1 + Int((min(max(shape, 0), 1) * 4).rounded())
         }
     }
@@ -116,7 +127,7 @@ struct RoutePlanner {
         // the same street. A closed polygon needs at least a triangle, and its two legs at the
         // start leave in different directions, so the walk cannot double back on itself there.
         let steps = max(3, min(config.maxLegsPerRoute,
-                               Config.steps(for: max(shape, minimumNew))))
+                               Config.loopSteps(for: max(shape, minimumNew))))
 
         var candidates: [(waypoints: [CLLocationCoordinate2D], rough: Double)] = []
         for bearing in loopBearings(generator: &generator) {
@@ -195,8 +206,7 @@ struct RoutePlanner {
     /// way home are not the same direction.
     ///
     /// The polygon is sized so its perimeter is the distance asked for, corrected for a real
-    /// route being longer than the straight lines it follows. `steps` is the number of legs:
-    /// three is a wide sweep, five is a tight one.
+    /// route being longer than the straight lines it follows. `steps` is the number of legs.
     ///
     /// Returns `nil` when the polygon would be too small to be a walk at all.
     private func loopShape(start: CLLocationCoordinate2D,
@@ -254,7 +264,7 @@ struct RoutePlanner {
         let target = max(200, request.targetMeters)
         let history = PlanHistory.load()
         let steps = min(config.maxLegsPerRoute,
-                        max(1, Config.steps(for: max(shape, minimumNew))))
+                        max(1, Config.destinationSteps(for: max(shape, minimumNew))))
 
         guard let directLegs = try? await client.route(from: start, to: destination),
               let direct = directLegs.first else { return nil }
