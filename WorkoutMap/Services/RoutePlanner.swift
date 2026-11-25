@@ -43,6 +43,22 @@ struct RoutePlanner {
         var recencyPenalty = 0.5
         /// The angular window of that dock, in degrees.
         var recencyWindowDegrees = 70.0
+        /// How much a route is docked for walking the same street twice. The share of the route
+        /// that doubles back is multiplied by this. A dead end is the one time a double-back is
+        /// unavoidable, so the share it produces is small enough that the route is still ranked
+        /// ahead of a genuinely worse one.
+        var backtrackingPenalty = 1.0
+        /// How close two points have to be to count as the same street, in metres.
+        var backtrackingSameStreetMeters = 15.0
+        /// How far apart along the route two visits have to be, in metres, so a turn is not a
+        /// double-back.
+        var backtrackingMinGapMeters = 40.0
+        /// How much the direction of travel may differ and still count as the same street:
+        /// straight on or straight back, within this many degrees.
+        var backtrackingBearingTolerance = 45.0
+        /// How much of the route's start and end to ignore, so a loop closing at its start is
+        /// not mistaken for a double-back.
+        var backtrackingEndMeters = 30.0
         /// The most legs one route may be made of, and the most a whole plan may cost. The
         /// second is the ceiling the settings' own maximums ask for — five routes of five legs —
         /// plus a little slack, so asking for five routes never silently yields three. What
@@ -127,7 +143,10 @@ struct RoutePlanner {
         }
 
         let budget = max(1, config.maxLegsPerPlan / steps)
-        let wanted = max(1, min(routeCount, budget))
+        // Route more candidates than the settings ask for, so the final ranking has a real choice
+        // and can reject a shape that doubles back on itself. Three is the floor when only one
+        // route is asked for: one candidate leaves no alternative to prefer.
+        let wanted = max(1, min(candidates.count, budget, max(routeCount * 2, 3)))
         let finalists = candidates.sorted { $0.rough > $1.rough }.prefix(wanted)
 
         var routed: [PlannedRoute] = []
@@ -271,18 +290,38 @@ struct RoutePlanner {
         // A detour only makes sense when the user wants to walk farther than the direct way.
         if target > direct.distance * 1.05 {
             var generator = SplitMix64(seed: seed &+ 1)
-            let jitters = [Double.random(in: -10...10, using: &generator),
-                           Double.random(in: -10...10, using: &generator)]
+            // Four detours rather than two: the zigzag is what makes a route walk the same
+            // street twice, and the final ranking needs a real alternative to reject it with.
+            // The budget leaves room for four at five steps — one direct leg, four detours of
+            // five, and one correction of five — and fewer when the shape asks for more.
+            let detourCount = min(4, max(2, (config.maxLegsPerPlan - 1 - steps) / steps))
+            let jitters = (0..<detourCount).map { _ in
+                Double.random(in: -10...10, using: &generator)
+            }
+            let sides: [Double] = [-1, 1, -1, 1]
 
             var rounds: [(side: Double, jitter: Double, legs: [DirectionsLeg])] = []
-            async let left = detourRound(start: start, destination: destination, steps: steps,
-                                         side: -1, jitter: jitters[0], target: target,
-                                         offset: nil, coverage: coverage, client: client)
-            async let right = detourRound(start: start, destination: destination, steps: steps,
-                                          side: 1, jitter: jitters[1], target: target,
-                                          offset: nil, coverage: coverage, client: client)
-            if let legs = await left { rounds.append((-1, jitters[0], legs)) }
-            if let legs = await right { rounds.append((1, jitters[1], legs)) }
+            await withTaskGroup(of: (Int, [DirectionsLeg]?).self) { group in
+                for index in 0..<detourCount {
+                    let side = sides[index]
+                    let jitter = jitters[index]
+                    group.addTask {
+                        let legs = await detourRound(start: start, destination: destination,
+                                                     steps: steps, side: side, jitter: jitter,
+                                                     target: target, offset: nil,
+                                                     coverage: coverage, client: client)
+                        return (index, legs)
+                    }
+                }
+                var results: [(Int, [DirectionsLeg]?)] = []
+                for await result in group { results.append(result) }
+                results.sort { $0.0 < $1.0 }
+                for (index, legs) in results {
+                    if let legs {
+                        rounds.append((sides[index], jitters[index], legs))
+                    }
+                }
+            }
 
             // One correction round on the better of the two: the shape is sized on straight
             // lines, so the first routed length can still be a way off.
@@ -471,11 +510,18 @@ struct RoutePlanner {
             // here: this is the last word on which route the user is offered first, and it
             // should be the best of them rather than the luckiest.
             let shortfall = max(0, minimumNew - route.newFraction)
+            let backtrack = Geo.backtrackingFraction(
+                of: route.coordinates,
+                sameStreetMeters: config.backtrackingSameStreetMeters,
+                minGapMeters: config.backtrackingMinGapMeters,
+                bearingTolerance: config.backtrackingBearingTolerance,
+                endMeters: config.backtrackingEndMeters)
             let score = 0.5 * route.newFraction + 0.3 * fit - penalty
+                - config.backtrackingPenalty * backtrack
                 - 3 * shortfall - (within ? 0 : 2)
             scored.append((route, score))
         }
-        let limit = max(1, min(routeCount, config.maxLegsPerRoute))
+        let limit = max(1, min(routeCount, routes.count))
         let ordered = scored.sorted { $0.score > $1.score }.prefix(limit)
         let numbered = ordered.enumerated().map { offset, element in
             PlannedRoute(id: offset,
