@@ -240,9 +240,11 @@ struct RoutePlanner {
         let scale = (low + high) / 2
         // The start has to be reached and left again whatever the square does.
         guard scale > 1 else { return nil }
-        return points(scale: scale).map {
-            bias($0, across: bearing, span: scale * 0.3, coverage: coverage)
-        }
+        // No bias here: nudging every turning point towards the least covered ground pulls
+        // all of them onto the same street when the coverage is uniform, which is exactly
+        // how a zigzag collapses into an out-and-back. The zigzag itself already covers new
+        // ground; the ranking is what keeps a route that doubles back from being offered.
+        return points(scale: scale)
     }
 
     /// Slides a turning point across its row until it sits on the least covered ground within
@@ -498,8 +500,25 @@ struct RoutePlanner {
                           routes: [PlannedRoute],
                           history: PlanHistory) -> RoutePlan? {
         let target = max(200, request.targetMeters)
-        var scored: [(route: PlannedRoute, score: Double)] = []
+        // A double-back is measured before scoring, so a route that walks the same street twice
+        // can be dropped outright when a clean alternative exists. A dead end is the only time
+        // a double-back is unavoidable, so the clean pool is only empty when there is nothing
+        // else to offer.
+        var candidates: [(route: PlannedRoute, backtrack: Double)] = []
         for route in routes {
+            let backtrack = Geo.backtrackingFraction(
+                of: route.coordinates,
+                sameStreetMeters: config.backtrackingSameStreetMeters,
+                minGapMeters: config.backtrackingMinGapMeters,
+                bearingTolerance: config.backtrackingBearingTolerance,
+                endMeters: config.backtrackingEndMeters)
+            candidates.append((route, backtrack))
+        }
+        let clean = candidates.filter { $0.backtrack <= 0.1 }
+        let pool = clean.isEmpty ? candidates : clean
+
+        var scored: [(route: PlannedRoute, score: Double)] = []
+        for (route, backtrack) in pool {
             let fit = 1 - min(1, abs(route.distance - target) / target)
             let within = abs(route.distance - target) <= target * config.distanceTolerance
             let midpoint = Geo.pointAlong(route.coordinates, fraction: 0.5) ?? start
@@ -510,12 +529,6 @@ struct RoutePlanner {
             // here: this is the last word on which route the user is offered first, and it
             // should be the best of them rather than the luckiest.
             let shortfall = max(0, minimumNew - route.newFraction)
-            let backtrack = Geo.backtrackingFraction(
-                of: route.coordinates,
-                sameStreetMeters: config.backtrackingSameStreetMeters,
-                minGapMeters: config.backtrackingMinGapMeters,
-                bearingTolerance: config.backtrackingBearingTolerance,
-                endMeters: config.backtrackingEndMeters)
             let score = 0.5 * route.newFraction + 0.3 * fit - penalty
                 - config.backtrackingPenalty * backtrack
                 - 3 * shortfall - (within ? 0 : 2)
