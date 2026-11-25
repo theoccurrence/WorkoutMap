@@ -49,6 +49,12 @@ enum DebugLaunch {
     static var editStrokeDelay: Double { Double(env["WM_EDIT_STROKE_DELAY"] ?? "") ?? 5 }
     /// WM_EDIT_SAVE=1 saves the edit after that stroke, through the call *Done* makes.
     static var editSave: Bool { env["WM_EDIT_SAVE"] == "1" }
+    /// WM_EDIT_TOOLS_HIDDEN=1 opens the editor with the tools panel already swiped away, and
+    /// WM_EDIT_TOOLS=<seconds> puts it away that long after the screen opens and brings it back the
+    /// same time later — through the very calls the swipe and the chevron make, since the simulator
+    /// has no way to swipe the panel from the command line.
+    static var editToolsHidden: Bool { env["WM_EDIT_TOOLS_HIDDEN"] == "1" }
+    static var editToolsCycle: Double? { env["WM_EDIT_TOOLS"].flatMap(Double.init) }
     /// WM_PAN="x1,y1;x2,y2" drives the two-finger pan through `panMap(by:)` — the very call the pan
     /// recognizer makes — and WM_FAKE_PINCH_SCALE=<scale> stands in for a pinch. With a scale away
     /// from 1 the pan must leave the camera alone, which is the whole of the zoom fix.
@@ -90,11 +96,18 @@ enum DebugLaunch {
     static var jumpSpeedStyle: RouteJumpStyle? { env["WM_JUMP_SPEED_STYLE"].flatMap(RouteJumpStyle.init(rawValue:)) }
     static var jumpDistanceThreshold: Double? { env["WM_JUMP_DISTANCE_M"].flatMap(Double.init) }
     static var jumpSpeedThreshold: Double? { env["WM_JUMP_SPEED_KMH"].flatMap(Double.init) }
+    /// WM_SATELLITE_LABELS=0|1 sets whether Satellite draws its labels layer, so the toggle the map
+    /// modes panel carries can be checked without a tap.
+    static var satelliteLabels: Bool? { env["WM_SATELLITE_LABELS"].map { $0 == "1" } }
 
-    /// Writes the jump hooks above into the settings the views read, at launch rather than when
-    /// the map screen opens — the Workouts list draws its thumbnails before any map exists.
-    static func applyJumpOverrides() {
+    /// Writes the settings hooks above into the values the views read, at launch rather than when
+    /// the map screen opens — the Workouts list draws its thumbnails before any map exists, and the
+    /// map modes panel reads the Satellite setting the moment it opens.
+    static func applySettingOverrides() {
         let defaults = UserDefaults.standard
+        if let labels = satelliteLabels {
+            defaults.set(labels, forKey: MapMode.satelliteLabelsKey)
+        }
         if let style = startJumpStyle ?? jumpDistanceStyle {
             defaults.set(style.rawValue, forKey: JumpSettings.distanceStyleKey)
         }
@@ -275,6 +288,8 @@ enum DebugLaunch {
     static var editStroke: [CGPoint]? { nil }
     static var editStrokeDelay: Double { 5 }
     static var editSave: Bool { false }
+    static var editToolsHidden: Bool { false }
+    static var editToolsCycle: Double? { nil }
     static var panSamples: [CGPoint] { [] }
     static var panDelay: Double { 4 }
     static var fakePinchScale: Double? { nil }
@@ -290,7 +305,8 @@ enum DebugLaunch {
     static var jumpSpeedStyle: RouteJumpStyle? { nil }
     static var jumpDistanceThreshold: Double? { nil }
     static var jumpSpeedThreshold: Double? { nil }
-    static func applyJumpOverrides() {}
+    static var satelliteLabels: Bool? { nil }
+    static func applySettingOverrides() {}
     static var openModes: Bool { false }
     static var tapAt: CGPoint? { nil }
     static var fakeHeading: String? { nil }

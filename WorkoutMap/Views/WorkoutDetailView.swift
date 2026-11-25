@@ -30,9 +30,14 @@ struct WorkoutDetailView: View {
     /// The route-editing screen. Its edits are the app's own — the workout itself is untouched.
     @State private var showEdit = DebugLaunch.startEdit
     @State private var visibleMapRect: MKMapRect?
+    /// How tall the stats-and-source block under the map stands — measured, because the rail hangs on
+    /// its top edge in every pose and on every display (see `body`).
+    @State private var blockHeight: CGFloat = 0
     /// How the map is drawn, matching the map screen: the appearance setting against the
     /// system's own style.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
+    /// Whether Satellite draws its labels layer — the same setting the map screen's panel writes.
+    @AppStorage(MapMode.satelliteLabelsKey) private var satelliteLabels = true
     /// The jump rules — the same settings the map screen reads.
     @AppStorage(JumpSettings.distanceStyleKey) private var jumpDistanceStyle: RouteJumpStyle = JumpRules.standard.distanceStyle
     @AppStorage(JumpSettings.distanceThresholdKey) private var jumpDistanceThreshold: Double = JumpRules.standard.distanceThreshold
@@ -80,25 +85,57 @@ struct WorkoutDetailView: View {
             // its caller (`MapTabView.menuLayer`, whose container ignores the safe area), so what it reads
             // here *is* the card; pushed, the screen is its container and that container's safe areas
             // belong to it.
+            // The column the rail keeps: on the folded panel the status cluster's own centre, which is
+            // further out than the app's `screenInset` (`statusColumnInsetFolded`, measured).
+            let folded = proxy.safeAreaInsets.trailing >= Metrics.railInset
             let full = presentation == .card
                 ? proxy.size
                 : CGSize(width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
                          height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
-            VStack(spacing: 0) {
-                // The map takes what the stats and the source label leave rather than a fixed share of
-                // the screen: the reference display gave it 59.96 % (measured), and it gets that
-                // whenever the block below it is the size the reference had — but a smaller screen, or
-                // a wider one that lays the same six cards out in fewer rows, can never leave a card
-                // or the `*Data from …` label outside the card for want of the space.
-                mapSection
-                stats(landscape: full.width > full.height)
-                    .padding(.horizontal, 23)
-                    .padding(.top, 18)
-                footer
-                    .padding(.horizontal, 23)
-                    .padding(.top, 17)
+            // A column measured from the **display** has two things to take back out, and the two
+            // presentations differ by both: `pushed` is laid out in the display itself, while `card`
+            // sits in the card's box — `menuCardInset` inside the display *and* inset by the window's
+            // safe area (84 pt of it on the folded cover panel's trailing side, which the panel
+            // reserves for its rail). Without the second one the card's rail stood 84 pt inboard of the
+            // pushed screen's, which is exactly what the user saw.
+            let column = folded ? Metrics.statusColumnInsetFolded : Metrics.screenInset
+            let railTrailing = presentation == .card
+                ? column - Metrics.menuCardInset - proxy.safeAreaInsets.trailing
+                : column
+            ZStack(alignment: .bottomTrailing) {
+                VStack(spacing: 0) {
+                    // The map takes what the stats and the source label leave rather than a fixed share of
+                    // the screen: the reference display gave it 59.96 % (measured), and it gets that
+                    // whenever the block below it is the size the reference had — but a smaller screen, or
+                    // a wider one that lays the same six cards out in fewer rows, can never leave a card
+                    // or the `*Data from …` label outside the card for want of the space.
+                    mapSection
+                    // The stats and the source label are **one block**, measured below: the rail hangs on
+                    // its top edge, so the gap between the rail and the info cards is the same one in
+                    // every pose and on every display — which is what the user asked for, and what the
+                    // folded panel held sideways needed (there the rail used to reach *into* the cards).
+                    VStack(spacing: 0) {
+                        stats(landscape: full.width > full.height)
+                            .padding(.horizontal, 23)
+                            .padding(.top, 18)
+                        footer
+                            .padding(.horizontal, 23)
+                            .padding(.top, 17)
+                    }
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { blockHeight = $0.height }
+                }
+                .frame(width: full.width, height: full.height, alignment: .top)
+
+                // The screen's own rail — **Share**, **Edit** and **Back**, one round glass button each
+                // — anchored to the **bottom**, just above the info cards, at the same gap the buttons
+                // keep between themselves (`pillGap`, ~35 px at 3×), on the column the status cluster
+                // keeps. Hanging from the bottom is what keeps it out of the status band's way: that
+                // band's height is a number the folded panel does not report at all (measured: top 0),
+                // and every attempt to guess it put the buttons among the icons.
+                actionRail
+                    .padding(.trailing, railTrailing)
+                    .padding(.bottom, blockHeight + Metrics.pillGap)
             }
-            .frame(width: full.width, height: full.height, alignment: .top)
             // The black backdrop is a plain fill, and the *shape* it is cut to is the caller's: the
             // screen this is a card of is the one that knows where the card sits on the display and
             // therefore what each of its corners resolves to (`menuCardShape`), so it clips this whole
@@ -127,9 +164,15 @@ struct WorkoutDetailView: View {
         // the rail and the tab bar — is *faded* by it (`MapTabView.SystemChromeFade`) rather than hidden
         // from here: nothing about the bars is declared in this case, so the fade is the only thing
         // moving them.
-        .ignoresSafeArea(edges: presentation == .card ? [] : .top)
-        .overlay(alignment: .topLeading) { backButton }
-        .overlay(alignment: .topTrailing) { topTrailingButtons }
+        //
+        // **No** `ignoresSafeArea(.top)` here, and that is the point: the screen is made full-bleed by
+        // the `ZStack` above, and a second one *on the reader* took the window's own top inset away from
+        // it — measured on the Pro Max, the reader then reported `top: 0` and the rail was placed 3 pt
+        // *inside* the notch band (59 instead of 62).
+        // This screen's own actions are drawn **in** it, in the `ZStack` above: a column at the
+        // display's trailing edge, below the band the status elements keep, rather than in the two
+        // corners the screen used to carry them in — a corner button was under the status cluster and
+        // could not be tapped at all (the user's screenshot).
         .toolbar(presentation == .card ? .automatic : .hidden, for: .navigationBar)
         .toolbar(presentation == .card ? .automatic : .hidden, for: .tabBar)
         .task(id: workout.id) {
@@ -158,6 +201,7 @@ struct WorkoutDetailView: View {
                      camera: RouteGeometry.fittedRect(routes: [visibleCoordinates]).map { .fit($0) },
                      cameraToken: route.count,
                      mode: MapMode.stored,
+                     satelliteLabels: satelliteLabels,
                      interfaceStyle: mapInterfaceStyle,
                      onRegionChange: { visibleMapRect = $0 })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -260,57 +304,28 @@ struct WorkoutDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var backButton: some View {
-        Button {
-            // As the map screen's own card there is no presentation of this screen's to dismiss, so the
-            // screen that drew the card is the one that closes it.
-            if let onClose { onClose() } else { dismiss() }
-        } label: {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+    /// The three actions this screen carries: **Share**, **Edit** and **Back**, one round glass button
+    /// each — the shape the map screen's own rail draws.
+    ///
+    /// They are drawn **in** the screen rather than declared as toolbar items, which is a measured
+    /// decision rather than a preference: the bar the rail's actions live in is the one the map screen
+    /// **fades** while a card is up (`SystemChromeFade` — on the Duo the rail and the tab capsule are
+    /// one view, and the capsule's band is where a card's own bottom edge reaches), so an item declared
+    /// there would be invisible exactly when the card is on screen. What they *do* carry is the
+    /// system's own glass button (`GlassCircleButton`), which is what makes them react to a tap the way
+    /// the rail's do.
+    private var actionRail: some View {
+        VStack(spacing: Metrics.pillGap) {
+            GlassCircleButton(symbol: "square.and.arrow.up", label: "Share") { showExport = true }
+            GlassCircleButton(symbol: "eraser", label: "Edit route") { showEdit = true }
+            GlassCircleButton(symbol: "chevron.left", label: "Back") {
+                if let onClose { onClose() } else { dismiss() }
+            }
         }
-        .buttonStyle(.plain)
-        .padding(.leading, 8)
     }
 
-    /// The two actions the screen's top trailing corner carries: the route editor, and the export
-    /// card.
-    private var topTrailingButtons: some View {
-        HStack(spacing: 0) {
-            editButton
-            shareButton
-        }
-        .padding(.trailing, 8)
-    }
 
-    /// Opens the route editor: the eraser the screen is named for. Health's workout is not touched
-    /// by it — what is edited is how this app draws the workout's route.
-    private var editButton: some View {
-        Button { showEdit = true } label: {
-            Image(systemName: "eraser")
-                .font(.system(size: 22, weight: .regular))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Edit route")
-    }
 
-    private var shareButton: some View {
-        Button { showExport = true } label: {
-            Image(systemName: "square.and.arrow.up")
-                .font(.system(size: 22, weight: .regular))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Share")
-    }
 }
 
 struct StatCard: View {

@@ -579,6 +579,8 @@ struct RouteMapView: UIViewRepresentable {
     var cameraToken: Int = 0
     /// The map style — see `MapMode`. Everything but `legacy` is the map as MapKit draws it.
     var mode: MapMode = .legacy
+    /// Whether Satellite draws its labels layer — see `MapMode.satelliteLabels`.
+    var satelliteLabels: Bool = MapMode.satelliteLabels
     /// The style the map draws in: light or dark, resolved from the settings (`MapAppearance`).
     /// `legacy` is drawn dark whatever this says, since it is the grey map the app shipped with.
     var interfaceStyle: UIUserInterfaceStyle = .dark
@@ -631,7 +633,7 @@ struct RouteMapView: UIViewRepresentable {
     func makeUIView(context: Context) -> FittableMapView {
         let map = FittableMapView()
         map.delegate = context.coordinator
-        map.preferredConfiguration = mode.configuration()
+        map.preferredConfiguration = mode.configuration(satelliteLabels: satelliteLabels)
         // MapKit draws its standard map (and its imagery labels) in the interface style it is
         // handed; the app is pinned to dark, so the map carries its own.
         map.overrideUserInterfaceStyle = interfaceStyle
@@ -655,6 +657,7 @@ struct RouteMapView: UIViewRepresentable {
                      forAnnotationViewWithReuseIdentifier: DestinationPinView.reuseIdentifier)
         map.onLayout = { [weak coordinator = context.coordinator] in
             coordinator?.applyPendingCamera()
+            coordinator?.reapplyOverlaysIfNeeded()
             // A layout pass means the window may have turned, and the device heading is
             // measured from the top of the device — what it means on screen has changed.
             coordinator?.applyDotDirection()
@@ -715,6 +718,7 @@ struct RouteMapView: UIViewRepresentable {
 
         private var toneOverlays: [ToneOverlay] = []
         private var appliedMode: MapMode?
+        private var appliedSatelliteLabels: Bool?
         var appliedInterfaceStyle: UIUserInterfaceStyle?
         private var routeOverlays: [RouteColorOverlay] = []
         /// The renderers of the dotted jump overlays, so a zoom change can ask them to redraw.
@@ -751,6 +755,19 @@ struct RouteMapView: UIViewRepresentable {
             }
         }
         private var signature = ""
+        /// True while the overlay set on the map has not been drawn yet.
+        ///
+        /// MapKit only repaints an overlay when it actually renders, and it stops rendering while
+        /// the map is off screen — behind the editor, which is presented as a full screen cover over
+        /// this screen. An overlay set that is replaced in that window is on the map but not on the
+        /// screen: nothing is drawn until the visible region next changes. So the swap is remembered,
+        /// and it is *made again* — fresh overlay objects, which is what makes MapKit invalidate the
+        /// tiles — the next time the map is laid out, which is when it is back on screen.
+        /// `mapViewDidFinishRenderingMap` says the map has drawn the set that is on it, and clears it.
+        private var overlaysChangedSinceRender = false
+        /// How long after a route set was replaced the map is asked to draw it again — longer than the
+        /// dismissal of the full screen presentation the editor comes up in.
+        private static let repaintRetryDelay: TimeInterval = 0.5
         private var dotAnnotation: UserDotAnnotation?
         private var pinAnnotation: DestinationPinAnnotation?
         /// The dot's own animation — see `updateUserDot`.
@@ -817,10 +834,12 @@ struct RouteMapView: UIViewRepresentable {
         /// than removed and re-added: MapKit draws the overlays of one level in the order
         /// they were added, so a tone pass re-added after the routes would grey those out.
         func updateMode() {
-            guard let map, appliedMode != parent.mode else { return }
+            guard let map else { return }
+            guard appliedMode != parent.mode || appliedSatelliteLabels != parent.satelliteLabels else { return }
             appliedMode = parent.mode
+            appliedSatelliteLabels = parent.satelliteLabels
             // MapKit has no animated form of this; the style swaps in one frame.
-            map.preferredConfiguration = parent.mode.configuration()
+            map.preferredConfiguration = parent.mode.configuration(satelliteLabels: parent.satelliteLabels)
             let wanted = parent.mode.usesTone
             guard toneOverlays.contains(where: { $0.active != wanted }) else { return }
             for tone in toneOverlays {
@@ -1195,6 +1214,23 @@ struct RouteMapView: UIViewRepresentable {
 
         // MARK: routes
 
+        /// The overlay that stands in for a route set that holds **nothing** — every leg of a route
+        /// erased, or a filter with no route in it at all.
+        ///
+        /// The set on the map is never left empty: drawing the route set again is done by handing
+        /// MapKit fresh overlays (`reapplyOverlaysIfNeeded`), and an empty set has nothing to hand
+        /// over. This one spans the **visible rectangle** — so the tiles a route *was* drawn on are
+        /// tiles it touches — and draws a hairline: measured on the iPhone 18 Pro Max, an erased set
+        /// stayed on the map until this was added, while a carrier whose rectangle was the *world*
+        /// left it drawn. Alpha 0.004 changes no pixel by more than one step, so nothing of it is
+        /// visible over any map.
+        private static func repaintCarrier(in rect: MKMapRect) -> RouteColorOverlay {
+            let corners = [MKMapPoint(x: rect.minX, y: rect.minY).coordinate,
+                           MKMapPoint(x: rect.maxX, y: rect.maxY).coordinate]
+            return RouteColorOverlay(color: UIColor(white: 1, alpha: 0.004), width: 1, dash: nil,
+                                     polylines: [MKPolyline(coordinates: corners, count: corners.count)])
+        }
+
         /// Rebuilds the overlays, and only when the route set changes.
         ///
         /// The workout routes come first and the explorer's planned ones after them: MapKit
@@ -1247,9 +1283,45 @@ struct RouteMapView: UIViewRepresentable {
 
             map.removeOverlays(routeOverlays)
             jumpRenderers = []
-            routeOverlays = grouped.map {
+            routeOverlays = grouped.isEmpty
+                ? [Self.repaintCarrier(in: map.visibleMapRect)]
+                : grouped.map { RouteColorOverlay(color: $0.color, width: $0.width, dash: $0.dash,
+                                                  polylines: $0.polylines) }
+            map.addOverlays(routeOverlays, level: .aboveLabels)
+            overlaysChangedSinceRender = true
+            // And once more, a moment from now: a layout pass is when the map is usually back on
+            // screen, but the detail screen the Workouts list pushes is not laid out again by an edit,
+            // so the change is also tried once the cover a full screen presentation puts over the map
+            // has had the time to leave. A no-op if the map has drawn the set by then.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.repaintRetryDelay) { [weak self] in
+                self?.reapplyOverlaysIfNeeded()
+            }
+        }
+
+        /// Asks MapKit to draw the route set that is on the map, once the map is on screen again.
+        ///
+        /// MapKit draws an overlay when it **renders**, and it stops rendering while the map is not
+        /// on screen — which is the case for the workout detail card's map while the route editor,
+        /// presented as a full screen cover, is over it. A route set replaced in that window is on the
+        /// map but not on the tile that was drawn for it, and nothing draws it again until the visible
+        /// region next changes: that is why an edit made in the editor used to show up only once the
+        /// card's map had been moved under the finger. Handing MapKit **fresh overlay objects** is what
+        /// asks for those tiles again; it is done from the map's layout pass, which is when the map is
+        /// back on screen (`FittableMapView.onLayout`), and `mapViewDidFinishRenderingMap` is what says
+        /// the set on the map has been drawn, and stops this from being repeated.
+        func reapplyOverlaysIfNeeded() {
+            guard overlaysChangedSinceRender, let map, !routeOverlays.isEmpty else { return }
+            // **Fresh objects**, not the ones that are there: an overlay replaced with itself is the
+            // same set as far as MapKit is concerned, and a set it has already drawn is not drawn
+            // again. Neither is an unchanged tile: the new objects are what asks for the tiles to be
+            // drawn once more, and the geometry they carry is the set that is already on the map —
+            // which, for a route set that left nothing (every leg erased), is the span the routes
+            // were drawn over, so the tiles that hold them are the ones asked for again.
+            let remade = routeOverlays.map {
                 RouteColorOverlay(color: $0.color, width: $0.width, dash: $0.dash, polylines: $0.polylines)
             }
+            map.removeOverlays(routeOverlays)
+            routeOverlays = remade
             map.addOverlays(routeOverlays, level: .aboveLabels)
         }
 
@@ -1496,6 +1568,10 @@ struct RouteMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             parent.onRegionChange?(mapView.visibleMapRect)
+        }
+
+        func mapViewDidFinishRenderingMap(_ mapView: MKMapView, fullyRendered: Bool) {
+            if fullyRendered { overlaysChangedSinceRender = false }
         }
 
         /// Fires continuously while the map is turned: the cone is drawn in the screen's frame,

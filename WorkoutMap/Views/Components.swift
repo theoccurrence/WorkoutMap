@@ -1,43 +1,97 @@
 import SwiftUI
 
-struct CloseCircleButton: View {
-    /// The glyph. White on the grey circle — black read as a hole punched in the frosted glass
-    /// the newer panels are drawn on, and the circle is dark enough to carry it.
+/// One round action on the app's **Liquid Glass**.
+///
+/// The button is the system's own — `.buttonStyle(.glass)` with `.buttonBorderShape(.circle)`, which is
+/// exactly what a toolbar item of the map screen's rail is drawn with — and it is given **no size of
+/// its own**: the label is the bare symbol, so the glass is the size the system sizes it to (measured
+/// below) and the glyph is the system's own weight and scale, the way the cross on Apple Maps' own
+/// *Map Modes* card is. An explicit `.frame` inside the glass is what made the first version's button
+/// ~62 pt across where that one is ~50, with a cross a third larger again: the glass pads whatever it
+/// is handed, so imposing `Metrics.toolbarButtonSize` on the *content* adds its padding *on top*.
+/// The colour comes through `tint` rather than `foregroundStyle`, which is the other half of the same
+/// measurement — a glass button carries its label's colour that way, and a painted symbol never reacted
+/// to a touch at all.
+struct GlassCircleButton: View {
+    var symbol: String
+    var label: String
+    /// The glyph. White over the glass on the app's dark screens.
     var glyph: Color = .white
+    /// The glyph's own point size, where the system's (the body font's) is not the right one. Only
+    /// the close cross needs it — see `Metrics.closeGlyphSize`.
+    var glyphSize: CGFloat? = nil
+    /// The system's control size. `.large` is the app's default; the plan-route bar asks for
+    /// `.regular` (the "medium" the user wanted to see).
+    var size: ControlSize = .large
+    /// The wash in the **glass** itself, where the button has a state to show — the map screen's
+    /// filter circles are the users: `tint` alone colours the glyph, and a glass button's own glass
+    /// stays neutral, so the wash has to be asked for through the button's `Glass` value.
+    var glassTint: Color? = nil
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                Circle().fill(Palette.closeButton)
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(glyph)
-            }
-            .frame(width: 30, height: 30)
+            Image(systemName: symbol)
+                // A **fixed** box for the label, which is what makes every circle the same size: the
+                // glass pads whatever it is handed, so a bare symbol sizes its own disc — measured at
+                // `.large`, `chevron.left` came out 42.7 × 47.3 pt where `square.and.arrow.up` was
+                // 49 × 52.7 and `ellipsis` 48.3 × 36 (the Duo's cover panel read the same three as
+                // ~44 and ~52 before the box was introduced). This box plus the glass's own 15 pt a
+                // side is the 48.5 pt every disc in the app comes out at.
+                //
+                // The glyph's own size is the system's — `font` is left to the environment — except
+                // where one is handed in (`glyphSize`): the box is what the glass measures, never the
+                // glyph, so the close cross can take its own size without moving its disc.
+                .font(glyphSize.map { .system(size: $0) })
+                .frame(width: Metrics.glassButtonLabel, height: Metrics.glassButtonLabel)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .controlSize(size)
+        // The wash, where the button has a state to show. A plain colour *behind* the glass, not a
+        // tinted `Glass`: `GlassButtonStyle(Glass)` is iOS 26.1 and this app ships to 26.0, and a
+        // glass that sampled another glass would be the one thing the material is documented not to do.
+        .background {
+            Circle().fill(glassTint?.opacity(0.30) ?? .clear)
+        }
+        .tint(glyph)
+        .accessibilityLabel(label)
     }
 }
 
-extension View {
-    /// The frosted glass the editor's own panel is drawn on.
-    ///
-    /// **Liquid Glass** (`glassEffect`) rather than a `Material`: over a dark map a material —
-    /// even `.ultraThin` — is a grey plate with a blur on it, while the glass keeps its lit edge
-    /// and lets the streets read through it. The 16 pt corner is the one the result card carries.
-    ///
-    /// The map screen's three menus do **not** use this any more: they are cards of their own
-    /// (`menuCard()`, with the display's corners), so that a menu and the sheet the range bubble
-    /// opens are the same shape. See `MapTabView.menuLayer` for what a menu is, and what it is not:
-    /// a real sheet was given a glass panel by the system that no value of `presentationBackground`
-    /// removes (measured on iOS 27 — the card keeps its blurred panel whatever that modifier is
-    /// told, and only an opaque colour painted over it hides it), and it is the full width of the
-    /// window, so on the Duo it lies over the screen's rail.
-    func glassPanel() -> some View {
-        glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
+/// The close cross a menu card of the app carries — the map screen's three menus and the route
+/// editor's own chrome.
+struct MenuCloseButton: View {
+    var glyph: Color = .white
+    var size: ControlSize = .large
+    var action: () -> Void
 
+    var body: some View {
+        GlassCircleButton(symbol: "xmark", label: "Close", glyph: glyph,
+                          glyphSize: size == .large ? Metrics.closeGlyphSize : Metrics.closeGlyphSizeMedium,
+                          size: size, action: action)
+    }
+}
+
+/// The motion a card of the app is put away on, and a control that belongs to it fades on.
+///
+/// One spring for the whole app rather than one per screen: the map screen's own menus open and
+/// leave on it, the chrome around them fades on it, and the route editor's tools panel — dismissed
+/// by a swipe, brought back by a chevron that fades in — is put away on the same one, so a card
+/// anywhere in the app leaves at the same rate and a control that comes or goes with it is never
+/// seen moving on a spring of its own.
+///
+/// The numbers are read by `MapTabView.menuSpringResponse` as well, which keeps the debug hook that
+/// stretches the spring (`WM_MENU_DURATION`), and are written out by hand there because
+/// `UISpringTimingParameters` has to be handed numbers rather than a SwiftUI `Animation`.
+enum MenuMotion {
+    static let response: Double = 0.34
+    static let damping: Double = 0.86
+
+    static var animation: Animation { .spring(response: response, dampingFraction: damping) }
+}
+
+extension View {
     /// One of the map screen's own cards: the glass, in the shape its **position** asks for
     /// (`menuCardShape`), together with the swipe that throws it away. See `MenuCardModifier` for why
     /// the position has to be measured, and why the one card that draws its own background asks for

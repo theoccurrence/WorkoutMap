@@ -32,9 +32,23 @@ struct RoutePlannerPanel: View {
 
     private var canPlan: Bool { mode == .loop || destination != nil }
 
-    /// The panel's own height: what the sheet it used to be was handed as a detent. The
-    /// destination needs the room for the search field, the results and the pin.
-    private var height: CGFloat { min(mode == .loop ? 340 : 560, room) }
+    /// The panel's own height: what the sheet it used to be was handed as a detent. A destination
+    /// needs the room for the search field, the results and the pin — and no more. The destination
+    /// part is a `ScrollView`, so the panel does not have to be built tall enough for all of them at
+    /// once, and built that tall it reached the top of the display and put its own close cross under
+    /// the status elements as soon as the keyboard pushed it up, which is why it gives that room back.
+    private var height: CGFloat { min(mode == .loop ? 340 : 440, room) }
+
+    /// The mode picker's own binding: what changes with the mode is the panel's **height**, so the
+    /// change is made inside an animation rather than in the tap's own transaction — the card grows
+    /// and shrinks with it (`height`) instead of jumping, which is what it used to do.
+    private var animatedMode: Binding<PlanMode> {
+        Binding(get: { mode },
+                set: { next in
+                    guard next != mode else { return }
+                    withAnimation(MenuMotion.animation) { mode = next }
+                })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -56,6 +70,13 @@ struct RoutePlannerPanel: View {
                 .padding(.bottom, 16)
         }
         .frame(height: height)
+        // On the card's own top-trailing corner, on the column the map screen's toolbar keeps —
+        // see `MapModePanel`, which is the same arrangement.
+        .overlay(alignment: .topTrailing) {
+            MenuCloseButton { onClose() }
+                .padding(.top, Metrics.menuCardCrossInset)
+                .padding(.trailing, Metrics.menuCardCrossInset)
+        }
         .onAppear {
             search.region = region
             if DebugLaunch.focusSearch { searchFocused = true }
@@ -64,21 +85,16 @@ struct RoutePlannerPanel: View {
     }
 
     private var header: some View {
-        ZStack {
-            Text("Explore")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(.white)
-            HStack {
-                Spacer()
-                CloseCircleButton { onClose() }
-            }
-        }
-        .padding(.horizontal, Metrics.contentInset)
-        .padding(.top, 14)
+        Text("Explore")
+            .font(.system(size: 17, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: Metrics.menuHeaderHeight)
+            .padding(.top, Metrics.menuCardCrossInset)
     }
 
     private var modePicker: some View {
-        Picker("Mode", selection: $mode) {
+        Picker("Mode", selection: animatedMode) {
             ForEach(PlanMode.allCases) { item in
                 Text(item.title).tag(item)
             }

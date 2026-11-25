@@ -70,7 +70,7 @@ final class MapImageRenderer {
         options.mapRect = mapRect
         options.size = size
         options.scale = scale
-        options.preferredConfiguration = mode.configuration()
+        options.preferredConfiguration = mode.configuration(satelliteLabels: MapMode.satelliteLabels)
         options.traitCollection = UITraitCollection(userInterfaceStyle: interfaceStyle)
         options.showsBuildings = false
         let snapshotter = MKMapSnapshotter(options: options)

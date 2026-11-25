@@ -12,7 +12,7 @@ struct WorkoutMapApp: App {
                         CategoryColorStore.shared.setHex(hex, for: category)
                     }
                     if DebugLaunch.resetModeColors { CategoryColorStore.shared.reset() }
-                    DebugLaunch.applyJumpOverrides()
+                    DebugLaunch.applySettingOverrides()
                     DebugLaunch.startRotationIfRequested()
                     DebugLaunch.startModeFlipIfRequested()
 #if DEBUG

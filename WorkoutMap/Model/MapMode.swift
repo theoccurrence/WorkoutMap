@@ -25,6 +25,13 @@ enum MapMode: String, CaseIterable, Identifiable {
     /// Where the map screen keeps the style it opens with.
     static let storedKey = "mapMode"
 
+    /// Whether Satellite draws its labels — roads, place names — over the imagery. On by default,
+    /// the way Maps' own Satellite mode starts; the toggle in the map modes panel writes it.
+    static let satelliteLabelsKey = "satelliteLabels"
+    static var satelliteLabels: Bool {
+        UserDefaults.standard.object(forKey: satelliteLabelsKey) as? Bool ?? true
+    }
+
     /// The style the map opens with unless the user picked another one: the app still opens
     /// on the map it shipped with.
     static var stored: MapMode {
@@ -42,7 +49,7 @@ enum MapMode: String, CaseIterable, Identifiable {
     /// * `satellite` — imagery without labels, as Maps' own Satellite mode.
     /// * `legacy` — the style the app shipped with: the muted standard map with every point
     ///   of interest excluded, greyed out by the tone pass (see `usesTone`).
-    func configuration() -> MKMapConfiguration {
+    func configuration(satelliteLabels: Bool = MapMode.satelliteLabels) -> MKMapConfiguration {
         switch self {
         case .explore:
             return MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .default)
@@ -55,7 +62,11 @@ enum MapMode: String, CaseIterable, Identifiable {
             config.pointOfInterestFilter = MKPointOfInterestFilter(including: [.publicTransport])
             return config
         case .satellite:
-            return MKImageryMapConfiguration(elevationStyle: .flat)
+            // Hybrid is the imagery *with* the labels layer — roads, places — which is what Maps'
+            // Satellite mode shows by default; imagery alone is the bare photograph.
+            return satelliteLabels
+                ? MKHybridMapConfiguration(elevationStyle: .flat)
+                : MKImageryMapConfiguration(elevationStyle: .flat)
         case .legacy:
             let config = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
             config.pointOfInterestFilter = .excludingAll

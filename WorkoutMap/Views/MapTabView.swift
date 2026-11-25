@@ -19,6 +19,9 @@ struct MapTabView: View {
     /// The map style. Kept in the settings, so the map opens on the style the user last
     /// picked; `legacy` — the grey map the app shipped with — until they pick another one.
     @AppStorage(MapMode.storedKey) private var mapMode: MapMode = DebugLaunch.startMapMode ?? MapMode.stored
+    /// Whether Satellite draws its labels layer. Kept in the settings, so the map opens the way
+    /// the user last left it; the map modes panel's toggle writes it.
+    @AppStorage(MapMode.satelliteLabelsKey) private var satelliteLabels = true
     /// How the map is drawn: the system's own light or dark style, or one pinned in the
     /// settings.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance =
@@ -497,6 +500,7 @@ struct MapTabView: View {
                          camera: camera,
                          cameraToken: cameraToken,
                          mode: mapMode,
+                         satelliteLabels: satelliteLabels,
                          interfaceStyle: mapInterfaceStyle,
                          userLocation: location.location?.coordinate,
                          userHeading: location.heading,
@@ -639,6 +643,17 @@ struct MapTabView: View {
         }
     }
 
+    /// How tall a menu card of this screen may be.
+    ///
+    /// The display, less the margin a card keeps from its own edges, less the band the status
+    /// elements keep at the top: a card pushed up — the keyboard, under the explorer's search field —
+    /// then stops **below** that band instead of running its own close cross under the clock, and a
+    /// Live Activity, which makes that band taller, takes the room off the card rather than off the
+    /// margin.
+    private func menuRoom(_ proxy: GeometryProxy) -> CGFloat {
+        proxy.size.height - Metrics.menuCardInset - max(windowInsets.top, Metrics.menuCardInset)
+    }
+
     /// The container the screen's three menu cards are drawn in.
     ///
     /// It is in the tree whether or not a menu is up — a full-screen `ZStack` with nothing in it
@@ -652,7 +667,8 @@ struct MapTabView: View {
     ///
     /// `room` is measured here rather than in the card: the reader measures from the display's edges
     /// (`.ignoresSafeArea(.container)`) and takes off the *keyboard's* inset, so a panel taller than
-    /// what the keyboard leaves shrinks instead of pushing its own header off the top.
+    /// what the keyboard leaves shrinks instead of pushing its own header off the top — and it is
+    /// what `menuRoom` holds below the band the status elements keep as well.
     private var menuLayer: some View {
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
@@ -663,7 +679,7 @@ struct MapTabView: View {
                                       droppedPin: droppedPin,
                                       region: currentRegion,
                                       isReadingRoutes: coverage.isFilling,
-                                      room: proxy.size.height - Metrics.menuCardInset,
+                                      room: menuRoom(proxy),
                                       onClose: { close(.plan) },
                                       onPlan: { request in
                                           close(.plan)
@@ -678,7 +694,7 @@ struct MapTabView: View {
                 if showRange {
                     RangePickerPanel(selection: $selection,
                                      workouts: health.workouts,
-                                     room: proxy.size.height - Metrics.menuCardInset,
+                                     room: menuRoom(proxy),
                                      onClose: { close(.range) })
                         .menuCard(display: proxy.size, onDismiss: { close(.range) })
                         .menuCardInsets()
@@ -688,7 +704,7 @@ struct MapTabView: View {
                     MapModePanel(mode: $mapMode,
                                  appearance: mapAppearance,
                                  systemStyle: systemAppearance.style,
-                                 room: proxy.size.height - Metrics.menuCardInset,
+                                 room: menuRoom(proxy),
                                  onClose: { close(.modes) })
                         .menuCard(display: proxy.size, onDismiss: { close(.modes) })
                         .menuCardInsets()
@@ -746,8 +762,8 @@ struct MapTabView: View {
     /// rail ran ahead: 0.37 against the circles' 0.52 alpha at the same instant, 0.05 against 0.13 two
     /// samples later, mean |Δalpha| 0.068 over the leave. Mass 1 with ω₀ = 2π/response and ζ = the
     /// damping brings the two to a mean |Δalpha| of 0.009 over the same leave, 0.037 at worst.
-    private static var menuSpringResponse: Double { DebugLaunch.menuDuration ?? 0.34 }
-    private static let menuSpringDamping: Double = 0.86
+    private static var menuSpringResponse: Double { DebugLaunch.menuDuration ?? MenuMotion.response }
+    private static let menuSpringDamping: Double = MenuMotion.damping
 
     /// True while one of the screen's cards is up — the three menus, or the workout the range bubble
     /// opened, which is drawn as one of them (`menuLayer`) — which is what draws the dim, fades the
@@ -827,34 +843,26 @@ struct MapTabView: View {
     /// when that has been swiped away, and opens the sheet again when the card is already up —
     /// so the route can be stopped and another one started from anywhere.
     private var exploreButton: some View {
-        Button {
+        GlassCircleButton(symbol: "binoculars.fill",
+                          label: "Explore",
+                          glyph: exploreIsOn ? RouteBlue.primary : controlGlyph,
+                          glassTint: exploreIsOn ? RouteBlue.primary : nil) {
             if (plan != nil || isPlanning) && cardParked {
                 showCard()
             } else {
                 open(.plan)
             }
-        } label: {
-            toolbarGlyph("binoculars.fill", tint: exploreIsOn ? RouteBlue.primary : controlGlyph)
         }
-        .buttonStyle(.plain)
-        .glassEffect(exploreIsOn ? .regular.tint(RouteBlue.primary.opacity(0.25)) : .regular,
-                     in: .circle)
-        .accessibilityLabel("Explore")
     }
 
     private func filterButton(_ item: WorkoutCategory) -> some View {
         let selected = category == item
-        return Button {
+        return GlassCircleButton(symbol: item.symbolName,
+                                 label: item.title,
+                                 glyph: selected ? modeColors.color(for: item) : controlGlyph,
+                                 glassTint: selected ? modeColors.color(for: item) : nil) {
             toggle(item)
-        } label: {
-            toolbarGlyph(item.symbolName, tint: selected ? modeColors.color(for: item) : controlGlyph)
         }
-        .buttonStyle(.plain)
-        // A light wash behind the symbol; if the glass ignores the alpha the symbol alone
-        // carries the colour.
-        .glassEffect(selected ? .regular.tint(modeColors.color(for: item).opacity(0.25)) : .regular,
-                     in: .circle)
-        .accessibilityLabel(item.title)
     }
 
     /// The action column for the screens the system gives no side rail — the same actions as

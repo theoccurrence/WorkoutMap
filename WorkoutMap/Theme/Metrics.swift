@@ -3,6 +3,19 @@ import SwiftUI
 /// Geometry measured from the original app (iPhone 17 Pro Max, 440 x 956 pt).
 enum Metrics {
     static let screenInset: CGFloat = 18          // list cards, sheet button
+    /// The inset that puts a floating control's **centre** on the status cluster's own centre — the
+    /// whole of why the workout's rail reads as aligned with the icons above it instead of merely near
+    /// them. Measured on the folded Duo's cover panel: its cluster is a capsule, and the clock and the
+    /// radio arc (the two elements a rail is read against) are centred **48 pt** from the display's
+    /// trailing edge, so a 48.5 pt disc wants 48 − 24.25 = **23.75**.
+    /// A notched iPhone's cluster sits further in and the app's own `screenInset` (18, i.e. a centre
+    /// 42.25 pt in) is within a few points of it (~45), so that side keeps the app's own column.
+    ///
+    /// The panel's capsule is *not* uniformly centred, and the first reading of it was wrong because of
+    /// that: its battery dots sit at 37.8 pt from the trailing edge while the clock and the radio arc —
+    /// the two elements a rail is read against — sit at **48.0**, so the inset is 48 − 24.25 = **23.75**.
+    /// (An earlier value of 13.25 put the rail 10.5 pt *right* of the clock: the user's screenshot.)
+    static let statusColumnInsetFolded: CGFloat = 23.75
     static let contentInset: CGFloat = 20         // settings cards, large title
     static let cardHeight: CGFloat = 100
     static let cardGap: CGFloat = 10
@@ -77,6 +90,57 @@ enum Metrics {
     /// the system rail's buttons: a 44 pt target with a ~21 pt glyph.
     static let toolbarButtonSize: CGFloat = 44
     static let toolbarIconSize: CGFloat = 21
+    /// Where a card's own close cross sits **inside the card** — the same inset on the top and on the
+    /// trailing side, which is what makes a corner control read as placed rather than nudged.
+    ///
+    /// Equal insets are what Apple Maps' own cards do: measured on the Duo's cover panel, its *Map
+    /// Modes* card carries a 48.7 pt circle 16 pt from the card's top edge and 14 pt from its side,
+    /// where this app's read 16 and **9**. The trailing inset used to put the cross's centre on the
+    /// column the map screen's own toolbar keeps (`screenInset` + half a button in from the display,
+    /// less the card's `menuCardInset`), which a 44 pt target made 10 and a 48.5 pt one could not
+    /// hold; a card keeps this on every side instead, and the rail's own column is the rail's business.
+    ///
+    /// It also keeps the circle inside the card's shape: the card's corner radius out in the open is
+    /// `menuCardRadius` (40 pt), so its arc is centred 40 pt in from both edges — and this inset puts
+    /// the 48.5 pt circle's centre at 16 + 24.25 = 40.25 pt, on that centre, leaving its edge
+    /// **15.4 pt clear** of the arc.
+    static let menuCardCrossInset: CGFloat = 16
+    /// The room a menu card's header takes: the close cross, and the room under it.
+    static let menuHeaderHeight: CGFloat = toolbarButtonSize
+    /// The **close cross's** own glyph size — the one glyph that needs a size of its own.
+    ///
+    /// A bare `xmark` is the smallest box of any symbol the app draws: at the body font its ink is
+    /// **13 pt**, where Apple Maps' own *Map Modes* card draws ~**16.8** (measured at 3× on the Duo's
+    /// cover panel: 50 × 51 px against this app's 39 × 39). The glass pads the *label's* box
+    /// (`glassButtonLabel`) and never the glyph, so the cross can take a size of its own without moving
+    /// the disc: 22 pt of font puts the ink back at ~16.8 pt inside the same 48.5 pt circle.
+    static let closeGlyphSize: CGFloat = 22
+    /// The same cross for the **medium** button (`PlannedRouteBar`'s, 32.5 pt): the glyph scales with
+    /// the disc, so a medium button carries a small x — 22 × 32.5 / 48.5, i.e. **15 pt** of font,
+    /// ~11.5 pt of ink against the large one's 16.8.
+    static let closeGlyphSizeMedium: CGFloat = 15
+    /// The **label** box inside a round glass button (`GlassCircleButton`) — the one number that
+    /// decides how big a disc the app's round glass buttons are.
+    ///
+    /// The glass pads whatever label it is handed and adds no size of its own, so the label's box *is*
+    /// the disc, less the system's padding around it. That padding is not documented and was measured
+    /// on the Pro Max: **15 pt per side at `.controlSize(.large)`**, 7 at `.regular`. A bare SF Symbol
+    /// is a different box for every symbol — measured at `.large`: `chevron.left` 42.7 × 47.3 pt,
+    /// `xmark` 47.3 × 46, `square.and.arrow.up` 49 × 52.7, `eraser` 50.7 × 50, `ellipsis` 48.3 × 36 —
+    /// so it made the workout card's three actions three sizes, and not square ones. This box plus the
+    /// 30 pt is what every round button in the app comes out at: **48.5 pt = 145.5 px at 3×**, the size
+    /// the polished third-party crosses measure, and still 4.5 pt over the 44 pt the Human Interface
+    /// Guidelines ask a hit region to be. `.controlSize` (`mini` … `extraLarge`) is the only size the
+    /// system offers and Apple publishes no points for any of them, so this box is the only continuous
+    /// lever there is.
+    ///
+    /// A **capsule's** label is pinned to the same box (`PlannedRouteBar`'s *Go* and *Stop*, the editor's
+    /// *Done*): the system pads a capsule exactly as it pads a circle — 15 pt a side at `.large`, 7 at
+    /// `.regular` — and a bare text label brings its own line box (20.3 pt at the body font), which would
+    /// make the button taller than the disc beside it. The box is a *height* there; the width still hugs
+    /// the text. The plan-route pair carries the medium size (`.regular`, 32.5 pt); the editor's *Done*
+    /// the app's default (`.large`, 48.5 pt), where it stands beside the editor's own close cross.
+    static let glassButtonLabel: CGFloat = 18.5
     static let routeWidth: CGFloat = 2.9
     /// Card map thumbnail: the last ~100 pt of a list card (measured at 75.1 % of 403.7 pt).
     static let thumbnailWidth: CGFloat = 100.3

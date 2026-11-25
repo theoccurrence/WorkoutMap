@@ -39,7 +39,7 @@ struct PlannedRouteBar: View {
                     stopButton
                 } else {
                     goButton
-                    CloseCircleButton(action: onClear)
+                    MenuCloseButton(size: .regular) { onClear() }
                 }
             }
             if !isActive, plan.routes.count > 1 {
@@ -53,28 +53,39 @@ struct PlannedRouteBar: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
+    /// *Go*: the card's one action, on the same glass as the editor's own *Done* — the system's regular
+    /// glass capsule with the accent carried by `tint`, rather than a flat fill of the app's own. It and
+    /// the cross beside it carry the **medium** size (`.controlSize(.regular)`: 7 pt of glass a side
+    /// against the `.large` 15), so the pair stands **32.5 pt** — and the label sits in the same
+    /// **fixed box** the round buttons use (`Metrics.glassButtonLabel`), which is what keeps a capsule
+    /// and a circle the same height: a bare text label brings its own line box (20.3 pt) and would come
+    /// out taller than the disc beside it. The glyph is smaller than that box, so nothing of the label
+    /// is touched.
     private var goButton: some View {
         Button(action: onGo) {
             Text("Go")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.black)
-                .padding(.horizontal, 20)
-                .frame(height: 36)
-                .background(Palette.accent, in: Capsule())
+                .fontWeight(.semibold)
+                .frame(height: Metrics.glassButtonLabel)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .controlSize(.regular)
+        .tint(Palette.accent)
+        .accessibilityLabel("Go")
     }
 
+    /// *Stop*: the same button once the route is the one being walked, in the pin's red — the same label
+    /// box as *Go*, so it stands as tall as the cross it shares the row with.
     private var stopButton: some View {
         Button(action: onClear) {
             Text("Stop")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 18)
-                .frame(height: 36)
-                .background(Palette.pin, in: Capsule())
+                .fontWeight(.semibold)
+                .frame(height: Metrics.glassButtonLabel)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .controlSize(.regular)
+        .tint(Palette.pin)
         .accessibilityLabel("Stop the route")
     }
 

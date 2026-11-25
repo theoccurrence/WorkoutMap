@@ -70,7 +70,7 @@ struct EditedWorkoutsView: View {
                 .font(.system(size: 34, weight: .bold))
                 .foregroundStyle(.white)
             Spacer(minLength: 8)
-            CloseCircleButton { dismiss() }
+            MenuCloseButton { dismiss() }
         }
         .padding(.horizontal, 2)
         .padding(.top, 41)

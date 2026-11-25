@@ -77,6 +77,10 @@ shot export    SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL
 shot map_bubble      SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=month SIMCTL_CHILD_WM_JUMP_DISTANCE_M=25 SIMCTL_CHILD_WM_TAP_DELAY=2 "SIMCTL_CHILD_WM_TAP_AT=305,427"
 shot map_bubble_open SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=month SIMCTL_CHILD_WM_JUMP_DISTANCE_M=25 SIMCTL_CHILD_WM_TAP_DELAY=2 "SIMCTL_CHILD_WM_TAP_AT=305,427" SIMCTL_CHILD_WM_TAP_BUBBLE=1
 shot edit        SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL_CHILD_WM_START_EDIT=1
+# The editor's tools panel is a card of the display now, and it can be swiped away: swiped, the screen
+# carries the one control the card cannot — a glass chevron that brings it back. The simulator cannot
+# swipe the panel, so the state it is left in is opened directly (`WM_EDIT_TOOLS_HIDDEN`).
+shot edit_tools_hidden SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL_CHILD_WM_START_EDIT=1 SIMCTL_CHILD_WM_EDIT_TOOLS_HIDDEN=1
 shot edit_erase  SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL_CHILD_WM_START_EDIT=1 "SIMCTL_CHILD_WM_EDIT_STROKE=94,439;104,488;122,537;146,579;183,608;214,616"
 # With the distance rule at 5 m every leg of the sample route is one the ruler catches, so the
 # *Jump valid* tool has something to flag — which is the point of the shot.

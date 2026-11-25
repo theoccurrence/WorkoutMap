@@ -48,7 +48,6 @@ enum Palette {
     /// The bubble's label on a map drawn light, as Maps draws it — the pill itself is glass now.
     static let rangeLabelLight = Color(hex: 0x3C3C43)
     static let dotRing       = Color(hex: 0xC7C7CC)
-    static let closeButton   = Color(hex: 0xA4A4A4)
     /// The ring around the chosen map style in the "Map Modes" sheet — the dark-mode system
     /// blue, the one Apple Maps' own panel uses.
     static let modeSelection = Color(hex: 0x0A84FF)

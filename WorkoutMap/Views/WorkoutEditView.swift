@@ -52,6 +52,8 @@ struct WorkoutEditView: View {
     @ObservedObject private var systemAppearance = SystemAppearance.shared
     @ObservedObject private var modeColors = CategoryColorStore.shared
     @ObservedObject private var jumpColors = JumpColorStore.shared
+    /// Whether Satellite draws its labels layer — the same setting the map screen's panel writes.
+    @AppStorage(MapMode.satelliteLabelsKey) private var satelliteLabels = true
 
     @State private var route = WorkoutRoute(coordinates: [])
     /// The edit being made. Seeded from the store when the screen opens and written back only on
@@ -65,6 +67,10 @@ struct WorkoutEditView: View {
     @State private var tool: EditTool = EditTool(rawValue: DebugLaunch.startEditTool ?? "") ?? .eraser
     @State private var brush: Double = 34
     @State private var cursor: CGPoint?
+    /// Whether the tools panel has been swiped away. While it is, the screen carries the chevron
+    /// that brings it back at the display's bottom trailing corner — the one control the panel cannot
+    /// carry, because the panel is what is away (`restoreTools`).
+    @State private var toolsHidden = DebugLaunch.editToolsHidden
 
     /// How the map is drawn — the same settings the other map screens read.
     @AppStorage(MapAppearance.storedKey) private var mapAppearance: MapAppearance = .system
@@ -110,26 +116,63 @@ struct WorkoutEditView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            RouteMapView(routes: lines,
-                         camera: RouteGeometry.fittedRect(routes: [visible]).map { .fit($0) },
-                         cameraToken: route.count,
-                         mode: MapMode.stored,
-                         interfaceStyle: mapInterfaceStyle,
-                         brushRadius: CGFloat(brush),
-                         onEditStroke: applyStroke(from:to:radius:),
-                         onBrushCursor: { point in
-                             cursor = point
-                             if point == nil { strokeOpen = false }
-                         })
-                .ignoresSafeArea()
+        GeometryReader { proxy in
+            // The display, which is what the cards are placed against: `menuCard` resolves a card's
+            // corner from where the card sits *on the display*, and this screen's reader is inside the
+            // safe area, so its size is the display less the bands the system reserves.
+            let display = CGSize(width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
+                                 height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
+            ZStack(alignment: .topLeading) {
+                RouteMapView(routes: lines,
+                             camera: RouteGeometry.fittedRect(routes: [visible]).map { .fit($0) },
+                             cameraToken: route.count,
+                             mode: MapMode.stored,
+                             satelliteLabels: satelliteLabels,
+                             interfaceStyle: mapInterfaceStyle,
+                             brushRadius: CGFloat(brush),
+                             onEditStroke: applyStroke(from:to:radius:),
+                             onBrushCursor: { point in
+                                 cursor = point
+                                 if point == nil { strokeOpen = false }
+                             })
+                    .ignoresSafeArea()
 
-            brushCircle
+                brushCircle
 
-            VStack(spacing: 0) {
-                topBar
-                Spacer(minLength: 0)
-                tools
+                VStack(spacing: 0) {
+                    topBar
+                    Spacer(minLength: 0)
+                }
+
+                // The tools, as one of the app's own cards — the same shape every other floating panel
+                // of the app has (`menuCard`), the same margin from the display's edges
+                // (`menuCardInsets`), and the swipe that puts it away. It is laid out against the
+                // **display's** bottom edge rather than the safe area's, which is where the map
+                // screen's own cards sit.
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    if !toolsHidden {
+                        toolsPanel
+                            .menuCard(display: display, onDismiss: { setTools(hidden: true) })
+                            .menuCardInsets()
+                            // It rises out of the display's bottom edge and goes back down through
+                            // it, the way the map screen's menus do.
+                            .transition(.move(edge: .bottom))
+                    }
+                }
+                .ignoresSafeArea(.container)
+
+                // The way back, in its own layer so it never takes room from the panel.
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        restoreTools
+                    }
+                    .padding(.trailing, Metrics.screenInset)
+                    .padding(.bottom, Metrics.screenInset)
+                }
+                .ignoresSafeArea(.container)
             }
         }
         .background(Color.black.ignoresSafeArea())
@@ -137,33 +180,73 @@ struct WorkoutEditView: View {
         .statusBarHidden()
     }
 
+    /// The chevron that brings the tools back, shown only while they are away.
+    ///
+    /// It fades in as the panel leaves and out as the panel returns, on the panel's own spring — the
+    /// same fade the map screen's own toolbar and filter circles run while one of its menus is up
+    /// (`menuControlsHidden`), so a control that belongs to a card comes and goes the way the rest of
+    /// the app's do. `allowsHitTesting` is what keeps an invisible button from taking taps, as it is
+    /// there: a SwiftUI view at opacity 0 is still hit-testable.
+    private var restoreTools: some View {
+        GlassCircleButton(symbol: "chevron.up", label: "Show tools") {
+            setTools(hidden: false)
+        }
+        .opacity(toolsHidden ? 1 : 0)
+        .allowsHitTesting(toolsHidden)
+    }
+
+    /// Puts the tools panel away, or brings it back: both on the app's own card spring (`MenuMotion`),
+    /// which is what the chevron fades on as well, so the card and the control that stands for it move
+    /// as one thing.
+    private func setTools(hidden: Bool) {
+        withAnimation(MenuMotion.animation) { toolsHidden = hidden }
+    }
+
     // MARK: - chrome
 
+    /// The screen's two actions, at the display's own top corners: the close cross and *Done*.
+    ///
+    /// Both are the system's own glass buttons (`GlassCircleButton` — `.buttonStyle(.glass)`), which is
+    /// what makes them react to a touch the way the map screen's rail does; they are drawn into the
+    /// screen rather than declared as toolbar items, and that is measured: a `NavigationStack` bar with
+    /// items in it **insets** the screen (the map stopped being full bleed and started ~103 pt down, at
+    /// the bar's own edge), while the bar of a screen with no items in it — as on the map screen — costs
+    /// nothing. A full-bleed map is worth more here than a system-placed button.
     private var topBar: some View {
         ZStack {
             Text("Edit Route")
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(.white)
             HStack(spacing: 12) {
-                CloseCircleButton { dismiss() }
+                MenuCloseButton { dismiss() }
                 Spacer(minLength: 8)
-                Button(action: save) {
-                    Text("Done")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Palette.accent)
-                        .frame(height: 30)
-                        .padding(.horizontal, 12)
-                        .background(Palette.surface, in: Capsule())
-                }
-                .buttonStyle(.plain)
+                doneButton
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Metrics.screenInset)
         .padding(.top, 8)
         .frame(height: 52)
     }
 
-    private var tools: some View {
+    /// *Done*: the screen's confirm, on the same glass as everything else and in the accent colour,
+    /// the way the map screen's own toolbar carries its selected action. Its size is the system's, but
+    /// its label sits in the same **fixed box** (`Metrics.glassButtonLabel`) the round buttons use, so a
+    /// capsule — which the system pads 15 pt a side just like a circle — comes out at the same 48.5 pt
+    /// as the close cross beside it instead of the 50.3 the bare text line would give it.
+    private var doneButton: some View {
+        Button(action: save) {
+            Text("Done")
+                .fontWeight(.semibold)
+                .frame(height: Metrics.glassButtonLabel)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        .tint(Palette.accent)
+        .accessibilityLabel("Done")
+    }
+
+    private var toolsPanel: some View {
         VStack(spacing: 14) {
             HStack(spacing: 10) {
                 ForEach(EditTool.allCases) { option in
@@ -203,9 +286,6 @@ struct WorkoutEditView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
-        .glassPanel()
-        .padding(.horizontal, Metrics.contentInset)
-        .padding(.bottom, 10)
     }
 
     /// One tool: its glyph and name, in the accent colour while it is the one the brush uses.
@@ -283,6 +363,13 @@ struct WorkoutEditView: View {
         if DebugLaunch.editSave {
             try? await Task.sleep(for: .seconds(DebugLaunch.editStrokeDelay + 2))
             save()
+        }
+        // WM_EDIT_TOOLS=<seconds> — see `DebugLaunch.editToolsCycle`.
+        if let after = DebugLaunch.editToolsCycle {
+            try? await Task.sleep(for: .seconds(after))
+            setTools(hidden: true)
+            try? await Task.sleep(for: .seconds(after))
+            setTools(hidden: false)
         }
 #endif
     }

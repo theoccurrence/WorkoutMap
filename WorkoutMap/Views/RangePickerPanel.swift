@@ -31,6 +31,13 @@ struct RangePickerPanel: View {
                 .padding(.bottom, 16)
         }
         .frame(height: height)
+        // On the card's own top-trailing corner, on the column the map screen's toolbar keeps —
+        // see `MapModePanel`, which is the same arrangement.
+        .overlay(alignment: .topTrailing) {
+            MenuCloseButton { onClose() }
+                .padding(.top, Metrics.menuCardCrossInset)
+                .padding(.trailing, Metrics.menuCardCrossInset)
+        }
         .onAppear(perform: syncFromSelection)
         .onChange(of: weekOffset) { _, _ in pushSelection() }
         .onChange(of: month) { _, _ in pushSelection() }
@@ -38,17 +45,12 @@ struct RangePickerPanel: View {
     }
 
     private var header: some View {
-        ZStack {
-            Text(selection.kind.title)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(.white)
-            HStack {
-                Spacer()
-                CloseCircleButton { onClose() }
-            }
-        }
-        .padding(.horizontal, Metrics.contentInset)
-        .padding(.top, 14)
+        Text(selection.kind.title)
+            .font(.system(size: 17, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: Metrics.menuHeaderHeight)
+            .padding(.top, Metrics.menuCardCrossInset)
     }
 
     @ViewBuilder

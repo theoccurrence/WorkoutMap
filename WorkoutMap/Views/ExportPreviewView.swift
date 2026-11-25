@@ -17,35 +17,72 @@ struct ExportPreviewView: View {
     @Environment(\.displayScale) private var displayScale
     @State private var containerWidth: CGFloat = 0
     @State private var mapImage: UIImage?
+    /// The card, rendered — what the preview shows and what *Save* writes. One image for both, so
+    /// the preview cannot promise something the file does not get.
+    @State private var preview: UIImage?
     @State private var saved = false
     @State private var failed = false
 
     var body: some View {
         GeometryReader { proxy in
+            // The card is rendered at the width the export uses (`cardWidth`): the preview shows the
+            // very image *Save* writes, and it is never drawn **bigger** than that image — which is
+            // what a plain `.fit` in a frame of the whole window would do on a display wider than the
+            // card, at the cost of soft text. A window shorter than the card still scales it down.
+            let cardW = cardWidth(proxy.size.width)
             VStack(spacing: 0) {
-                HStack {
-                    Spacer()
-                    CloseCircleButton { dismiss() }
+                // The screen's own close, at the display's trailing edge and inside the room the window
+                // reserves there (the Duo's cover panel keeps 84 pt for the system's rail, which is
+                // *outside* this reader and so is kept for free). It used to hang 35 pt inside the
+                // reader and 3 pt below the display's top edge — the status elements' band on the
+                // folded panel, which reports **no** top inset at all, so the cross sat in it.
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    MenuCloseButton { dismiss() }
                 }
-                .padding(.trailing, 35)
-                .padding(.top, 3)
+                .padding(.horizontal, Metrics.screenInset)
+                .padding(.top, Metrics.screenInset)
 
-                card(width: cardWidth(proxy.size.width))
-                    .padding(.top, 46)
+                if let preview {
+                    // Fitted, never enlarged: a window shorter than the card — the folded panel held
+                    // sideways — shows **all** of it instead of the top of its map.
+                    Image(uiImage: preview)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: cardW, maxHeight: .infinity)
+                        .padding(.vertical, 12)
+                } else {
+                    Spacer(minLength: 0)
+                }
 
-                Spacer(minLength: 0)
-
+                // Inset like every other primary button of the app (`RoutePlannerPanel`,
+                // `RangePickerPanel`): full-bleed it was the one control here that touched the
+                // window's edges, and in a wide window it read as a bar across the screen.
                 PrimaryButton(title: "Save") { Task { await save() } }
+                    .padding(.horizontal, Metrics.screenInset)
                     .padding(.bottom, 62)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.black)
             .onAppear { containerWidth = proxy.size.width }
             .onChange(of: proxy.size.width) { _, width in containerWidth = width }
         }
-        .task(id: containerWidth) { await renderMap() }
+        // The status bar goes, as it does on the editor: this is a full-screen viewer for one image on
+        // black, and the band it keeps would otherwise be the only thing above the close cross.
+        .background(Color.black.ignoresSafeArea())
+        .statusBarHidden()
+        .task(id: previewKey) { await buildPreview() }
         .alert("Saved to Photos", isPresented: $saved) { Button("OK", role: .cancel) {} }
         .alert("Could not save", isPresented: $failed) { Button("OK", role: .cancel) {} }
+    }
+
+    /// What the preview is built from: the card's own width, and whether its map has been rendered yet.
+    private var previewKey: String { "\(containerWidth)-\(mapImage == nil)" }
+
+    /// Renders the card the preview shows.
+    private func buildPreview() async {
+        guard containerWidth > 0 else { return }
+        if mapImage == nil { await renderMap() }
+        preview = renderCard()
     }
 
     private func card(width: CGFloat) -> some View {
@@ -173,7 +210,7 @@ struct ExportPreviewView: View {
     }
 
     private func save() async {
-        guard let rendered = renderCard() else { failed = true; return }
+        guard let rendered = preview ?? renderCard() else { failed = true; return }
         do {
             let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
             guard status == .authorized || status == .limited else { failed = true; return }
