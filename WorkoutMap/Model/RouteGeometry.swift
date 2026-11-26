@@ -146,6 +146,68 @@ enum Geo {
         return nil
     }
 
+    /// The share of a polyline's length that runs back over ground it already covered: the same
+    /// street walked twice. Two points count as the same street when they are within
+    /// `sameStreetMeters` of each other and the direction of travel at the two points is either
+    /// the same or opposite. The first and last `endMeters` of the route are ignored, so a loop
+    /// closing at its start is not mistaken for a double-back.
+    ///
+    /// This is what stops the explorer from offering a route that walks up a street and straight
+    /// back down it when the shape's zigzag lands on a road network that forces it. A dead end is
+    /// the one time a double-back is unavoidable, and the share it produces is small enough that
+    /// the route is still ranked ahead of a genuinely worse one.
+    static func backtrackingFraction(of coordinates: [CLLocationCoordinate2D],
+                                     sameStreetMeters: Double = 15,
+                                     minGapMeters: Double = 40,
+                                     bearingTolerance: Double = 45,
+                                     endMeters: Double = 30,
+                                     sampleMeters: Double = 10) -> Double {
+        guard coordinates.count > 2 else { return 0 }
+
+        var samples: [(point: CLLocationCoordinate2D, distance: Double, bearing: Double)] = []
+        var cumulative = 0.0
+        for (a, b) in zip(coordinates, coordinates.dropFirst()) {
+            let segment = CoverageIndex.meters(from: a, to: b)
+            guard segment > 0 else { continue }
+            let bearing = Geo.bearing(from: a, to: b)
+            let steps = max(1, Int((segment / sampleMeters).rounded()))
+            for step in 0..<steps {
+                let t = Double(step) / Double(steps)
+                samples.append((CoverageIndex.interpolate(a, b, t),
+                                cumulative + segment * t,
+                                bearing))
+            }
+            cumulative += segment
+        }
+        guard let last = coordinates.last, let lastBearing = samples.last?.bearing else { return 0 }
+        samples.append((last, cumulative, lastBearing))
+
+        let total = cumulative
+        guard total > 2 * endMeters, samples.count > 2 else { return 0 }
+
+        var backtracked = [Bool](repeating: false, count: samples.count)
+        for i in 0..<samples.count {
+            let si = samples[i]
+            guard si.distance >= endMeters, si.distance <= total - endMeters else { continue }
+            for j in 0..<i {
+                let sj = samples[j]
+                guard sj.distance >= endMeters else { continue }
+                guard si.distance - sj.distance > minGapMeters else { continue }
+                guard CoverageIndex.meters(from: si.point, to: sj.point) < sameStreetMeters else {
+                    continue
+                }
+                var delta = abs(si.bearing - sj.bearing)
+                delta = min(delta, 360 - delta)
+                if delta < bearingTolerance || delta > 180 - bearingTolerance {
+                    backtracked[i] = true
+                    break
+                }
+            }
+        }
+
+        return Double(backtracked.filter { $0 }.count) / Double(samples.count)
+    }
+
     /// The length in metres of a run of legs.
     static func length(_ legs: [DirectionsLeg]) -> Double {
         legs.reduce(0) { $0 + $1.distance }

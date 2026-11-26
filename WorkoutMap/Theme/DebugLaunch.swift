@@ -197,6 +197,9 @@ enum DebugLaunch {
     /// WM_FAKE_PLAN=1 replaces MKDirections with a fixture, so the planner's UI can be
     /// exercised without a network.
     static var fakePlan: Bool { env["WM_FAKE_PLAN"] == "1" }
+    /// WM_PLAN_DEAD=1 makes the routing service refuse every leg, so the explorer's own
+    /// empty-handed state can be seen without waiting for a bad network day.
+    static var deadPlan: Bool { env["WM_PLAN_DEAD"] == "1" }
     /// WM_FAKE_PIN="lat,lon" drops the destination pin at launch.
     static var fakePin: CLLocationCoordinate2D? { coordinate(env["WM_FAKE_PIN"]) }
     /// WM_SELECT_PIN=1 opens the pin's info bubble at launch — the simulator offers no way to
@@ -320,6 +323,7 @@ enum DebugLaunch {
     static var planRoutes: Int? { nil }
     static var planMinimumNew: Double? { nil }
     static var fakePlan: Bool { false }
+    static var deadPlan: Bool { false }
     static var fakePin: CLLocationCoordinate2D? { nil }
     static var selectPin: Bool { false }
     static var focusSearch: Bool { false }

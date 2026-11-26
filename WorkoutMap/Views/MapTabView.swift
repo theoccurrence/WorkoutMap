@@ -107,6 +107,11 @@ struct MapTabView: View {
     /// How far the card has to travel to be clear of the screen, measured from the card itself.
     @State private var cardTravel: CGFloat = 200
     @State private var planTask: Task<Void, Never>?
+    /// True when the last plan came back empty-handed: every candidate had a leg the routing
+    /// service would not route, and the explorer offers no route it could not route end to end.
+    @State private var planFailed = false
+    /// The request that plan was for, so the empty-handed bubble can ask for it again.
+    @State private var lastRequest: PlanRequest?
 
     private var kind: RangeKind { selection.kind }
 
@@ -552,6 +557,9 @@ struct MapTabView: View {
                         // Off the top of the screen it is still laid out, so it must not keep
                         // taking taps.
                         .allowsHitTesting(!cardParked)
+                } else if planFailed {
+                    failedBubble
+                        .padding(.top, 10)
                 }
 
                 Spacer(minLength: 0)
@@ -993,6 +1001,33 @@ struct MapTabView: View {
         .background(.regularMaterial, in: Capsule())
     }
 
+    /// What the screen shows when the plan came back empty-handed: every candidate had a leg the
+    /// routing service would not route, and the explorer offers no route it could not route end to
+    /// end — the line drawn across the leg that failed is what the map used to show, and what the
+    /// user read as a route through the houses. There is one thing to do about it, and the bubble
+    /// is that: tap it and the same plan is asked for again.
+    private var failedBubble: some View {
+        Button(action: retryPlan) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.pin)
+                Text("No complete route — try again")
+                    .font(.system(size: 14))
+                    .foregroundStyle(controlsAreLight ? Palette.rangeLabelLight : Palette.rangeLabel)
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(controlGlyph)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: Metrics.controlHeight)
+            .background(.regularMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("No complete route")
+        .accessibilityHint("Asks the planner for a route again")
+    }
+
     /// True while the window sits on the Duo's folded cover panel. Its content column is
     /// far narrower than the unfolded inner panel's — 466 pt minus the rail's 84 pt
     /// against 951 pt — which is what tells the two panels apart in every orientation,
@@ -1176,14 +1211,24 @@ struct MapTabView: View {
         guard let start = planStart else { return }
         isPlanning = true
         planActive = false
+        planFailed = false
         plan = nil
         selectedRoute = 0
         cardParked = false
         cardOffset = 0
+        lastRequest = request
 #if DEBUG
-        let client: DirectionsClient = DebugLaunch.fakePlan
-            ? FixtureDirectionsClient()
-            : MapKitDirectionsClient()
+        // Which routing the debug hooks ask for: the real service, the fixture that needs no
+        // network (`WM_FAKE_PLAN`), or the one that refuses every leg (`WM_PLAN_DEAD`) — and the
+        // last of those is what the empty-handed bubble exists for.
+        let client: DirectionsClient
+        if DebugLaunch.deadPlan {
+            client = RefusingDirectionsClient()
+        } else if DebugLaunch.fakePlan {
+            client = FixtureDirectionsClient()
+        } else {
+            client = MapKitDirectionsClient()
+        }
 #else
         let client: DirectionsClient = MapKitDirectionsClient()
 #endif
@@ -1198,6 +1243,10 @@ struct MapTabView: View {
             guard !Task.isCancelled else { return }
             isPlanning = false
             plan = result
+            // No route at all: not a route with a piece missing, which is what the planner used
+            // to hand back and what the map drew as a line through the houses. The bubble under
+            // the range label says so and asks again on a tap.
+            planFailed = result == nil
             selectedRoute = 0
             if DebugLaunch.planAutoGo, result != nil { planActive = true }
             if let rect = RouteGeometry.fittedRect(routes: result?.routes.map(\.coordinates) ?? []) {
@@ -1213,8 +1262,15 @@ struct MapTabView: View {
         planTask?.cancel()
         isPlanning = false
         planActive = false
+        planFailed = false
         plan = nil
         selectedRoute = 0
+    }
+
+    /// Asks for the same plan again — what a tap on the empty-handed bubble does.
+    private func retryPlan() {
+        guard let lastRequest else { return }
+        startPlanning(lastRequest)
     }
 
     /// Drops — or moves — the destination pin, as a long press on the map does in Maps. One pin
