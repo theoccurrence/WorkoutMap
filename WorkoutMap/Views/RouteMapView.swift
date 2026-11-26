@@ -577,6 +577,10 @@ struct RouteMapView: UIViewRepresentable {
     var onPinDelete: (() -> Void)?
     var camera: Camera?
     var cameraToken: Int = 0
+    /// Whether a two-finger **tilt** lifts the camera into the map's own 3D mode. On for the map
+    /// screen and the detail screen, as Apple Maps has it; off for the route editor, whose own
+    /// two-finger pan is a recognizer of ours and would share the gesture with MapKit's pitch.
+    var pitchEnabled: Bool = true
     /// The map style — see `MapMode`. Everything but `legacy` is the map as MapKit draws it.
     var mode: MapMode = .legacy
     /// Whether Satellite draws its labels layer — see `MapMode.satelliteLabels`.
@@ -644,14 +648,20 @@ struct RouteMapView: UIViewRepresentable {
         // The colour the tiles are laid on while they load, resolved against the map's own
         // style: black for the dark map, white for the light one.
         map.backgroundColor = .systemBackground
-        // Rotation on, tilt off: a two-finger turn keeps the routes aligned because
-        // MapKit draws them, pitch would only fight the layout of the toolbar.
+        // Rotation and tilt on, as Apple Maps has them: a two-finger turn keeps the routes
+        // aligned because MapKit draws them, and a two-finger **tilt** lifts the camera into
+        // the map's own 3D mode. The routes are MapKit's own overlays, so they follow the
+        // camera's pitch exactly as they follow its heading — nothing of the screen's chrome
+        // is pitched with them, which is why tilt is free here rather than a fight with the
+        // toolbar's layout.
         map.isRotateEnabled = true
-        map.isPitchEnabled = false
+        map.isPitchEnabled = pitchEnabled
         map.showsCompass = false
         map.showsScale = false
         map.showsUserLocation = false
-        map.showsBuildings = false
+        // The map's own 3D buildings, which only show once the camera is pitched: part of what
+        // "3D mode" means, and invisible at every other angle.
+        map.showsBuildings = true
         map.register(UserDotView.self, forAnnotationViewWithReuseIdentifier: UserDotView.reuseIdentifier)
         map.register(DestinationPinView.self,
                      forAnnotationViewWithReuseIdentifier: DestinationPinView.reuseIdentifier)

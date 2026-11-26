@@ -56,6 +56,10 @@ struct GlassCircleButton: View {
         }
         .tint(glyph)
         .accessibilityLabel(label)
+        // A glass circle inside a menu card is one of the card's own drag handles (`menuCardDragHandle`):
+        // the close cross of every menu and the workout card's own rail. Where there is no card the
+        // environment is empty and this does nothing.
+        .menuCardDragHandle()
     }
 }
 
@@ -71,6 +75,152 @@ struct MenuCloseButton: View {
                           glyphSize: size == .large ? Metrics.closeGlyphSize : Metrics.closeGlyphSizeMedium,
                           size: size, action: action)
     }
+}
+
+/// One of the app's smaller **Liquid Glass** capsules — the explorer's route alternates: the
+/// distance of one planned route, the selected one carrying the app's own wash the way the map
+/// screen's Walk / Run / Ride circles do.
+///
+/// The *Go* button's own construction (`PlannedRouteBar`), one control size down: the system's
+/// `.glass` capsule with the glyph carried by `tint` and the wash behind the glass, and the label in
+/// the same **fixed box** every round button's label uses (`Metrics.glassButtonLabel`) so a capsule
+/// and a circle stand the same height. The wash is a plain colour *behind* the glass rather than a
+/// tinted `Glass`, which is iOS 26.1 and this app ships to 26.0.
+struct GlassPillButton: View {
+    var title: String
+    var label: String
+    /// The glyph. White over the glass on the app's dark screens, and the accent where the pill is
+    /// the selected one.
+    var glyph: Color = .white
+    /// The system's control size. `.small` is the app's default here — one below the *Go* pair's
+    /// `.regular`, the category smaller the user asked for.
+    var size: ControlSize = .small
+    /// The wash in the **glass** itself, where the pill has a state to show — the selected one, in
+    /// the app's accent, so it reads as *in focus* the way a selected filter circle does.
+    var glassTint: Color? = nil
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(height: Metrics.glassButtonLabel)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .controlSize(size)
+        .background {
+            Capsule().fill(glassTint?.opacity(0.30) ?? .clear)
+        }
+        .tint(glyph)
+        .accessibilityLabel(label)
+    }
+}
+
+/// The drag a menu card of the map screen is dismissed by — the state `MenuCardModifier` drives, and
+/// the one thing a card that must keep its own gestures (the workout card, which is navigated) hands
+/// to the only part of itself that may still drag it: its rail of glass buttons.
+///
+/// It is carried in the environment (`.menuCardDrag`) rather than kept in the modifier alone so that
+/// the card's own gesture **and** every control inside it (`menuCardDragHandle`) pull the *same*
+/// offset: the card follows the finger whichever of the two it is on, and the threshold and the
+/// rubber band are written once. It is empty wherever there is no card — the pushed detail screen,
+/// the map screen's own filters — where a drag handle is then a no-op.
+final class MenuCardDragState: ObservableObject {
+    /// How far the card has been pulled down, added to the card's own `.offset`.
+    @Published var offset: CGFloat = 0
+    /// The card's own height, measured by the modifier, so the threshold and the rubber band are the
+    /// card's rather than a fixed guess.
+    var height: CGFloat = 320
+    /// What a drag far enough calls — the modifier's `onDismiss`.
+    var dismiss: () -> Void = {}
+
+    /// The card follows the finger: one to one *down*, a rubber band *up* and past its own travel.
+    func update(_ dy: CGFloat) { offset = pull(dy) }
+
+    /// The release decides where it settles: past a third of the card, or flicked fast enough that it
+    /// *would* have got there, it leaves; otherwise it springs back.
+    func end(_ dy: CGFloat, predicted: CGFloat) {
+        let settled = max(dy, predicted)
+        if settled > max(120, height / 3) {
+            dismiss()
+        } else {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { offset = 0 }
+        }
+    }
+
+    /// How far the card is pulled for a finger movement: one to one *down*, which is the direction it
+    /// can go at all, and a rubber band the other way — a pull *up* has nowhere to go, so the edge
+    /// gives there instead of the card following the finger off its place. Past its own travel it is
+    /// a rubber band down as well, so the bottom edge gives the same way.
+    private func pull(_ dy: CGFloat) -> CGFloat {
+        let down = max(0, dy)
+        let up = max(0, -dy)
+        let travel = height + Metrics.menuCardInset
+        let past = max(0, down - travel)
+        return min(down, travel) + rubberBand(past, limit: height * 0.25)
+                       - rubberBand(up, limit: height * 0.12)
+    }
+
+    /// `UIScrollView`'s own rubber band, the one the explorer's result card uses (`cardOffset`): the
+    /// displacement approaches `limit` as the pull grows, and a small pull moves it about half as far
+    /// as the finger.
+    private func rubberBand(_ distance: CGFloat, limit: CGFloat) -> CGFloat {
+        guard distance > 0, limit > 0 else { return 0 }
+        let constant: CGFloat = 0.55
+        return (distance * limit * constant) / (limit + constant * distance)
+    }
+}
+
+private struct MenuCardDragKey: EnvironmentKey {
+    static let defaultValue: MenuCardDragState? = nil
+}
+
+extension EnvironmentValues {
+    /// The drag a card of the map screen is dismissed by, where the card handed one down
+    /// (`MenuCardModifier`). `nil` anywhere there is no card.
+    var menuCardDrag: MenuCardDragState? {
+        get { self[MenuCardDragKey.self] }
+        set { self[MenuCardDragKey.self] = newValue }
+    }
+}
+
+/// The drag a **control inside** a menu card carries, where the card handed one down
+/// (`MenuCardModifier`).
+///
+/// A card is dragged from **anywhere** on it — a button included — so a control that would otherwise
+/// swallow the drag (the close cross of every menu, the map-style tiles, the explorer's own buttons,
+/// the workout card's rail) carries this instead of relying on the card's own gesture, which a
+/// child's own tap wins over. It is a **high-priority** drag, so it beats that tap: a tap still fires
+/// (the drag needs 8 pt of travel first), a drag moves the card. Only *controls* get this — a wheel,
+/// a slider and a scroll view keep their own gesture and are dragged as the control they are, which
+/// is the one place a card is deliberately not draggable. Where there is no card the environment is
+/// empty and this does nothing at all.
+///
+/// Measured in the **window's** space, like the card's own gesture (`MenuCardModifier.dismissDrag`):
+/// a handle sits inside the subtree the drag offsets, so a *local* measurement would be short by the
+/// offset already applied, and the two writers would disagree frame by frame — the flicker the user
+/// saw when dragging from a button.
+private struct MenuCardDragHandle: ViewModifier {
+    @Environment(\.menuCardDrag) private var drag
+
+    func body(content: Content) -> some View {
+        content.highPriorityGesture(gesture, including: drag == nil ? .none : .all)
+    }
+
+    private var gesture: some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .onChanged { drag?.update($0.translation.height) }
+            .onEnded { drag?.end($0.translation.height, predicted: $0.predictedEndTranslation.height) }
+    }
+}
+
+extension View {
+    /// Makes this control a drag handle for the menu card it sits in (`MenuCardDragHandle`). A no-op
+    /// where there is no card.
+    func menuCardDragHandle() -> some View { modifier(MenuCardDragHandle()) }
 }
 
 /// The motion a card of the app is put away on, and a control that belongs to it fades on.
@@ -96,6 +246,15 @@ extension View {
     /// (`menuCardShape`), together with the swipe that throws it away. See `MenuCardModifier` for why
     /// the position has to be measured, and why the one card that draws its own background asks for
     /// `clipped` instead of the glass.
+    ///
+    /// The card is dragged from **anywhere on it that is not a control of its own**: the card's own
+    /// gesture is a plain one, so a wheel still spins, a slider still slides, a scroll view still
+    /// scrolls and the workout card's **map** still pans and pinches — each of them a child gesture
+    /// that wins inside its own bounds. What a plain gesture therefore *misses* is a **button**,
+    /// whose tap wins over it; those carry a handle of their own (`menuCardDragHandle`), so a card is
+    /// dragged from a button too while every other control is left as it is. The workout card the
+    /// range bubble opens is no different: its map keeps its own gestures (the user navigates there),
+    /// and the info cards under the map drag the card exactly as they always did.
     func menuCard(display: CGSize, clipped: Bool = false, onDismiss: @escaping () -> Void) -> some View {
         modifier(MenuCardModifier(display: display, clipped: clipped, onDismiss: onDismiss))
     }
@@ -174,21 +333,29 @@ private struct MenuCardModifier: ViewModifier {
     /// What a swipe down does to it.
     let onDismiss: () -> Void
 
+    /// The card's drag, shared with the controls inside it (`menuCardDragHandle`): the card's own
+    /// gesture and a button's handle pull the same offset.
+    @StateObject private var drag = MenuCardDragState()
     /// Where the card was measured. Nothing until the first measurement lands, and a card drawn from
     /// nothing is drawn open — every corner away from the display — which is what `insets` answers.
     @State private var frame: CGRect = .zero
-    /// How far the card has been pulled down by the finger.
-    @State private var dragOffset: CGFloat = 0
     /// The card's own height, measured off the card, so the drag's threshold and its rubber band are
     /// the card's rather than a fixed guess.
     @State private var height: CGFloat = 320
 
     func body(content: Content) -> some View {
         card(content)
-            .offset(y: dragOffset)
+            .offset(y: drag.offset)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0; drag.height = $0 }
+            // The card's own drag is a plain `.gesture`, not a high-priority one, so a wheel inside
+            // the card still spins, a slider still slides and a scroll view inside it still scrolls.
+            // What the card's own gesture therefore *misses* — a button, whose tap wins over it — is
+            // covered by the handle the controls carry themselves (`menuCardDragHandle`), so the card
+            // is dragged from anywhere on it while every other control is left as it is.
             .gesture(dismissDrag)
+            .environment(\.menuCardDrag, drag)
+            .onAppear { drag.dismiss = onDismiss }
     }
 
     /// The card's own background, in the shape its position asks for.
@@ -205,54 +372,33 @@ private struct MenuCardModifier: ViewModifier {
     /// pulled it, so a corner dragged away from the display edge resolves as one out in the open.
     private var insets: EdgeInsets {
         guard frame != .zero, display != .zero else { return EdgeInsets() }
-        return EdgeInsets(top: frame.minY + dragOffset,
+        return EdgeInsets(top: frame.minY + drag.offset,
                           leading: frame.minX,
-                          bottom: display.height - frame.maxY - dragOffset,
+                          bottom: display.height - frame.maxY - drag.offset,
                           trailing: display.width - frame.maxX)
     }
 
     /// The drag a card answers to: it follows the finger down, springs back when the release does not
-    /// carry it far enough, and lets itself go through `onDismiss` when it does.
+    /// carry it far enough, and lets itself go through `onDismiss` when it does. The pull and the
+    /// settle live in `MenuCardDragState` so a control inside the card can drive the very same drag.
     ///
-    /// It is a plain `.gesture`, not a high-priority one, so a wheel inside the card still spins and a
-    /// scroll view inside it still scrolls: a child's own gesture wins inside its own bounds, and the
-    /// card's drag takes only the header and the room around the controls — which is where a sheet's
-    /// own grabber drag lives, too. The card is left exactly where the finger dropped it as it leaves:
-    /// the dismissal is the card's own `move(edge: .bottom)` transition, which carries it on down from
-    /// there rather than snapping it back to rest first.
+    /// The card is left exactly where the finger dropped it as it leaves: the dismissal is the card's
+    /// own `move(edge: .bottom)` transition, which carries it on down from there rather than snapping
+    /// it back to rest first.
+    ///
+    /// It is measured in the **window's** space (`.global`), and so is the handle a control inside the
+    /// card carries (`MenuCardDragHandle`). That is not a detail: the card is moved by the very offset
+    /// this drag writes (`.offset(y:)`), so a gesture measured in the *local* space of a view inside
+    /// that moved subtree — the handle on a button — reads a translation that is already short by the
+    /// offset applied so far, and the two writers (the card's gesture and the button's) then disagree
+    /// by exactly that offset, frame by frame. The card was seen to **flicker between two y positions**
+    /// while a drag from a button was under way, which is that disagreement. In the window's space
+    /// both read the finger's own movement, so both write the same offset and there is nothing to
+    /// disagree about.
     private var dismissDrag: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in dragOffset = pull(value.translation.height) }
-            .onEnded { value in
-                let settled = max(value.translation.height, value.predictedEndTranslation.height)
-                if settled > max(120, height / 3) {
-                    onDismiss()
-                } else {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { dragOffset = 0 }
-                }
-            }
-    }
-
-    /// How far the card is pulled for a finger movement: one to one *down*, which is the direction it
-    /// can go at all, and a rubber band the other way — a pull *up* has nowhere to go, so the edge
-    /// gives there instead of the card following the finger off its place. Past its own travel it is
-    /// a rubber band down as well, so the bottom edge gives the same way.
-    private func pull(_ dy: CGFloat) -> CGFloat {
-        let down = max(0, dy)
-        let up = max(0, -dy)
-        let travel = height + Metrics.menuCardInset
-        let past = max(0, down - travel)
-        return min(down, travel) + rubberBand(past, limit: height * 0.25)
-                       - rubberBand(up, limit: height * 0.12)
-    }
-
-    /// `UIScrollView`'s own rubber band, the one the explorer's result card uses (`cardOffset`): the
-    /// displacement approaches `limit` as the pull grows, and a small pull moves it about half as far
-    /// as the finger.
-    private func rubberBand(_ distance: CGFloat, limit: CGFloat) -> CGFloat {
-        guard distance > 0, limit > 0 else { return 0 }
-        let constant: CGFloat = 0.55
-        return (distance * limit * constant) / (limit + constant * distance)
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .onChanged { drag.update($0.translation.height) }
+            .onEnded { drag.end($0.translation.height, predicted: $0.predictedEndTranslation.height) }
     }
 }
 

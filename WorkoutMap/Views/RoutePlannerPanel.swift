@@ -64,6 +64,7 @@ struct RoutePlannerPanel: View {
                 Spacer(minLength: 0)
             }
             PrimaryButton(title: "Plan route") { plan() }
+                .menuCardDragHandle()
                 .opacity(canPlan ? 1 : 0.4)
                 .disabled(!canPlan)
                 .padding(.horizontal, Metrics.screenInset)
@@ -205,6 +206,7 @@ struct RoutePlannerPanel: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .menuCardDragHandle()
                 if completion.title != search.results.prefix(4).last?.title { divider }
             }
         }
@@ -232,6 +234,7 @@ struct RoutePlannerPanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .menuCardDragHandle()
         .disabled(droppedPin == nil)
     }
 
@@ -252,6 +255,7 @@ struct RoutePlannerPanel: View {
                     .foregroundStyle(Palette.textSecondary)
             }
             .buttonStyle(.plain)
+            .menuCardDragHandle()
         }
         .padding(.horizontal, 12)
         .frame(height: 44)

@@ -3,6 +3,14 @@ import SwiftUI
 /// Geometry measured from the original app (iPhone 17 Pro Max, 440 x 956 pt).
 enum Metrics {
     static let screenInset: CGFloat = 18          // list cards, sheet button
+    /// The top safe-area inset a phone with a **Dynamic Island or a notch** reports, and the line
+    /// between that and a phone without one. A notch is **44** at the smallest (the iPhone X's) and
+    /// the island **62** (measured on the Pro Max), where a plain status bar is **20** and the Duo's
+    /// cover panel — which has neither — reads **0** (measured). Anything at or above this is
+    /// treated as a cut-out, so the range bubble's gap is taken from its edge rather than from the
+    /// display's (`MapTabView.bubbleTopInset`); anything below keeps the bubble where it has always
+    /// been.
+    static let notchTopInset: CGFloat = 30
     /// The inset that puts a floating control's **centre** on the status cluster's own centre — the
     /// whole of why the workout's rail reads as aligned with the icons above it instead of merely near
     /// them. Measured on the folded Duo's cover panel: its cluster is a capsule, and the clock and the

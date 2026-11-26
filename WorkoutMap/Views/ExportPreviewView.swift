@@ -5,6 +5,11 @@ import CoreLocation
 
 struct ExportPreviewView: View {
     let workout: Workout?
+    /// The workouts the card's stats are the **sum** over, when the whole map is being shared: the
+    /// ones the map is currently showing, as the filter and the workout-type selection leave them.
+    /// Empty for the single-workout export — the detail screen's own share — where `workout` is the
+    /// one whose numbers are shown.
+    var workouts: [Workout] = []
     let rangeLabel: String
     let mapRect: MKMapRect?
     let routes: [MapRouteLine]
@@ -142,16 +147,51 @@ struct ExportPreviewView: View {
         .clipped()
     }
 
+    /// The four numbers the card carries, as one workout's own or as the sum over the map's set.
+    private struct Stats {
+        var duration: TimeInterval
+        var distance: Double
+        var elevation: Double?
+        var calories: Double?
+    }
+
+    /// What the card's stats are: the sum over the map's own workouts when the whole map is shared,
+    /// or the one workout's own numbers otherwise.
+    ///
+    /// The sum is what the numbers *mean* for a set: time, distance, elevation and active energy all
+    /// add up across workouts, so the card says what the whole map adds up to — every walk ever, with
+    /// *All* and *Walk* selected, as the user asked. Elevation and calories stay `nil` when no workout
+    /// in the set carries them, so the card shows `--` rather than a made-up zero.
+    private var stats: Stats {
+        guard !workouts.isEmpty else {
+            return Stats(duration: workout?.duration ?? 0,
+                         distance: workout?.distance ?? 0,
+                         elevation: workout?.elevationAscended,
+                         calories: workout?.activeCalories)
+        }
+        var duration: TimeInterval = 0
+        var distance: Double = 0
+        var elevation: Double?
+        var calories: Double?
+        for item in workouts {
+            duration += item.duration
+            distance += item.distance
+            if let value = item.elevationAscended { elevation = (elevation ?? 0) + value }
+            if let value = item.activeCalories { calories = (calories ?? 0) + value }
+        }
+        return Stats(duration: duration, distance: distance, elevation: elevation, calories: calories)
+    }
+
     private var statsGrid: some View {
-        VStack(spacing: 8) {
+        let distance = Fmt.distanceValue(stats.distance)
+        return VStack(spacing: 8) {
             HStack(spacing: 7.3) {
-                statCard("Time", Fmt.duration(workout?.duration ?? 0), nil)
-                statCard("Distance", workout.map { Fmt.distanceValue($0.distance).value } ?? "--",
-                         workout.map { Fmt.distanceValue($0.distance).unit })
+                statCard("Time", Fmt.duration(stats.duration), nil)
+                statCard("Distance", distance.value, distance.unit)
             }
             HStack(spacing: 7.3) {
-                statCard("Elevation", workout?.elevationAscended.map { Fmt.elevation($0) } ?? "--", "m")
-                statCard("Active Calories", workout?.activeCalories.map { Fmt.caloriesValue($0) } ?? "--", "kcal")
+                statCard("Elevation", stats.elevation.map { Fmt.elevation($0) } ?? "--", "m")
+                statCard("Active Calories", stats.calories.map { Fmt.caloriesValue($0) } ?? "--", "kcal")
             }
         }
     }

@@ -126,6 +126,9 @@ struct WorkoutEditView: View {
                 RouteMapView(routes: lines,
                              camera: RouteGeometry.fittedRect(routes: [visible]).map { .fit($0) },
                              cameraToken: route.count,
+                             // No tilt here: this screen moves the map with a two-finger pan of its
+                             // own (`brushRadius`), which MapKit's pitch would share the gesture with.
+                             pitchEnabled: false,
                              mode: MapMode.stored,
                              satelliteLabels: satelliteLabels,
                              interfaceStyle: mapInterfaceStyle,
@@ -308,6 +311,9 @@ struct WorkoutEditView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The tools panel is one of the app's menu cards, so its own controls are drag handles like
+        // every other card's (`menuCardDragHandle`).
+        .menuCardDragHandle()
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -344,6 +350,7 @@ struct WorkoutEditView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .menuCardDragHandle()
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.45)
     }

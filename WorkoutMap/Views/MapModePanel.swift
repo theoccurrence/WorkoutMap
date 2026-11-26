@@ -150,6 +150,9 @@ struct MapModePanel: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // A tile is one of the card's own drag handles: the card is dragged from a tile as from
+        // anywhere else on it — a tap still picks the style (the drag needs 8 pt of travel first).
+        .menuCardDragHandle()
         .accessibilityLabel(item.title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }

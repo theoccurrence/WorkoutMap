@@ -102,28 +102,20 @@ struct PlannedRouteBar: View {
         return "\(percent)% new ways · \(minutes) min · \(mode)"
     }
 
-    /// The alternates, as Maps lists them: each one's own distance, the selected one filled in.
+    /// The alternates, as Maps lists them: each one's own distance, the selected one carrying the
+    /// app's own wash — one of the app's **Liquid Glass** capsules (`GlassPillButton`), the *Go*
+    /// button's construction one control size down, so the choice reads as the same material as the
+    /// Go beside it and the selected one as *in focus* the way a selected filter circle does.
     private var selector: some View {
         HStack(spacing: 8) {
             ForEach(Array(plan.routes.enumerated()), id: \.element.id) { index, item in
-                Button {
+                let isSelected = index == selected
+                GlassPillButton(title: Self.pillDistance(item.distance),
+                                label: "Route \(index + 1), \(Fmt.distance(item.distance))",
+                                glyph: isSelected ? Palette.accent : label,
+                                glassTint: isSelected ? Palette.accent : nil) {
                     withAnimation(.easeInOut(duration: 0.15)) { selected = index }
-                } label: {
-                    // One decimal and no more: five of these have to share the card's width.
-                    Text(Self.pillDistance(item.distance))
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(index == selected ? Color.black : label)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .padding(.horizontal, 10)
-                        .frame(height: 30)
-                        .background(index == selected
-                                    ? Palette.accent
-                                    : Color.white.opacity(isLight ? 0.35 : 0.12),
-                                    in: Capsule())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Route \(index + 1), \(Fmt.distance(item.distance))")
             }
             Spacer(minLength: 0)
         }

@@ -16,6 +16,15 @@ struct MapTabView: View {
     @State private var camera: RouteMapView.Camera?
     @State private var cameraToken = 0
     @State private var userMoved = false
+    /// The filter the map was last fitted for, and whether that fit has been done at all — the whole
+    /// of "fit **once** when the app opens and when the filter or the workout type changes, and never
+    /// again for anything else". Returning to the tab, a location fix and the workouts arriving from
+    /// Health after the first fit all leave the camera where the user left it (see `reload`).
+    @State private var fittedSignature: String?
+    @State private var fittedWithRoutes = false
+    /// True once the camera has been placed at least once, so an empty filter is still centred the
+    /// first time a location fix arrives and never again afterwards.
+    @State private var cameraPlaced = false
     /// The map style. Kept in the settings, so the map opens on the style the user last
     /// picked; `legacy` — the grey map the app shipped with — until they pick another one.
     @AppStorage(MapMode.storedKey) private var mapMode: MapMode = DebugLaunch.startMapMode ?? MapMode.stored
@@ -293,6 +302,44 @@ struct MapTabView: View {
         "\(selection)|\(category?.rawValue ?? "all")|\(health.workouts.count)|\(location.location == nil)"
     }
 
+    /// What the map is filtered to, as the thing a **fit** belongs to: the range and the workout type.
+    /// A change of this is what moves the camera to the new set (`reload`); nothing else does.
+    private var filterSignature: String {
+        "\(selection)|\(category?.rawValue ?? "all")"
+    }
+
+    /// The gap the range bubble keeps below the top of the screen.
+    ///
+    /// On a phone with a **Dynamic Island or a notch** the gap is measured from the safe area's own
+    /// top edge rather than the display's, so the bubble sits *below* the cut-out — with the same gap
+    /// it has to the screen edge on a phone without one — instead of behind it, where it was neither
+    /// readable nor tappable. A phone with no cut-out, and the **Duo's cover panel**, which has
+    /// neither and reports a top inset of **0** (measured), report nothing like a notch's inset, so
+    /// their bubble stays exactly where it has always been. `Metrics.notchTopInset` tells the two
+    /// apart: a notch is 44 pt at the smallest and the island 62 (measured), where a plain status bar
+    /// is 20 and the Duo's cover panel 0.
+    private var bubbleTopInset: CGFloat {
+        (windowInsets.top >= Metrics.notchTopInset ? windowInsets.top : 0) + Metrics.screenInset
+    }
+
+    /// A small bubble of this screen's overlay column — the range bubble and the explorer's two
+    /// status bubbles (planning and empty-handed) — centred on the **content area's** own column:
+    /// the display's width, less the window's side insets, so it sits on the same centre whether the
+    /// display reserves a side rail (the Duo's 84 pt) or not.
+    ///
+    /// The column itself is as wide as the **display**, not as wide as the widest card in it, and
+    /// that is the whole point: a bubble centred in the column directly would be centred on the
+    /// *display*, and the wide explorer card below would then push the range bubble out there too —
+    /// the small slide to the right the user saw when routes were found. Taking the rail's inset back
+    /// off each bubble keeps them all on one centre, which is what makes the range bubble and the
+    /// *Finding new ways* bubble line up.
+    private func bubbleColumn<V: View>(_ bubble: V) -> some View {
+        bubble
+            .frame(maxWidth: .infinity)
+            .padding(.leading, windowInsets.left)
+            .padding(.trailing, windowInsets.right)
+    }
+
     var body: some View {
         // A navigation container on purpose: it is what lets the system place the
         // screen's actions in the Duo's vertical bar (next to the tab bar, above it,
@@ -419,8 +466,12 @@ struct MapTabView: View {
         // the Duo it lies over the screen's rail. The export preview is the one cover: a
         // full-screen viewer for the image it produces rather than a panel over the map.
         .fullScreenCover(isPresented: $showExport) {
-            ExportPreviewView(workout: mostRecentInFilter,
-                              rangeLabel: rangeBubbleText,
+            // Sharing the **whole map**, so the card's stats are the sum over the workouts the map is
+            // showing — every walk ever, with *All* and *Walk* selected — and the label is the range's
+            // own rather than a tapped route's date.
+            ExportPreviewView(workout: nil,
+                              workouts: filtered,
+                              rangeLabel: rangeLabel,
                               mapRect: exportRect,
                               routes: mapLines,
                               mode: mapMode,
@@ -525,16 +576,16 @@ struct MapTabView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                rangeBubble
-                    // Pinned to the display edge: the same 18 pt below the top of the screen
-                    // that it had below the grey bar, in every layout.
-                    .padding(.top, 18)
+                bubbleColumn(rangeBubble)
+                    // The gap below the top of the screen — the same one it had below the grey bar,
+                    // taken from the cut-out's own edge on a phone that has one (`bubbleTopInset`).
+                    .padding(.top, bubbleTopInset)
 
                 // The explorer's card sits under the bubble rather than at the foot of the
                 // screen: the foot is where the filters and the toolbar live, and both have to
                 // stay usable while a route is planned.
                 if isPlanning {
-                    planningBubble
+                    bubbleColumn(planningBubble)
                         .padding(.top, 10)
                 } else if let plan {
                     PlannedRouteBar(plan: plan,
@@ -558,15 +609,22 @@ struct MapTabView: View {
                         // taking taps.
                         .allowsHitTesting(!cardParked)
                 } else if planFailed {
-                    failedBubble
+                    bubbleColumn(failedBubble)
                         .padding(.top, 10)
                 }
 
                 Spacer(minLength: 0)
             }
+            // As wide as the **display**, not as wide as the widest card in it: the column is what
+            // the bubble's own centring is read against, so its width must not change when a card of
+            // a different size comes and goes (`frame`, before the safe area is ignored, so the
+            // column really is the display and the bubble can take the rail's inset back off again).
+            .frame(maxWidth: .infinity)
             // Measured against the display edges rather than the safe area: the bubble keeps
             // the gap below the top of the screen that it has below the grey bar in the
-            // reference, and the overlays line up with the tab bar's own edges.
+            // reference, and the overlays line up with the tab bar's own edges. The bubble's own
+            // top inset is what takes a Dynamic Island or a notch into account — see
+            // `bubbleTopInset`.
             .ignoresSafeArea()
 
             // The dim the menus draw over the map. A sheet gets one from the system — the one the
@@ -730,6 +788,10 @@ struct MapTabView: View {
                                       onClose: { closeWorkout() },
                                       statusColumn: usesVerticalControls ? Metrics.statusColumnInsetFolded
                                                                          : Metrics.screenInset)
+                        // The card's **map** keeps its own gestures — the user navigates there, so a
+                        // drag on it pans and pinches the map rather than moving the card — while the
+                        // info cards under the map, and the rail of glass buttons (`GlassCircleButton`
+                        // carries the handle), drag the card away exactly as they always did.
                         .menuCard(display: proxy.size, clipped: true, onDismiss: { closeWorkout() })
                         .padding(.top, Metrics.menuCardInset)
                         .menuCardInsets()
@@ -1339,21 +1401,44 @@ struct MapTabView: View {
             } else {
                 camera = .fit(rect)
             }
+            cameraPlaced = true
         } else if let coordinate = centersOn {
             camera = .center(coordinate, spanMeters: Self.emptySpanMeters)
+            cameraPlaced = true
         } else {
             camera = nil
         }
         cameraToken += 1
     }
 
+    /// Loads the routes for the current filter, and **fits the map to them only when it should**.
+    ///
+    /// The map is fitted once when the app opens, and again when the filter or the workout type
+    /// changes — that is the whole of it. It used to be fitted on *every* reload, and a reload runs
+    /// for far more than those two: the screen reappears whenever the tab is left and returned to,
+    /// the workouts arrive from Health a moment after the first pass, and a location fix lands a
+    /// second in — each of them re-zoomed the map out from under the user, which is what they read as
+    /// the map adjusting the view *all the time*. A reload that is not one of the two fitted ones now
+    /// leaves the camera exactly where the user left it, and only the routes are redrawn.
     private func reload() async {
         userMoved = false
         tappedRouteID = nil
+        let signature = filterSignature
+        let signatureChanged = fittedSignature != signature
+        fittedSignature = signature
+        if signatureChanged { fittedWithRoutes = false }
+
         let list = filtered
         let cached = await RouteStore.shared.cachedRoutes(for: list.map(\.id))
         loaded = list.compactMap { workout in cached[workout.id].map { (workout, $0) } }
-        fitContent()
+
+        // Fit when the filter or type changed, the first time there are routes to fit, or while the
+        // camera has not been placed at all — and never for anything else.
+        let shouldFit = signatureChanged || (!fittedWithRoutes && !loaded.isEmpty) || !cameraPlaced
+        if shouldFit {
+            fitContent()
+            if !loaded.isEmpty { fittedWithRoutes = true }
+        }
 
         let missing = list.filter { cached[$0.id] == nil }
         guard !missing.isEmpty else { return }
@@ -1372,11 +1457,13 @@ struct MapTabView: View {
                 guard arrived.count >= Self.routeBatch else { continue }
                 merge(arrived)
                 arrived.removeAll(keepingCapacity: true)
-                if !userMoved { fitContent() }
+                // The first fit grows with the routes as they stream in; a reload that is not a
+                // fitting one leaves the camera alone however the routes arrive.
+                if shouldFit && !userMoved { fitContent(); fittedWithRoutes = true }
             }
             if !arrived.isEmpty {
                 merge(arrived)
-                if !userMoved { fitContent() }
+                if shouldFit && !userMoved { fitContent(); fittedWithRoutes = true }
             }
         }
     }
