@@ -3,21 +3,21 @@ import CoreLocation
 
 /// Plans a walk that covers as much ground as possible the user has never covered.
 ///
-/// Two algorithms live here, and `strategy` picks one:
+/// Both shapes are a zigzag sized so its straight-line length is the distance asked for, and the
+/// setting that matters here is how many legs that zigzag is made of: a few long ones reach far
+/// out, many short ones fill the streets around the route instead. The distance is therefore
+/// held roughly constant while the *shape* changes, which is the whole point of the setting.
 ///
-/// * **zigzag** — the shape is a zigzag sized so its straight-line length is the distance asked
-///   for, and the setting that matters is how many legs it is made of: a few long ones reach far
-///   out, many short ones fill the streets around the route instead. The distance is held
-///   roughly constant while the *shape* changes, which is the whole point of the setting.
-/// * **tour** — the shape is a disc of ground, sized so that the streets in it are the distance
-///   asked for, and the route sweeps it row by row. The rows are the shape setting: a tight tour
-///   is many short rows over a small disc, a wide one is a couple of long rows over a big one.
-///   Rows that hold no new ground are dropped, so a tight tour spends its legs on the streets
-///   the user has not walked instead of re-walking the ones they know by heart.
+/// * **loop** — a zigzag over a square centred on the start, the route turning at each row's far
+///   end and coming home. Two rows is a long bow out and back around the start; five is a
+///   lawnmower over the streets right around it.
+/// * **destination** — a zigzag along the direct line, alternating either side of it. One
+///   excursion is the big bow off the corridor; five are side streets either side of the way
+///   there.
 ///
-/// Both share the same machinery: candidates are scored against the coverage grid *before*
-/// anything is routed, so only the best few ever reach the service, and `MKDirections` knows no
-/// waypoints, so every shape is a handful of point-to-point legs stitched into one polyline.
+/// `MKDirections` knows no waypoints, so every shape is a handful of point-to-point legs stitched
+/// into one polyline. Candidates are scored against the coverage grid *before* anything is
+/// routed, so only the best few ever reach the service.
 struct RoutePlanner {
     struct Config {
         /// How many shapes are scored before any network request, at the start itself.
@@ -50,36 +50,6 @@ struct RoutePlanner {
         var maxLegsPerRoute = 5
         var maxLegsPerPlan = 30
 
-        // MARK: Tour
-
-        /// How many rows the tour's serpentine is made of at the tightest and the widest shape.
-        /// Tight is many short rows over a small disc, wide a couple of long ones over a big one,
-        /// and the disc is sized so the sweep is still the distance asked for.
-        var tourRowsTight = 6
-        var tourRowsWide = 2
-        /// Where the tour's disc may sit: how many bearings are tried, and how far out along each
-        /// it slides as a share of its *own* radius — so the start always stays inside it. Factor
-        /// 0 is the start itself, so a disc that centres there is always among the candidates.
-        var tourCentreBearings = 10
-        var tourCentreFactors: [Double] = [0, 0.5, 0.9]
-        /// The least uncovered metres a row must hold to be walked at all. A row that is covered
-        /// ground from end to end is dropped, which is what keeps a tight sweep on the streets
-        /// the user has not walked instead of re-walking the ones they know by heart.
-        var tourRowMinNewMeters = 30.0
-        /// How many samples across a disc are taken when its unexplored density is scored.
-        var tourDensitySamples = 11
-        /// How much a tour route is docked for a centre away from the start, per radius — what
-        /// keeps a tight sweep near the user rather than out where the map happens to be emptiest.
-        var tourCentrePenalty = 0.35
-        /// How much any route is docked for re-walking ground it has already walked. Applies to
-        /// both algorithms: a street walked twice is a street not walked somewhere else.
-        var backtrackPenalty = 0.8
-        /// The tour's own leg budget. A sweep is a row per leg and then some, so it asks the
-        /// service for more legs than the zigzag does; the plan cap is the ceiling the settings'
-        /// maximums ask for, five routes of a full sweep.
-        var tourMaxLegsPerRoute = 14
-        var tourMaxLegsPerPlan = 45
-
         /// The number of legs a shape asks for: one at the widest, five at the tightest.
         static func steps(for shape: Double) -> Int {
             1 + Int((min(max(shape, 0), 1) * 4).rounded())
@@ -87,9 +57,6 @@ struct RoutePlanner {
     }
 
     var config = Config()
-    /// Which algorithm plans the route — see `PlanStrategy`. The tour is the proof of concept,
-    /// so it is the default; `WM_PLAN_ALGO=zigzag` puts the shipped zigzag back.
-    var strategy: PlanStrategy = .tour
     /// How many routes the settings ask for.
     var routeCount = ExploreOptions.routeCountDefault
     /// How tight the shape should be, 0...1 — see `ExploreOptions.shapeKey`.
@@ -110,42 +77,11 @@ struct RoutePlanner {
               start: CLLocationCoordinate2D,
               coverage: CoverageIndex,
               client: DirectionsClient) async -> RoutePlan? {
-        switch strategy {
-        case .zigzag:
-            return await planZigzag(request: request, start: start, coverage: coverage, client: client)
-        case .tour:
-            if let plan = await planTour(request: request, start: start,
-                                         coverage: coverage, client: client) {
-                return plan
-            }
-            // Nothing to tour: every street the disc could hold is walked already, so there is no
-            // row left to sweep. The zigzag will still offer a walk, which is better than a card
-            // that says there is nothing.
-            return await planZigzag(request: request, start: start, coverage: coverage, client: client)
-        }
-    }
-
-    private func planZigzag(request: PlanRequest,
-                            start: CLLocationCoordinate2D,
-                            coverage: CoverageIndex,
-                            client: DirectionsClient) async -> RoutePlan? {
         switch request.mode {
         case .loop:
             return await planLoop(request: request, start: start, coverage: coverage, client: client)
         case .destination:
             return await planDestination(request: request, start: start, coverage: coverage, client: client)
-        }
-    }
-
-    private func planTour(request: PlanRequest,
-                          start: CLLocationCoordinate2D,
-                          coverage: CoverageIndex,
-                          client: DirectionsClient) async -> RoutePlan? {
-        switch request.mode {
-        case .loop:
-            return await planTourLoop(request: request, start: start, coverage: coverage, client: client)
-        case .destination:
-            return await planTourDestination(request: request, start: start, coverage: coverage, client: client)
         }
     }
 
@@ -204,7 +140,7 @@ struct RoutePlanner {
         }
         guard !routed.isEmpty else { return nil }
 
-        let plan = finalize(request: request, start: start, routes: routed, history: history, coverage: coverage)
+        let plan = finalize(request: request, start: start, routes: routed, history: history)
         record(plan, start: start, request: request)
         return plan
     }
@@ -382,7 +318,7 @@ struct RoutePlanner {
         }
 
         guard !routed.isEmpty else { return nil }
-        let plan = finalize(request: request, start: start, routes: routed, history: history, coverage: coverage)
+        let plan = finalize(request: request, start: start, routes: routed, history: history)
         record(plan, start: start, request: request)
         return plan
     }
@@ -455,334 +391,6 @@ struct RoutePlanner {
         }
     }
 
-    // MARK: - Tour
-
-    /// The tour, loop mode: a disc of ground around the user is sized so the streets in it are
-    /// the distance asked for, and the walk sweeps it row by row — a lawnmower over the new
-    /// ground rather than a zigzag past it.
-    ///
-    /// The disc is not fixed at the start: it is tried at the start and on a few rings around it,
-    /// and a centre is preferred when the ground inside it is unexplored and it is near the user.
-    /// That is the answer to the zigzag's habit of ignoring the new streets under the user's feet
-    /// in favour of a bigger, emptier square further out — a tour that centres at the start and
-    /// fills what is there wins on both counts.
-    ///
-    /// A row that is covered ground from end to end is dropped before anything is routed, so a
-    /// tight tour spends its legs on the streets the user has not walked. The rows that remain
-    /// are nudged, at each end, towards the least covered ground nearby, which is what puts a
-    /// turning point on the street that is new rather than on the one the user runs every week.
-    private func planTourLoop(request: PlanRequest,
-                              start: CLLocationCoordinate2D,
-                              coverage: CoverageIndex,
-                              client: DirectionsClient) async -> RoutePlan? {
-        let target = max(200, request.targetMeters)
-        var generator = SplitMix64(seed: seed)
-        let history = PlanHistory.load()
-        let rows = tourRows()
-
-        var candidates: [(waypoints: [CLLocationCoordinate2D], rough: Double)] = []
-        for placement in tourPlacements(generator: &generator) {
-            // A little wobble on the rows, so two sweeps that cover the same ground are still not
-            // the same walk.
-            let jitters = (0..<rows).map { _ in
-                (along: Double.random(in: -0.08...0.08, using: &generator),
-                 across: Double.random(in: -0.12...0.12, using: &generator))
-            }
-            // Size a disc at the start first, then slide it out by a share of its own radius —
-            // which keeps the start inside it, since a disc can only move that far and still
-            // hold the ground it was sized on.
-            guard let base = tourLoopSweep(start: start, centre: start, bearing: placement.rowBearing,
-                                           rows: rows, target: target, coverage: coverage,
-                                           jitters: jitters) else { continue }
-            let centre = placement.factor <= 0 ? start
-                : Geo.destination(from: start, bearing: placement.offsetBearing,
-                                  distance: base.radius * placement.factor)
-            let sweep: (waypoints: [CLLocationCoordinate2D], radius: Double)
-            if placement.factor <= 0 {
-                sweep = base
-            } else if let moved = tourLoopSweep(start: start, centre: centre,
-                                                bearing: placement.rowBearing, rows: rows,
-                                                target: target, coverage: coverage, jitters: jitters) {
-                sweep = moved
-            } else {
-                continue
-            }
-
-            let chain = [start] + sweep.waypoints + [start]
-            let length = max(1, CoverageIndex.length(of: chain))
-            let fraction = coverage.uncoveredMeters(of: chain) / length
-            let fit = 1 - min(1, abs(length - target) / target)
-            let density = tourDensity(centre: centre, radius: sweep.radius, coverage: coverage)
-            let offset = CoverageIndex.meters(from: start, to: centre)
-            let proximity = min(1, offset / max(1, sweep.radius))
-            let penalty = history.penalty(start: start, bearing: placement.rowBearing,
-                                          meters: target, config: config)
-            let shortfall = max(0, minimumNew - fraction)
-            let noise = Double.random(in: -1...1, using: &generator)
-            let rough = fraction + 0.3 * fit + 0.5 * density
-                - config.tourCentrePenalty * proximity - penalty - 3 * shortfall
-                + config.noise * noise
-            candidates.append((sweep.waypoints, rough))
-        }
-
-        let legsPerRoute = 2 * rows + 1
-        let budget = max(1, config.tourMaxLegsPerPlan / max(1, legsPerRoute))
-        let wanted = max(1, min(routeCount, budget))
-        let finalists = candidates.sorted { $0.rough > $1.rough }.prefix(wanted)
-
-        var routed: [PlannedRoute] = []
-        for (index, candidate) in finalists.enumerated() {
-            let points = [start] + candidate.waypoints + [start]
-            let pairs = zip(points, points.dropFirst()).map { (from: $0, to: $1) }
-            guard let legs = await route(Array(pairs), client: client),
-                  let made = makeRoute(id: index, legs: legs, coverage: coverage) else { continue }
-            routed.append(made)
-        }
-        guard !routed.isEmpty else { return nil }
-
-        let plan = finalize(request: request, start: start, routes: routed,
-                            history: history, coverage: coverage, tour: true)
-        record(plan, start: start, request: request)
-        return plan
-    }
-
-    /// The tour, destination mode: a corridor between the start and the destination is sized so
-    /// the streets across it are the distance asked for, and the walk sweeps across it from one
-    /// end to the other — start at one end of the shape, destination at the other. The cross-cuts
-    /// that hold no new ground are dropped, exactly as the loop's rows are.
-    private func planTourDestination(request: PlanRequest,
-                                     start: CLLocationCoordinate2D,
-                                     coverage: CoverageIndex,
-                                     client: DirectionsClient) async -> RoutePlan? {
-        guard let destination = request.destination,
-              !Geo.same(start, destination) else { return nil }
-        let target = max(200, request.targetMeters)
-        let history = PlanHistory.load()
-        let rows = tourRows()
-
-        guard let directLegs = try? await client.route(from: start, to: destination),
-              let direct = directLegs.first else { return nil }
-
-        var routed: [PlannedRoute] = []
-        if let made = makeRoute(id: 0, legs: [direct], coverage: coverage) { routed.append(made) }
-
-        // A sweep only makes sense when the user wants to walk farther than the direct way.
-        if target > direct.distance * 1.05 {
-            var generator = SplitMix64(seed: seed &+ 1)
-            let jitters = [Double.random(in: -12...12, using: &generator),
-                           Double.random(in: -12...12, using: &generator)]
-            for (index, side) in [-1.0, 1.0].enumerated() {
-                if let legs = await tourCorridor(start: start, destination: destination, rows: rows,
-                                                 side: side, jitter: jitters[index], target: target,
-                                                 coverage: coverage, client: client),
-                   let made = makeRoute(id: routed.count, legs: legs, coverage: coverage) {
-                    routed.append(made)
-                }
-            }
-        } else {
-            for leg in directLegs.dropFirst().prefix(2) {
-                if let made = makeRoute(id: routed.count, legs: [leg], coverage: coverage) {
-                    routed.append(made)
-                }
-            }
-        }
-
-        guard !routed.isEmpty else { return nil }
-        let plan = finalize(request: request, start: start, routes: routed,
-                            history: history, coverage: coverage, tour: true)
-        record(plan, start: start, request: request)
-        return plan
-    }
-
-    /// How many rows the tour's sweep is made of: many at the tightest, a couple at the widest,
-    /// and pulled tighter still when the user is asking for a lot of new ground. Capped by the
-    /// leg budget, since a sweep is a row per leg and then some.
-    private func tourRows() -> Int {
-        let tight = min(max(max(shape, minimumNew), 0), 1)
-        let rows = Double(config.tourRowsWide)
-            + (Double(config.tourRowsTight) - Double(config.tourRowsWide)) * tight
-        return max(2, min((config.tourMaxLegsPerRoute - 1) / 2, Int(rows.rounded())))
-    }
-
-    /// Where the tour's disc is tried: the bearings a centre may be offset along, the direction
-    /// its rows run in, and how far out it slides as a share of its own radius. Factor 0 is the
-    /// start itself, so a disc that centres there is always among the candidates.
-    private func tourPlacements(generator: inout SplitMix64)
-    -> [(offsetBearing: Double, rowBearing: Double, factor: Double)] {
-        var placements: [(offsetBearing: Double, rowBearing: Double, factor: Double)] = []
-        for factor in config.tourCentreFactors {
-            for index in 0..<config.tourCentreBearings {
-                let base = Double(index) / Double(config.tourCentreBearings) * 360
-                let offset = (base + Double.random(in: -18...18, using: &generator))
-                    .truncatingRemainder(dividingBy: 360)
-                let row = (offset + Double.random(in: -45...45, using: &generator))
-                    .truncatingRemainder(dividingBy: 360)
-                placements.append((offset, row, factor))
-            }
-        }
-        return placements
-    }
-
-    /// A tour sweep as the ordered row ends of a serpentine over a disc: `rows` lines across it,
-    /// the walk turning at each line's far end. The disc is sized by bisection so the sweep's
-    /// straight-line length — including the legs out to a disc that is not centred on the start
-    /// — is the distance asked for, and `roadFactor` corrects for a real route being longer than
-    /// the straight lines it follows.
-    ///
-    /// Returns `nil` when even a disc of no size cannot be reached and returned within the
-    /// distance, which is what prunes a centre too far away to be worth walking to.
-    private func tourLoopSweep(start: CLLocationCoordinate2D,
-                               centre: CLLocationCoordinate2D,
-                               bearing: Double,
-                               rows: Int,
-                               target: Double,
-                               coverage: CoverageIndex,
-                               jitters: [(along: Double, across: Double)])
-    -> (waypoints: [CLLocationCoordinate2D], radius: Double)? {
-        let radians = bearing * .pi / 180
-        let along = (east: sin(radians), north: cos(radians))
-        let across = (east: cos(radians), north: -sin(radians))
-
-        func rowLines(of radius: Double) -> [[CLLocationCoordinate2D]] {
-            let spacing = 2 * radius / Double(rows)
-            return (0..<rows).map { row in
-                let jitter = row < jitters.count ? jitters[row] : (along: 0, across: 0)
-                let offset = -radius + (Double(row) + 0.5) * spacing + radius * jitter.across
-                let half = max(1, (radius * radius - offset * offset).squareRoot())
-                    * (1 + jitter.along)
-                func point(_ t: Double) -> CLLocationCoordinate2D {
-                    Geo.offset(centre,
-                               east: t * along.east + offset * across.east,
-                               north: t * along.north + offset * across.north)
-                }
-                return row.isMultiple(of: 2) ? [point(-half), point(half)] : [point(half), point(-half)]
-            }
-        }
-        func chain(_ lines: [[CLLocationCoordinate2D]]) -> [CLLocationCoordinate2D] {
-            [start] + lines.flatMap { $0 } + [start]
-        }
-
-        let wanted = target / roadFactor
-        // The disc has to hold the start: the user is somewhere inside the shape, not outside it
-        // with a leg out to it and back. So the radius never drops below the distance from the
-        // centre to the start, and a centre too far away to be reached and returned within the
-        // distance — even with a disc of no size — is pruned here.
-        let floor = CoverageIndex.meters(from: start, to: centre)
-        var low = floor
-        var high = max(floor + 1, target)
-        guard CoverageIndex.length(of: chain(rowLines(of: high))) > wanted,
-              CoverageIndex.length(of: chain(rowLines(of: low))) <= wanted else { return nil }
-        for _ in 0..<24 {
-            let mid = (low + high) / 2
-            if CoverageIndex.length(of: chain(rowLines(of: mid))) < wanted { low = mid } else { high = mid }
-        }
-        let radius = (low + high) / 2
-        guard radius > 5 else { return nil }
-
-        // Only the rows that still hold ground the user has not covered are walked.
-        var swept: [CLLocationCoordinate2D] = []
-        for row in rowLines(of: radius) where coverage.uncoveredMeters(of: row) >= config.tourRowMinNewMeters {
-            swept.append(contentsOf: row.map {
-                bias($0, across: bearing, span: radius * 0.25, coverage: coverage)
-            })
-        }
-        guard !swept.isEmpty else { return nil }
-        return (swept, radius)
-    }
-
-    /// A tour sweep of the corridor between the start and the destination: `rows` cross-cuts,
-    /// alternating direction, from the start end to the destination end. Sized by bisection so
-    /// its straight-line length is the distance asked for, and one-sided by `side` so the two
-    /// alternatives are the two sides of the way there.
-    private func tourCorridor(start: CLLocationCoordinate2D,
-                              destination: CLLocationCoordinate2D,
-                              rows: Int,
-                              side: Double,
-                              jitter: Double,
-                              target: Double,
-                              coverage: CoverageIndex,
-                              client: DirectionsClient) async -> [DirectionsLeg]? {
-        let corridor = Geo.bearing(from: start, to: destination) + jitter
-        let radians = (corridor + side * 90) * .pi / 180
-        let across = (east: cos(radians), north: -sin(radians))
-
-        func rowLines(of reach: Double) -> [[CLLocationCoordinate2D]] {
-            (0..<rows).map { row in
-                let base = CoverageIndex.interpolate(start, destination,
-                                                     (Double(row) + 0.5) / Double(rows))
-                func point(_ lateral: Double) -> CLLocationCoordinate2D {
-                    Geo.offset(base, east: lateral * across.east, north: lateral * across.north)
-                }
-                return row.isMultiple(of: 2) ? [point(-reach), point(reach)] : [point(reach), point(-reach)]
-            }
-        }
-        func chain(_ lines: [[CLLocationCoordinate2D]]) -> [CLLocationCoordinate2D] {
-            [start] + lines.flatMap { $0 } + [destination]
-        }
-
-        let wanted = target / roadFactor
-        var low = 0.0
-        var high = max(200, target)
-        guard CoverageIndex.length(of: chain(rowLines(of: high))) > wanted else { return nil }
-        for _ in 0..<24 {
-            let mid = (low + high) / 2
-            if CoverageIndex.length(of: chain(rowLines(of: mid))) < wanted { low = mid } else { high = mid }
-        }
-        let reach = (low + high) / 2
-        guard reach > 5 else { return nil }
-
-        var swept: [CLLocationCoordinate2D] = []
-        for row in rowLines(of: reach) where coverage.uncoveredMeters(of: row) >= config.tourRowMinNewMeters {
-            swept.append(contentsOf: row.map {
-                bias($0, across: corridor, span: reach * 0.4, coverage: coverage)
-            })
-        }
-        guard !swept.isEmpty else { return nil }
-
-        let points = [start] + swept + [destination]
-        let pairs = zip(points, points.dropFirst()).map { (from: $0, to: $1) }
-        return await route(Array(pairs), client: client)
-    }
-
-    /// The share of the samples inside a disc that fall on ground no workout has covered. The
-    /// measure of "is there anything here to find", which is what makes the tour prefer a
-    /// half-explored neighbourhood over a fully walked one.
-    private func tourDensity(centre: CLLocationCoordinate2D,
-                             radius: Double,
-                             coverage: CoverageIndex) -> Double {
-        let samples = max(3, config.tourDensitySamples)
-        var uncovered = 0
-        var total = 0
-        for i in 0..<samples {
-            for j in 0..<samples {
-                let x = (Double(i) + 0.5) / Double(samples) * 2 - 1
-                let y = (Double(j) + 0.5) / Double(samples) * 2 - 1
-                guard x * x + y * y <= 1 else { continue }
-                total += 1
-                if !coverage.isCovered(Geo.offset(centre, east: x * radius, north: y * radius)) {
-                    uncovered += 1
-                }
-            }
-        }
-        return total > 0 ? Double(uncovered) / Double(total) : 0
-    }
-
-    /// How far, on average by length, a polyline runs from a point. The tour is docked on it, so
-    /// a route that fills the streets under the user beats one that goes the same distance out
-    /// to an emptier corner.
-    private func meanDistance(from origin: CLLocationCoordinate2D,
-                              along coordinates: [CLLocationCoordinate2D]) -> Double {
-        var weighted = 0.0
-        var total = 0.0
-        for (a, b) in zip(coordinates, coordinates.dropFirst()) {
-            let segment = CoverageIndex.meters(from: a, to: b)
-            let mid = CoverageIndex.interpolate(a, b, 0.5)
-            weighted += CoverageIndex.meters(from: origin, to: mid) * segment
-            total += segment
-        }
-        return total > 0 ? weighted / total : 0
-    }
-
     // MARK: - Legs
 
     /// Routes a list of point-to-point legs, a few at a time, and returns them in order — or
@@ -849,9 +457,7 @@ struct RoutePlanner {
     private func finalize(request: PlanRequest,
                           start: CLLocationCoordinate2D,
                           routes: [PlannedRoute],
-                          history: PlanHistory,
-                          coverage: CoverageIndex,
-                          tour: Bool = false) -> RoutePlan? {
+                          history: PlanHistory) -> RoutePlan? {
         let target = max(200, request.targetMeters)
         var scored: [(route: PlannedRoute, score: Double)] = []
         for route in routes {
@@ -865,14 +471,8 @@ struct RoutePlanner {
             // here: this is the last word on which route the user is offered first, and it
             // should be the best of them rather than the luckiest.
             let shortfall = max(0, minimumNew - route.newFraction)
-            let backtrack = route.distance > 0
-                ? coverage.selfOverlapMeters(of: route.coordinates) / route.distance : 0
-            let nearness = tour
-                ? min(1, meanDistance(from: start, along: route.coordinates) / target) : 0
             let score = 0.5 * route.newFraction + 0.3 * fit - penalty
                 - 3 * shortfall - (within ? 0 : 2)
-                - config.backtrackPenalty * backtrack
-                - config.tourCentrePenalty * nearness
             scored.append((route, score))
         }
         let limit = max(1, min(routeCount, config.maxLegsPerRoute))
