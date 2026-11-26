@@ -159,6 +159,7 @@ variables (Debug builds only):
 | `WM_FOCUS_SEARCH=1` | Focuses the explorer's search field at launch, so the room the keyboard leaves the panel can be seen |
 | `WM_PIN_DELETE=1` | Fires that bubble's bin a moment later, through the delegate method the bin calls |
 | `WM_FAKE_PLAN=1` | Replaces `MKDirections` with a fixture, so the explorer runs without a network |
+| `WM_PLAN_DEAD=1` | Makes the routing service refuse every leg, so the explorer's *No complete route* bubble can be seen without waiting for a bad network day |
 | `WM_FAKE_PIN="lat,lon"` | Drops the destination pin at launch |
 | `WM_STRESS=N` | Replicates the sample workouts N times, `WM_STRESS_SPREAD` degrees apart (map performance) |
 
@@ -499,16 +500,22 @@ Notes on the map rendering, all measured from the original app:
     on disk are read first, so the first plan is instant; the rest are pulled from Health four
     at a time and folded in, and the panel says so while that is still running.
   * `MKDirections` knows no waypoints, so a route is a handful of point-to-point legs stitched
-    into one polyline — and both shapes are a **zigzag sized so its straight-line length is the
-    distance asked for**. That is what the *Route Shape* setting steers: how many legs the zigzag
-    is made of, not how long it is. A **loop** is a zigzag over a square centred on the start,
-    the route turning at each row's far end and coming home; a **destination** is a zigzag along
-    the direct line, alternating either side of it. At *Wide* the loop is two long legs out and
-    back around the start and the destination is one big bow off the corridor; at *Tight* the
-    loop is a **lawnmower over the square the start sits in** and the destination is a handful of
-    side streets either side of the way there. Measured on a 5 km loop from the same spot:
-    5.87 km reaching ~1.1 km out at *Wide* against 4.81 km filling a ~1.1 km square at *Tight* —
-    the distance holds while the shape changes, which is the whole point of the setting.
+    into one polyline, and a candidate is a **chain of waypoints sized so its straight-line length
+    is the distance asked for** — the road factor below carrying the fact that a real walk follows
+    the streets. That is what the *Route Shape* setting steers: which chain, and how many legs it
+    is made of, not how long it is.
+    In a **loop**, *Wide* is a **closed polygon** around the start — few long legs, which the
+    service's own routing reads as a big arc round the neighbourhood — and *Tight* is a **greedy
+    fill** of the streets around it, street by street, which only doubles back when there is
+    nothing new left in reach.
+    Towards a **destination**, *Wide* is the two shapes a corridor allows: a **zigzag** beside the
+    way there, and a **lollipop** — out to a point on the way there, the loop's own fill hung on
+    that point, then the last leg to the destination. *Tight* is a **ladder**: the same greedy
+    fill, hung on several points along the corridor and alternating sides, so the walk sweeps the
+    streets either side of the way there instead of circling a single spot. A fill can only add
+    what fits on the corridor, so when the distance asked for is barely more than the way there
+    every candidate is a zigzag: there is nothing for a fill to do. The distance holds while the
+    shape changes, which is the whole point of the setting.
   * The **new ways** slider is what makes the planner go looking. It is a target rather than a
     guarantee — a route that starts at the front door has to cross the streets around it, and
     those are the ones most likely to be covered already — and it works three ways at once.
@@ -530,14 +537,38 @@ Notes on the map rendering, all measured from the original app:
     rather than the luckiest. The generator is seedable (`SplitMix64`).
   * A tighter shape turns more often and follows more side streets, so its real length runs
     further ahead of the straight line it was sized on: the road factor carries a slope with the
-    setting (1.32 → 1.50). The destination's shape is sized by bisecting its lateral reach, and
-    one correction round re-routes the better of the two sides when the first attempt lands more
-    than 15 % off.
-  * The legs are the request budget. `MKDirections` throttles a burst
-    (`MKError.Code.loadingThrottled`), so at most three legs are in flight at once, a throttled
-    leg is retried twice with a growing delay, and a plan is capped at 18 legs — which is also
-    what caps *Routes Suggested* at three when the shape asks for five legs each. A leg that
-    fails outright drops its candidate: a route with a hole in it is not a route.
+    setting (1.32 → 1.50). A **destination** plan has no single size to correct after the fact —
+    correcting one shape by how short it came back is how a plan for 5 km over a 2 km corridor
+    used to end up as the one route it could always fall back on, the way there. Each candidate is
+    instead **sized differently**: the wandering it aims at spans 0.75× to 1.25× what the distance
+    asks for, one size per candidate, and the ranking — which measures what was actually routed —
+    keeps the one that lands on it.
+  * The legs are the request budget, and the budget is the service's own: `MKDirections` answers
+    about **fifty requests a minute** and refuses the rest with `MKError.Code.loadingThrottled`.
+    Measured against the real service: a plan running at sixty a minute had seven legs refused
+    again and again, and every one of those refusals was a throttle, not a missing route — which
+    matters, because a leg the service will not route takes its whole candidate with it. So at
+    most three legs are in flight at once, and every request goes through `DirectionsPacer`: one
+    every **1.2 s** to start with (the fifty a minute, with room for the retries); multiplied for
+    the **whole plan** — not just the leg that was refused — each time the service pushes back
+    anyway, up to one every 12 s; and easing off again after four answered requests. A refused leg
+    waits 2, 4 and 8 s between its five attempts, because a retry a moment later is a retry out of
+    the same minute's allowance. A plan is capped at 60 legs, which a tight fill spends one
+    waypoint at a time — and at 1.2 s a leg, a full plan is a minute and a half of waiting, which
+    is the price of routes that are complete rather than routes with a line through the houses.
+  * A refused leg is not an answer. It is asked for five times with a growing delay; the legs
+    still missing are then asked for **again** once the rest of the plan has been through the
+    service, because what was throttled was the burst and the burst is over; and a leg the
+    service will not route in one piece at all — a throttle that never lifts, or a stretch
+    farther than walking directions reach (`directionsNotFound`) — is **halved** and routed in
+    two, which is a way round the block rather than through it.
+  * **A route the service would not route end to end is not offered at all.** The hole used to be
+    filled with a straight line between the leg's ends, and that chord was what the user read as
+    a route drawn through the houses — three refusals were enough to produce one. `makeRoute`
+    therefore returns `nil` for a candidate with a leg the service would not route, and a plan
+    that keeps none of its candidates hands back **nothing**: the map screen's own bubble says
+    *No complete route — try again* and asks for the same plan on a tap (the `WM_PLAN_DEAD` hook
+    shows that state). No route is a better answer than a wrong one.
   * The route is drawn by MapKit like everything else on this screen: the planned lines are
     handed to `RouteMapView` as a second list, added **after** the workout routes (MapKit draws
     one level's overlays in the order they were added, so a planned route always lands on top of
@@ -551,6 +582,12 @@ Notes on the map rendering, all measured from the original app:
     alternate **on the map** picks it — the tap is resolved against the planned lines first,
     since they are drawn on top of the workout routes — and after Go the alternates are not
     drawn at all: the map is the route being walked and nothing else.
+  * A plan can also come back **empty-handed** — see the leg budget above — and there is a state
+    for that too: the bubble under the range label becomes *No complete route — try again*, a
+    warning triangle and a retry glyph in the same glass capsule the planning bubble uses, and a
+    tap on it asks for the same `PlanRequest` again. It is not an error dialog: nothing failed on
+    the phone's side, the legs that could not be routed are simply legs this app will not draw a
+    line across.
   * The card is a state machine with an escape hatch. Before Go it offers the alternates and a
     cross that throws the plan away; after Go there is nothing left to pick between, so the pair
     becomes one red **Stop**. Dragging it up **follows the finger**: the drag writes the card's

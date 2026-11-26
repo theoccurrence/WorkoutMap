@@ -116,6 +116,17 @@ struct CoverageIndex {
                                       longitude: a.longitude + delta * t)
     }
 
+    /// Points every `every` metres along the straight line from `a` to `b`, both ends included.
+    /// A fill uses this to claim the ground it walks rather than only the corners it turns at.
+    static func samples(from a: CLLocationCoordinate2D,
+                        to b: CLLocationCoordinate2D,
+                        every: Double) -> [CLLocationCoordinate2D] {
+        let span = meters(from: a, to: b)
+        guard span > every else { return [b] }
+        let count = max(1, Int(span / every))
+        return (0...count).map { interpolate(a, b, Double($0) / Double(count)) }
+    }
+
     /// The length of a polyline in metres.
     static func length(of coordinates: [CLLocationCoordinate2D]) -> Double {
         guard coordinates.count > 1 else { return 0 }

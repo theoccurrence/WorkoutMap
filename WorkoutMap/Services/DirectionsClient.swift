@@ -73,6 +73,79 @@ final class MapKitDirectionsClient: DirectionsClient {
     }
 }
 
+/// Holds a plan's requests to the directions service back to a pace it does not throttle, and
+/// slows the whole plan down when it pushes back anyway.
+///
+/// A plan asks for up to sixty legs, and the service answers a burst with
+/// `MKError.Code.loadingThrottled` rather than with a route. A throttle is a judgement on the
+/// burst, not on the leg it landed on, so the pacer turns it into a longer wait for every
+/// request that follows and eases off again once requests are being answered. One pacer per
+/// plan: the legs of a candidate, the candidates themselves and a destination's detour rounds
+/// all draw on the same brake, which is what stops the plan from being throttled as a whole.
+actor DirectionsPacer {
+    /// The spacing the plan settles on while the service is happy, and — with the ceiling — the
+    /// two ends of what a throttle moves the spacing between.
+    ///
+    /// 1.2 s is not a guess: `MKDirections` answers about **fifty requests a minute** and refuses
+    /// the rest with `MKError.Code.loadingThrottled`, which is a *budget* rather than a hiccup —
+    /// a burst that spends it leaves later requests refused however patiently they are asked
+    /// again, because their retries come out of the same budget. Measured against the real
+    /// service: 74 requests in 74 s (60 a minute) got seven legs refused again and again, and
+    /// every one of those refusals was a throttle. One request every 1.2 s keeps a plan inside
+    /// the budget with room for the retries it needs.
+    private static let relaxed = Duration.milliseconds(1200)
+    /// What a throttle does to the spacing: a plan that is being refused is over the budget, and
+    /// waiting seconds rather than milliseconds is the only thing that puts it back inside.
+    private static let strained = Duration.seconds(12)
+    /// How many requests in a row have to be answered before the plan speeds up again. Four
+    /// rather than eight: a plan that has been throttled has to be able to come back up while it
+    /// is still working through a long fill, or one bad moment near the start leaves it crawling
+    /// for the rest of the plan.
+    private static let reliefAfter = 4
+
+    private let base: Duration
+    private var spacing: Duration
+    private var nextStart = ContinuousClock.now
+    private var answered = 0
+
+    init(spacing: Duration = DirectionsPacer.relaxed) {
+        self.base = spacing
+        self.spacing = spacing
+    }
+
+    /// Waits for this request's turn and reserves the slot after it. Callers are the plan's own
+    /// legs, so the wait is the point rather than a cost.
+    func acquire() async {
+        let now = ContinuousClock.now
+        let slot = max(now, nextStart)
+        nextStart = slot + spacing
+        guard slot > now else { return }
+        try? await ContinuousClock().sleep(until: slot, tolerance: .milliseconds(20))
+    }
+
+    /// The service asked the plan to slow down: the request that follows waits longer, and so
+    /// does every one after it until routes are coming back again.
+    func throttled() {
+        answered = 0
+        spacing = min(Self.strained, spacing * 2)
+        nextStart = max(nextStart, ContinuousClock.now + spacing)
+    }
+
+    /// A request came back with a route in it.
+    func succeeded() {
+        answered += 1
+        guard answered >= Self.reliefAfter else { return }
+        answered = 0
+        spacing = max(base, spacing / 2)
+    }
+
+    /// A pause before a pass that follows a burst — the rest of the plan has just been through
+    /// the service, and a leg it refused a moment ago usually answers now.
+    func cool() {
+        nextStart = max(nextStart, ContinuousClock.now + max(spacing, .milliseconds(750)))
+    }
+}
+
 extension MKPolyline {
     var coordinates: [CLLocationCoordinate2D] {
         guard pointCount > 0 else { return [] }
@@ -105,6 +178,17 @@ struct FixtureDirectionsClient: DirectionsClient {
         return [DirectionsLeg(coordinates: coordinates,
                               distance: CoverageIndex.length(of: coordinates),
                               travelTime: direct / 1.35)]
+    }
+}
+
+/// The service on a bad day: every leg is refused, which is what a plan the planner cannot
+/// finish looks like from its side (`WM_PLAN_DEAD=1`). The screen's own empty-handed state is
+/// otherwise only reachable by waiting for the routing service to have a bad day — and the
+/// explorer's answer to it is the one thing worth looking at before that happens.
+struct RefusingDirectionsClient: DirectionsClient {
+    func route(from: CLLocationCoordinate2D,
+               to: CLLocationCoordinate2D) async throws -> [DirectionsLeg] {
+        throw DirectionsError.noRoute
     }
 }
 #endif
