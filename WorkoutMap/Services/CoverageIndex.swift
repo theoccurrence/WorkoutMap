@@ -68,6 +68,27 @@ struct CoverageIndex {
         }
     }
 
+    /// The metres of a polyline that run over ground the polyline itself has already covered —
+    /// how much of a walk is a street it has already walked. A route that goes out along a street
+    /// and back down it scores high; a loop that sweeps its ground once scores near zero. The
+    /// cell the walk is still standing in is not counted, so the joint between two legs and the
+    /// sample that lands in the cell it just left do not read as a re-walk.
+    func selfOverlapMeters(of coordinates: [CLLocationCoordinate2D]) -> Double {
+        guard coordinates.count > 1 else { return 0 }
+        var visited: Set<Int64> = []
+        var reused = 0.0
+        var previous: Int64?
+        for (a, b) in zip(coordinates, coordinates.dropFirst()) {
+            sample(a, b) { point, step in
+                let cell = CoverageIndex.cell(of: point)
+                guard cell != previous else { return }
+                if visited.contains(cell) { reused += step } else { visited.insert(cell) }
+                previous = cell
+            }
+        }
+        return reused
+    }
+
     /// The share of the 3×3 cells around a coordinate that are covered: 0 is ground no workout
     /// has been near, 1 is ground the user has walked through. The window rather than the single
     /// cell because one cell is a coin toss — this is what nudges a turning point towards the

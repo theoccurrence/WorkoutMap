@@ -1190,6 +1190,7 @@ struct MapTabView: View {
         planTask = Task { @MainActor in
             let index = await coverage.index(for: health.workouts)
             var planner = RoutePlanner()
+            planner.strategy = DebugLaunch.planAlgorithm ?? .tour
             planner.routeCount = exploreRouteCount
             planner.shape = exploreShape
             planner.minimumNew = exploreMinimumNew

@@ -194,6 +194,9 @@ enum DebugLaunch {
     static var planRoutes: Int? { env["WM_PLAN_ROUTES"].flatMap(Int.init) }
     /// WM_PLAN_NEW=0.1..1 pre-sets the share of the route that should be new ground.
     static var planMinimumNew: Double? { env["WM_PLAN_NEW"].flatMap(Double.init) }
+    /// WM_PLAN_ALGO=tour|zigzag picks which of the two algorithms plans the route (the tour is
+    /// the proof of concept, and the default).
+    static var planAlgorithm: PlanStrategy? { env["WM_PLAN_ALGO"].flatMap(PlanStrategy.init(rawValue:)) }
     /// WM_FAKE_PLAN=1 replaces MKDirections with a fixture, so the planner's UI can be
     /// exercised without a network.
     static var fakePlan: Bool { env["WM_FAKE_PLAN"] == "1" }
@@ -319,6 +322,7 @@ enum DebugLaunch {
     static var planShape: Double? { nil }
     static var planRoutes: Int? { nil }
     static var planMinimumNew: Double? { nil }
+    static var planAlgorithm: PlanStrategy? { nil }
     static var fakePlan: Bool { false }
     static var fakePin: CLLocationCoordinate2D? { nil }
     static var selectPin: Bool { false }
