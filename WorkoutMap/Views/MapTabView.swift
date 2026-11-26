@@ -60,8 +60,11 @@ struct MapTabView: View {
     @State private var openedWorkout: Workout?
     @State private var showRange = DebugLaunch.openSheet
     @State private var showModes = DebugLaunch.openModes
-    @State private var showExport = DebugLaunch.openExport
+    @State private var showExport = false
     @State private var visibleMapRect: MKMapRect?
+    /// The camera the map is showing, reported by it: the tilt and turn a rect cannot carry, handed
+    /// to the share preview so the card it opens comes up on the same tilted map (`MapPose`).
+    @State private var mapPose: MapPose?
     /// The window's safe-area insets, reported by the map view.
     @State private var windowInsets: UIEdgeInsets = .zero
     /// The style the map was drawn in a moment ago, while its change is being washed over.
@@ -455,6 +458,13 @@ struct MapTabView: View {
                     closeWorkout()
                 }
             }
+            // WM_START_EXPORT=1 — see `DebugLaunch.openExport`: the share preview card opens once the
+            // map's own routes have loaded, the same wait `WM_OPEN_MENU` makes, since the card's map
+            // is snapshotted in one pass when it comes up.
+            if DebugLaunch.openExport {
+                try? await Task.sleep(for: .seconds(4))
+                open(.share)
+            }
         }
         .task(id: reloadKey) { await reload() }
         // The explorer's index covers every workout, so it is rebuilt when the workout set
@@ -463,20 +473,8 @@ struct MapTabView: View {
         // The screen's menus are drawn in the map screen itself (`menuLayer`), not presented as
         // sheets: a half-height sheet is handed a glass panel by the system that no value of
         // `presentationBackground` removes, and its card is the full width of the window, so on
-        // the Duo it lies over the screen's rail. The export preview is the one cover: a
-        // full-screen viewer for the image it produces rather than a panel over the map.
-        .fullScreenCover(isPresented: $showExport) {
-            // Sharing the **whole map**, so the card's stats are the sum over the workouts the map is
-            // showing — every walk ever, with *All* and *Walk* selected — and the label is the range's
-            // own rather than a tapped route's date.
-            ExportPreviewView(workout: nil,
-                              workouts: filtered,
-                              rangeLabel: rangeLabel,
-                              mapRect: exportRect,
-                              routes: mapLines,
-                              mode: mapMode,
-                              interfaceStyle: mapInterfaceStyle)
-        }
+        // the Duo it lies over the screen's rail. The share preview the toolbar's share button opens
+        // is one of those cards, drawn in that same layer.
         // The workout the range bubble opened is **not** presented as a sheet: it is drawn as one of
         // this screen's own cards (`menuLayer`), so the margin around it shows the map it floats over.
         // A sheet's own background runs flush to the display's bottom edge — the one side its card is
@@ -563,6 +561,7 @@ struct MapTabView: View {
                          userCourse: location.course,
                          userDotColor: dotColor,
                          onRegionChange: { visibleMapRect = $0 },
+                         onCameraChange: { mapPose = $0 },
                          onUserInteraction: { userMoved = true },
                          onRouteTap: { tappedRouteID = $0 },
                          onLongPress: { dropPin(at: $0) },
@@ -797,6 +796,28 @@ struct MapTabView: View {
                         .menuCardInsets()
                         .transition(.move(edge: .bottom))
                 }
+                // The share preview the toolbar's share button opens: the card that is about to be
+                // written, with a rail of its own — **Save** and **Back**. It shares the **whole map**,
+                // so its numbers are the sum over the workouts the map is showing — every walk ever,
+                // with *All* and *Walk* selected — and the label is the range's own rather than a
+                // tapped route's date. Like the workout card it is the whole screen, so it keeps the
+                // same margin at the top and draws its own black card for itself.
+                if showExport {
+                    SharePreviewCard(workouts: filtered,
+                                     rangeLabel: rangeLabel,
+                                     mapRect: exportRect,
+                                     pose: mapPose,
+                                     routes: mapLines,
+                                     mode: mapMode,
+                                     interfaceStyle: mapInterfaceStyle,
+                                     statusColumn: usesVerticalControls ? Metrics.statusColumnInsetFolded
+                                                                        : Metrics.screenInset,
+                                     onClose: { close(.share) })
+                        .menuCard(display: proxy.size, clipped: true, onDismiss: { close(.share) })
+                        .padding(.top, Metrics.menuCardInset)
+                        .menuCardInsets()
+                        .transition(.move(edge: .bottom))
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
@@ -809,7 +830,7 @@ struct MapTabView: View {
     /// `MapMenu` rather than `Menu`: a nested `Menu` would shadow SwiftUI's own inside this type, and
     /// the toolbar's range control is one of those.
     private enum MapMenu {
-        case plan, range, modes
+        case plan, range, modes, share
     }
 
     /// How a menu of this screen opens and closes: it rises from the bottom edge of the display and
@@ -837,18 +858,22 @@ struct MapTabView: View {
     private static var menuSpringResponse: Double { DebugLaunch.menuDuration ?? MenuMotion.response }
     private static let menuSpringDamping: Double = MenuMotion.damping
 
-    /// True while one of the screen's cards is up — the three menus, or the workout the range bubble
-    /// opened, which is drawn as one of them (`menuLayer`) — which is what draws the dim, fades the
-    /// screen's own controls and its system chrome, and takes a tap as a dismissal.
-    private var menusAreOpen: Bool { showPlanner || showRange || showModes || openedWorkout != nil }
+    /// True while one of the screen's cards is up — the three menus, the share preview the toolbar's
+    /// share button opens, or the workout the range bubble opened, which is drawn as one of them
+    /// (`menuLayer`) — which is what draws the dim, fades the screen's own controls and its system
+    /// chrome, and takes a tap as a dismissal.
+    private var menusAreOpen: Bool {
+        showPlanner || showRange || showModes || showExport || openedWorkout != nil
+    }
 
-    /// Every open and close of the three goes through these, so nothing can pop into being.
+    /// Every open and close of the four goes through these, so nothing can pop into being.
     private func open(_ menu: MapMenu) {
         withAnimation(Self.menuAnimation) {
             switch menu {
             case .plan: showPlanner = true
             case .range: showRange = true
             case .modes: showModes = true
+            case .share: showExport = true
             }
         }
     }
@@ -859,6 +884,7 @@ struct MapTabView: View {
             case .plan: showPlanner = false
             case .range: showRange = false
             case .modes: showModes = false
+            case .share: showExport = false
             }
         }
     }
@@ -869,6 +895,7 @@ struct MapTabView: View {
             showPlanner = false
             showRange = false
             showModes = false
+            showExport = false
             openedWorkout = nil
         }
     }
@@ -943,7 +970,7 @@ struct MapTabView: View {
     private var mapToolbar: some View {
         VStack(spacing: Metrics.pillGap) {
             VStack(spacing: 0) {
-                toolbarButton("square.and.arrow.up", label: "Share") { showExport = true }
+                toolbarButton("square.and.arrow.up", label: "Share") { open(.share) }
                 toolbarButton("calendar", label: "Pick a period") {
                     if kind != .all { open(.range) }
                 }
@@ -1140,7 +1167,7 @@ struct MapTabView: View {
     /// The rail's glyphs stay neutral; only the tab bar carries the accent.
     private var shareToolbarItem: some View {
         Button {
-            showExport = true
+            open(.share)
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
         }

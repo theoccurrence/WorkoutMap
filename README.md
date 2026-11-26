@@ -13,17 +13,18 @@ desaturated Apple map and lets you filter them by week / month / year.
 
 | Tab | What it does |
 | --- | --- |
-| **Workouts** | List of every walk / run / ride with distance, date and a small map thumbnail of the route, ordered by date or by length from the control in the header (the choice is kept), and an **Edited** badge on a row whose route has been edited in the app. Tapping a row opens the detail screen; the glass rail at its trailing edge — Share, Edit and Back, the same round glass buttons the map screen's cards carry, hung just above the info cards — returns to the list. The detail screen carries the **eraser** besides its share button: it opens the route editor, where the drawn route can be changed — ground erased, or a GPS jump flagged as ground that really was covered — and kept (see below). |
-| **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as the app's own round **glass** buttons on the opposite side. The map can be panned, pinched, turned and **tilted** with two fingers — the tilt lifts it into MapKit's own 3D mode, buildings and all, exactly as Apple Maps. The share button exports the current map as an image card whose stats are the **sum over every workout the map is showing** (all walks ever, with *All* and *Walk* selected). The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`), which then carries a chevron and is itself the way into that workout: tapping the bubble opens the workout's own detail screen — the same screen the Workouts list pushes and the settings' edit list opens — while tapping the map itself brings the range's label back. The screen's own menus — the explorer's input, the calendar, the map-style picker — are drawn in the map screen as **cards of the same shape as the sheet the bubble opens** (inset from every edge of the display, corners that follow the display's own), and each **rises from the bottom edge of the display and leaves the same way** over a spring, with the map and the range bubble dimming behind it as it comes — the dim fades in *and* out, and a tap anywhere on it closes the menu. While a menu is up the screen's own controls — the Walk / Run / Ride and explorer circles, the hand-placed toolbar, and on the Duo the system rail itself — are **not on screen at all** (they fade out with the card's own animation and fade back when it leaves), because a card over the map must not have buttons reading through it. The explorer's **result card** is deliberately *not* one of those: it appears without any dimming of its own, because the suggested routes drawn on the map have to stay readable while one of them is picked. |
-| **Map styles** | Apple Maps' own *Map Modes* panel: **Explore**, **Driving** (live traffic), **Transit** (stations only), **Satellite** (imagery) and **Legacy** — the grey map the app shipped with, which is also what it opens with. Each tile is Maps' own artwork for the style (the grey Explore tile for **Legacy**), so the panel is complete the moment it opens. The close cross is one of the screen's own **glass circles** (`GlassCircleButton`), in the column its toolbar keeps rather than in the card's own corner. **Satellite** carries the **Labels** toggle under the tiles, as Maps does: on by default — the imagery *with* its labels layer (roads, place names), which is `MKHybridMapConfiguration`, against the bare photograph of `MKImageryMapConfiguration` — written through to the settings, and read by the detail screen, the editor and the exported card as well. It is a **bar of its own**, as Maps draws it — a rounded row (white at 10 %) inset 13 pt from the card's edges, with the label and the switch set 24 pt inside it — and its room is in the panel's height in **every** mode (the card does not change size when the mode changes, which the user asked for): only the bar's contents fade in, for Satellite, over 0.25 s. The choice is kept in the settings, and the detail screen and the export card draw the map in it as well. The map itself — and every preview of it — is drawn in the system's own light or dark style, or in the one pinned under *Map Appearance*; **Legacy** is the grey map the app shipped with and stays dark either way. |
+| **Workouts** | List of every walk / run / ride with distance, date and a small map thumbnail of the route, ordered by date or by length from the control in the header (the choice is kept), and an **Edited** badge on a row whose route has been edited in the app. Tapping a row opens the detail screen; the glass rail at its trailing edge — Save, Edit and Back, the same round glass buttons the map screen's cards carry, hung just above the info cards — returns to the list, where *Save* writes what the screen shows straight to the photo library. The detail screen carries the **eraser** besides its save button: it opens the route editor, where the drawn route can be changed — ground erased, or a GPS jump flagged as ground that really was covered — and kept (see below). |
+| **Map** | All routes of the selected period drawn on the map, auto-zoomed to fit. A vertical glass toolbar carries share, the week / month / year / all filter (behind a menu) and a two-button pill — the map style picker above the locate button, as in Maps — with Walk / Run / Ride as the app's own round **glass** buttons on the opposite side. The map can be panned, pinched, turned and **tilted** with two fingers — the tilt lifts it into MapKit's own 3D mode, buildings and all, exactly as Apple Maps, and it is what the two *Save* buttons keep: the share preview comes up on that same tilted map, the tilt can be changed on the card itself, and the image written keeps whichever tilt it was left in (see below). The share button opens the **share preview**: the card that is about to be written, drawn as one of the screen's own cards, whose stats are the **sum over every workout the map is showing** (all walks ever, with *All* and *Walk* selected) — with a rail of **Save** and **Back** on the right, where *Save* writes the card to the photo library. The position marker carries a translucent cone — in the colour of the selected category — showing the way the user faces, and moves smoothly between fixes instead of jumping once a second. Tapping a route on the map shows that route's own date and time in the range bubble at the top (`DD.MM.YYYY - hh:mm`), which then carries a chevron and is itself the way into that workout: tapping the bubble opens the workout's own detail screen — the same screen the Workouts list pushes and the settings' edit list opens — while tapping the map itself brings the range's label back. The screen's own menus — the explorer's input, the calendar, the map-style picker — are drawn in the map screen as **cards of the same shape as the sheet the bubble opens** (inset from every edge of the display, corners that follow the display's own), and each **rises from the bottom edge of the display and leaves the same way** over a spring, with the map and the range bubble dimming behind it as it comes — the dim fades in *and* out, and a tap anywhere on it closes the menu. While a menu is up the screen's own controls — the Walk / Run / Ride and explorer circles, the hand-placed toolbar, and on the Duo the system rail itself — are **not on screen at all** (they fade out with the card's own animation and fade back when it leaves), because a card over the map must not have buttons reading through it. The explorer's **result card** is deliberately *not* one of those: it appears without any dimming of its own, because the suggested routes drawn on the map have to stay readable while one of them is picked. |
+| **Map styles** | Apple Maps' own *Map Modes* panel: **Explore**, **Driving** (live traffic), **Transit** (stations only), **Satellite** (imagery) and **Legacy** — the grey map the app shipped with. The map opens on **Explore**, Maps' own standard map with the app's routes over it, rather than on that grey one; the choice is kept in the settings, so the map opens on the style the user last picked. Each tile is Maps' own artwork for the style (the grey Explore tile for **Legacy**), so the panel is complete the moment it opens. The close cross is one of the screen's own **glass circles** (`GlassCircleButton`), in the column its toolbar keeps rather than in the card's own corner. **Satellite** carries the **Labels** toggle under the tiles, as Maps does: on by default — the imagery *with* its labels layer (roads, place names), which is `MKHybridMapConfiguration`, against the bare photograph of `MKImageryMapConfiguration` — written through to the settings, and read by the detail screen, the editor and the exported card as well. It is a **bar of its own**, as Maps draws it — a rounded row (white at 10 %) inset 13 pt from the card's edges, with the label and the switch set 24 pt inside it — and its room is in the panel's height in **every** mode (the card does not change size when the mode changes, which the user asked for): only the bar's contents fade in, for Satellite, over 0.25 s. The choice is kept in the settings, and the detail screen and the export card draw the map in it as well. The map itself — and every preview of it — is drawn in the system's own light or dark style, or in the one pinned under *Map Appearance*; **Legacy** is the grey map the app shipped with and stays dark either way. |
 | **Explore** | A route planner for ground the user has never covered. Its own circle sits above the Walk / Run / Ride filters with **twice the gap** between the three, so it reads as a group of its own — binoculars in its own blue while it is on, the same glass circle otherwise. It opens a panel: **Loop** (starts and ends at the current position) or **To a destination** (a search result, or the pin dropped by pressing and holding the map), and how many kilometres. A plan comes back as Apple Maps' blue route with as many washed-out alternates as *Routes Suggested* asks for, and a card carrying the distance, the share of *new ways* and the expected time, with **Go** to keep it on the map — the Go and the cross beside it in the app's **medium** glass size (`.controlSize(.regular)`, 32.5 pt), a size the pair carries on its own. The panel grows and shrinks **with an animation** as the mode changes, and its own close cross is a glass circle like the screen's toolbar. The alternates on the card are the app's **Liquid Glass** capsules too — the *Go* button's own construction one control size down (`.small`), each showing its route's distance, with the selected one carrying the accent through its glyph **and** a wash in the glass, so the choice reads as *in focus* the way a selected Walk / Run / Ride circle does. Tapping one of the alternates on the map picks it, the same as tapping its capsule on the card. Once Go is tapped the map shows that one route alone and the Go and the cross give way to a red **Stop**; the card can be swiped up out of the way without ending anything, and the binoculars bring it back — or open the panel again to plan another one. The route stays until Stop, a new plan, or a relaunch. The pin carries an info bubble with the name the geocoder resolved, the address, **how far away it is** (live, as the user walks) and a bin to remove it. The Walk / Run / Ride filters keep working underneath and independently: a category filter and the explorer can both be on at once. |
-| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **gps jumps** — two independent rules, each *dotted* / *hidden* / *solid*: legs longer than a **distance** threshold (25 m to start with) and legs faster than a **speed** threshold (162 km/h to start with, and past 10 m of ground — a shorter leg is a rounded clock, not a jump), each with its own **colour** for the tone it draws in (the system colour picker and hex, as under *Mode Colors*, with *Reset Colors* beneath them), see below; the combined detection that catches the big ones is fixed and never drawn, **mode colors** (the primary colour of Walk, Run and Ride — the routes, the position dot and its cone, and each mode's filter button — chosen in the system colour picker with its spectrum, sliders and hex field, plus *Reset to Defaults*), **explore** — how many routes are suggested (1–5), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route) and a **new ways** slider (10 %–100 %) for how much of the route should be ground the user has never covered, **workout edits** — *Edited Workouts*, its own list of every workout the editor has changed (most recent first, each row naming the workout and saying what was changed to it, with a bin that removes the edit without the workout being opened — a row opens the workout while this device has it), so the settings screen itself stays short however many there are, with *Export Edits* writing them all to a JSON file and *Import Edits* merging such a file in — feedback, share app, about, contact. |
+| **Settings** | Data source (Health), **default period** (the Week / Month / Year / All filter the map opens with), **map appearance** (light / dark / system — the map alone; the rest of the app stays dark), **gps jumps** — two independent rules, each *dotted* / *hidden* / *solid* — the distance rule *dotted* and the speed rule *solid*, in its own orange, to start with: legs longer than a **distance** threshold (20 m to start with) and legs faster than a **speed** threshold (30 km/h to start with, and past 10 m of ground — a shorter leg is a rounded clock, not a jump), each with its own **colour** for the tone it draws in (the system colour picker and hex, as under *Mode Colors*, with *Reset Colors* beneath them), see below; the combined detection that catches the big ones is fixed and never drawn, **mode colors** (the primary colour of Walk, Run and Ride — the routes, the position dot and its cone, and each mode's filter button — chosen in the system colour picker with its spectrum, sliders and hex field, plus *Reset to Defaults*), **explore** — how many routes are suggested (1–5, five to start with), a **route shape** slider from *Wide* (a few long legs that reach far out) to *Tight* (many short ones that fill the streets around the route), *balanced* to start with, and a **new ways** slider (10 %–100 %, at 100 % to start with) for how much of the route should be ground the user has never covered, **workout edits** — *Edited Workouts*, its own list of every workout the editor has changed (most recent first, each row naming the workout and saying what was changed to it, with a bin that removes the edit without the workout being opened — a row opens the workout while this device has it), so the settings screen itself stays short however many there are, with *Export Edits* writing them all to a JSON file and *Import Edits* merging such a file in — feedback, share app, about, contact. |
 
 Detail screen: map with the route, workout type, date, weather (temperature and
 humidity from the workout metadata), then the six numbers — time, distance,
 elevation, active calories, average pace and average heart rate — as cards laid out
 **three rows of two standing up and two rows of three lying down**, with the
-`*Data from …` line under them, plus a share button that opens the export card. It is
+`*Data from …` line under them, and a rail of glass buttons — **Save**, **Edit** and
+**Back** — where *Save* writes what the screen shows to the photo library. It is
 opened in two ways and tells them apart (`WorkoutDetailView.Presentation`): **pushed**,
 from the Workouts tab and from the settings' edited list — edge to edge in whatever
 container pushed it (see the rail notes below), which inside that settings *sheet* means
@@ -39,8 +40,16 @@ map takes whatever height the cards and that line leave it, rather than a fixed 
 of the screen, which is what keeps the sixth card and the source label inside the card
 on the smallest display the app runs on.
 
-Export card: the map with the *Workout Map* title, a 2×2 statistic grid and the
-app badge; **Save** writes the card to the photo library.
+Share card: the map with its own overlay — the *Workout Map* title and the period for the
+whole map, the workout's type, date and weather for one, with the date and the weather on
+**one line** and in the accent rather than white — the six numbers and the footer: the
+app's own badge on **every** image the two *Save* buttons write, and the `*Data from …`
+line on the detail screen alone, which is that screen's own. It is one view (`ShareCard`),
+drawn live as that screen and rendered into the file, so a preview cannot promise
+something the image does not get. Every image is laid out at the **display's** size
+(`ShareImageRenderer.displaySize`) whether it was written from a card of the map screen or
+from a pushed screen, so all of them come out the same size; the badge is centred in the
+room the numbers leave rather than sitting on the bottom edge.
 
 Edit screen: the workout's route with a **brush** on it, opened from the eraser button
 on the detail screen, and two tools to say one of two things about a leg. **Eraser**
@@ -115,6 +124,10 @@ variables (Debug builds only):
 | `WM_TAP_AT="x,y"` | Fires one tap on the map at those screen points (checks the route tap and the range bubble) |
 | `WM_TAP_BUBBLE=1` | Taps the range bubble a moment after `WM_TAP_AT`, through the action its button calls (checks the workout opening from the map) |
 | `WM_MAP_HEADING=<degrees>` | Turns the map once its camera has been placed (checks the two-finger pan on a turned map) |
+| `WM_MAP_PITCH=<degrees>` | Tilts it the same way, once (checks the map's own 3D view — what the share preview and *Save* have to keep) |
+| `WM_SAVE_CARD=1` | Writes the card a screen is showing — the share preview's or the detail screen's — to the photo library, through the very call *Save* makes (the only place the 3D map an export kept can be looked at, since the simulator cannot tap *Save*) |
+| `WM_SAVE_CARD_DELAY=<seconds>` | Moves that save back, so it lands once the map has drawn |
+| `WM_SETTINGS_SCROLL=settingsExplore` | Scrolls the settings screen to that section, which is below anything a phone's display shows at once (checks the *Explore* defaults) |
 | `WM_OPEN_MENU=range\|modes\|plan` | Opens one of the map screen's own menus a few seconds after launch (checks the dimming and the rise) |
 | `WM_MENU_DURATION=<seconds>` | Slows that rise down, far enough for a screenshot to catch the card halfway up |
 | `WM_CLOSE_MENU=<seconds>` | Closes the menu `WM_OPEN_MENU` opened — or, with `WM_START_WORKOUT_SHEET`, the workout card — that long after it went up, through the call a tap on the dim makes (checks the way it leaves) |
@@ -122,7 +135,7 @@ variables (Debug builds only):
 | `WM_MODE_COLORS="walk=FF00FF,run=00FFFF,ride=0000FF"` | Writes Walk / Run / Ride colours at launch through the same store the picker uses |
 | `WM_RESET_MODE_COLORS=1` | Puts Walk / Run / Ride back to their shipped colours at launch (checks *Reset to Defaults*) |
 | `WM_START_DETAIL=1` | Pushes the first workout's detail screen |
-| `WM_START_EXPORT=1` | Opens the export card |
+| `WM_START_EXPORT=1` | Opens the map's share preview card (it waits for the map's routes, as `WM_OPEN_MENU` does) |
 | `WM_START_EDIT=1` | Opens the route editor on the detail screen it pushes |
 | `WM_EDIT_TOOL=eraser\|valid` | Picks the tool the editor opens with |
 | `WM_EDIT_STROKE="x,y;x2,y2"` | Runs one stroke of the brush along those screen points, through the path its recognizer uses |
@@ -186,8 +199,8 @@ WorkoutMap/
   Views/       RootView (TabView), WorkoutsListView, WorkoutCardView, WorkoutDetailView,
                WorkoutEditView (the route editor) + RouteEditsDocument (its JSON file),
                EditedWorkoutsView (the settings screen's own list of edited workouts),
-               MapTabView, RouteMapView, RangePickerPanel, MapModePanel, ExportPreviewView,
-               SettingsView, RoutePlannerPanel, PlannedRouteBar
+               MapTabView, RouteMapView, RangePickerPanel, MapModePanel, ShareCard,
+               SharePreviewCard, SettingsView, RoutePlannerPanel, PlannedRouteBar
 ```
 
 Notes on the map rendering, all measured from the original app:
@@ -200,8 +213,22 @@ Notes on the map rendering, all measured from the original app:
   filter above the map view (VectorKit renders tiles and overlays into one Metal
   layer, so it would grey the routes out too) nor a route layer positioned from
   `visibleMapRect` callbacks (VectorKit renders a frame ahead of the main thread,
-  so it always trails the map) can do that. Snapshots (card thumbnails, export
-  card) run the same tone mapping on the pixels — for the modes that have it.
+  so it always trails the map) can do that. Snapshots (card thumbnails, share
+  card) run the same tone mapping on the pixels — for the modes that have it, and with the
+  live pass's own numbers: `toneChroma` 0 is the grey that pass leaves behind and
+  `toneScale` 0.8 its 20 % dim (measured over a legacy map: a mean chroma of 3 of 255,
+  against 21 for the untouched colour, so a card that kept half of it came out seven times
+  as colourful as the map it was drawn from). A mode without the pass is snapshotted as
+  MapKit draws it, so a card's map is the screen's own map (measured over Explore: chroma
+  65.2 against the screen's 65.3).
+* MapKit's **attribution** is drawn into a snapshot's bottom edge, and a thumbnail's snapshot is
+  taken a band taller so that band can be cropped off — the canvas keeps the snapshot's
+  **top** (`draw(in:)` at the canvas' origin). The band was subtracted from the `y`
+  instead, which kept the bottom and cut the top, so MapKit's wordmark stayed in every
+  snapshot the app drew. The band is `MapImageRenderer.attributionBand` (40 pt). A **share
+  card** is not a snapshot at all any more — its map is the live map view's own rendering, so
+  it carries MapKit's own *Maps* line exactly as the card on screen does, and the app's own
+  replacement row for it is gone.
 * The **map style** is `MapMode`: Apple Maps' four modes plus `legacy`, the grey map
   the app shipped with and the one it opens with, so nothing changed for anyone who
   does not pick another. MapKit has no switch per mode, so each entry is the closest
@@ -767,8 +794,8 @@ Notes on the map rendering, all measured from the original app:
     it. The map screen's own card gives both for free.
   * The explorer panel's own fields (the search box, the results, the chosen destination) are
     `.thinMaterial` over it. The flat `Palette.sheetCard` / `Palette.pickerGlass` fills went with
-    it. The export card is the one exception: it is a full-screen viewer for the image it
-    produces rather than a panel over the map, so it still sits on black.
+    it. The share preview the map's share button opens is one of those cards too
+    (`SharePreviewCard`) rather than a panel of its own, so it sits in the same layer.
   * A card's close cross is one of the screen's own **glass buttons** (`GlassCircleButton`) — a 48.5 pt
     disc, so a hit region wider than the 44 pt `Metrics.toolbarButtonSize` the map screen's own controls
     carry — and it is placed against the **card's** own corner rather than in the header's row, with the
@@ -783,8 +810,8 @@ Notes on the map rendering, all measured from the original app:
     shape instead of poking out of its corner. The Map Modes panel grew by the same amount, so its row of
     tiles kept the room it had under the labels instead of sitting on the card's bottom edge.
   * **Every** close cross in the app is that same button, and there is no other kind left: the map
-    screen's three menus and the workout card (above), the route editor's own chrome, the settings'
-    *Edited Workouts* list and the export preview all carry `MenuCloseButton` — one size, one look,
+    screen's three menus and the workout card (above), the route editor's own chrome and the settings'
+    *Edited Workouts* list all carry `MenuCloseButton` — one size, one look,
     wherever a cross appears. The plain grey circle the app shipped with (`CloseCircleButton` and
     `Palette.closeButton`) went with the last two users of it. The explorer's result card carries the
     same family: its cross is that button, and *Go* is a **glass capsule tinted with the accent** — the
@@ -794,22 +821,40 @@ Notes on the map rendering, all measured from the original app:
     as the label's height): the system pads a capsule 15 pt a side exactly as it pads a circle, so without
     it a text label's own line box made the capsule 50.3 pt against the cross's 48.5 — the box is what
     keeps a row of the app's glass chrome one height, whatever shape of button it is.
-  * The **export preview** is the one screen whose cross is not a card's, because the screen is not a
-    card: it is a full-screen viewer on black for the image *Save* writes, so its cross stands in the
-    **screen's** own corner — `Metrics.screenInset` from the trailing edge and from the top, inside
-    whatever the window reserves there (the Duo's cover panel keeps 84 pt for the system's rail, so the
-    disc's edge lands 102 pt from the display's right edge, measured) — and the **status bar is hidden**
-    for it, as it is on the editor. Two things were wrong with it. Its cross hung **35 pt inside the
-    reader and 3 pt below the display's top edge** — which on the folded panel is the band the status
-    elements are drawn *over*, because that panel reports **no** top inset at all (measured: 0 pt, and
-    84 pt trailing) — and the card itself was laid out at its natural height, so a window shorter than the
-    card showed only the top of its map: on the folded panel held sideways the stats grid, the footer and
-    the *Save* button were all off the screen. The preview now **draws the rendered card** — the same
-    image *Save* writes, so it cannot promise a different one — fitted: never bigger than that image, so
-    its text stays sharp, and scaled down where the window is short, so the whole card is visible in every
-    pose (measured in the landscape reader: the card at 182 × 232 pt inside 594 × 432, all of it on
-    screen). *Save* is inset by `Metrics.screenInset` like the app's other primary buttons
-    (`RoutePlannerPanel`, `RangePickerPanel`), rather than running edge to edge.
+  * The **share preview** the map's share button opens is a card of the screen's own
+    (`SharePreviewCard`) rather than a viewer: it is drawn in the same layer as the three menus and the
+    workout card, so the margin around it shows the map it floats over, and it **rises from the bottom
+    edge and leaves the same way** on the same spring. It carries the app's own card view (`ShareCard`)
+    live — the map with its overlay, the six numbers and the footer — with a rail of two glass buttons
+    on the right: **Save**, which writes the card to the photo library, and **Back**, which puts it away.
+    Its map is a **live** one — the screen's own routes, in the screen's own style, framed to the region
+    the map behind it is showing — so the card comes up with its map already drawn, the way the workout
+    card the range bubble opens does. Nothing is written until *Save*: the card's own map is taken off the
+    map view then — it is the very view the user is looking at, 3D and all — and the card is laid out over
+    it, so the file is what the card promised and the wait is on the save rather than on the opening. The detail screen's own
+    rail carries **Save**, **Edit** and **Back** instead, and *Save* there writes what the screen shows —
+    the map with its type, date and weather, the six numbers and the source line, and nothing of the rail
+    or the status bar — straight to the photo library: there is no preview of that one, the screen is
+    the preview.
+  * The share preview opens on the map the screen behind it was left in, and it is the **camera** that
+    carries a tilted one: a rectangle cannot say a pitch, and `visibleMapRect` on a pitched map is the
+    ground the *far* edge of the screen reaches to, not the view. So the map screen reports its own
+    camera (`MapPose`) and the card takes it up — centre, distance, pitch and heading — and a tilt put on
+    the card's own map is the user's to change from there. A **flat** card is still opened framed to the
+    region it was handed, which is the region the map screen is showing.
+  * A card's map is then written from the **live map view's own rendering** (`ShareImageRenderer.image`),
+    taken off the view at *Save* time — that is the whole of the 3D export, and it is the only thing that
+    works. `MKMapSnapshotter` cannot draw the app's routes at all: Apple's own advice is to draw an
+    overlay by hand, so the first version of this drew the routes into the snapshot, and a line drawn by
+    hand has no **depth** — on a tilted map it lay *across* the buildings it should pass behind, which is
+    not what the map on screen shows. (It came out at the wrong scale too: `MKMapSnapshotter.Snapshot`
+    `point(for:)` projects a camera-framed snapshot as if it were flat — measured on iOS; the *macOS*
+    snapshotter does apply the pitch, which is what made a probe look right and the phone look wrong.) On
+    the screen the routes are `MKOverlay`s *inside* MapKit's render pass, where the extruded blocks occlude
+    them, and the view's own rendering has all of it — the tone pass, the labels, MapKit's own *Maps*
+    line — so the file is the map the card was showing, and nothing is hand-projected or re-toned.
+  * `MKMapSnapshotter` still draws the **thumbnails** in the workout list (map and route into one image,
+    `MapImageRenderer.image`), where a flat map is all there is and the attribution band is cropped off.
   * Those buttons are the **system's** own glass button — `.buttonStyle(.glass)` with
     `.buttonBorderShape(.circle)`, which is what a toolbar item of the rail is drawn with — rather than
     a `Button` painted with `.glassEffect`: the first version's glass never reacted to a touch at all,
@@ -851,7 +896,7 @@ Notes on the map rendering, all measured from the original app:
     is up (`SystemChromeFade`; on that display the rail and the tab capsule are one view). So a
     full-bleed map with drawn-on glass buttons, or the system's bar with an inset screen, is the choice,
     and a full-bleed map is what the app takes.
-  * The detail screen's own actions — **Share**, **Edit** and **Back**, one round glass button each —
+  * The detail screen's own actions — **Save**, **Edit** and **Back**, one round glass button each —
     are drawn **in** the screen, and they **hang on the bottom**: `Metrics.pillGap` above the
     info-card block, the same gap the buttons keep between themselves (~35 px at 3×, the user's own
     measurement). The block's height is *measured* (`blockHeight`), so that gap is the same in every
@@ -984,12 +1029,14 @@ Notes on the map rendering, all measured from the original app:
   speed leg — provided it also covers more than 10 m (`JumpRules.speedMinimumDistance`). A
   receiver's timestamps are rounded, and two fixes a metre apart a hundredth of a second apart
   imply 100 m/s: that is a bad clock, not a jump, and flagging it put a lone dot on a fix the
-  user was standing on. Each rule is drawn *dotted*, *hidden* or *solid* on its own — a leg that
-  trips both is drawn as a fast leg. Dotted and solid use the rule's own **tone**, never the
+  user was standing on. Each rule is drawn *dotted*, *hidden* or *solid* on its own — the distance
+  rule *dotted* over the ground it found, the speed rule *solid*, and both at 20 m and 30 km/h to
+  start with — a leg that trips both is drawn as a fast leg. Dotted and solid use the rule's own **tone**, never the
   route's colour, and that tone is the user's to set (`JumpColorStore`, through the two colour
   rows under *Settings ▸ GPS Jumps* — the same system colour picker the mode colours use, with
-  the hex beside it): grey for the distance rule and the system red for a fast leg until another
-  one is picked, and a change lands on the map, the card thumbnails and the export card at once.
+  the hex beside it): grey (`#AEAEB2`) for the distance rule and `#FF6A00` for a fast leg until
+  another one is picked, and a change lands on the map, the card thumbnails and the export card at
+  once.
   The tone belongs to the **rule**, so it is what a leg reads as whether the rule draws it
   dotted or solid. A dotted leg is a row of **dots**, each a zero-length dash
   stroked with a round cap, and both the dot and its spacing are measured against the width the

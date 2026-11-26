@@ -17,13 +17,36 @@ struct RouteLine {
 final class MapImageRenderer {
     static let shared = MapImageRenderer()
 
+    /// How tall a band is cropped off a snapshot's bottom edge to take MapKit's own *Maps*
+    /// attribution with it. The wordmark is drawn ~20 pt up from that edge and is ~15 pt tall, so
+    /// the 14 pt band the app used reached none of it: every snapshot it drew — the list thumbnails
+    /// and the share cards alike — carried MapKit's attribution, and a card, which draws the *Maps*
+    /// line for itself, carried both.
+    static let attributionBand: CGFloat = 40
+
+    /// The rect grown about its centre to the given width/height ratio, so a snapshot taken at that
+    /// ratio holds this rect and nothing else it does not have to.
+    static func fitted(_ rect: MKMapRect, aspect: CGFloat) -> MKMapRect {
+        guard aspect > 0, rect.size.width > 0, rect.size.height > 0 else { return rect }
+        if rect.size.width / rect.size.height < aspect {
+            let width = rect.size.height * aspect
+            return MKMapRect(x: rect.midX - width / 2, y: rect.minY,
+                             width: width, height: rect.size.height)
+        }
+        let height = rect.size.width / aspect
+        return MKMapRect(x: rect.minX, y: rect.midY - height / 2,
+                         width: rect.size.width, height: height)
+    }
+
     private let cache = NSCache<NSString, UIImage>()
     private static let ciContext = CIContext(options: nil)
 
     /// Applies a linear tone curve directly on sRGB pixels, keeping `chroma` of each
-    /// pixel's own colour and the rest of its luma: 0 is the flat grey of the cards, 0.5 is
-    /// the grey the live map's tone pass leaves behind, 1 keeps the colour. Doing this by hand avoids Core Image's linear working space, which makes
-    /// brightness/contrast behave unpredictably for the app's flat look.
+    /// pixel's own colour and the rest of its luma: 0 is the flat grey the live map's own tone pass
+    /// leaves behind (measured over a legacy map: a mean chroma of 3 of 255, against 21 for the
+    /// untouched colour — so a card that keeps half of it comes out seven times as colourful as the
+    /// map it was drawn from), 1 keeps the colour. Doing this by hand avoids Core Image's linear
+    /// working space, which makes brightness/contrast behave unpredictably for the app's flat look.
     private func toneMapped(_ image: UIImage,
                             chroma: CGFloat,
                             scale: CGFloat,
@@ -58,8 +81,34 @@ final class MapImageRenderer {
         return UIImage(cgImage: output, scale: image.scale, orientation: .up)
     }
 
-    /// One snapshot per map style, so an exported card shows the same map the user was
-    /// looking at.
+    /// A **live** map view's own rendering, as an image.
+    ///
+    /// This is the only way to get the app's routes on a tilted map *and* MapKit's 3D around them. A
+    /// snapshotter cannot draw the routes at all — Apple's own advice is to draw an overlay by hand, so
+    /// the app does — but a route drawn by hand over a tilted snapshot has no depth: it lies across the
+    /// buildings it should pass behind, which is not what the map the user is looking at shows. The
+    /// screen's own map view has all of it already: the routes are `MKOverlay`s inside MapKit's own
+    /// render pass, occluded by the extruded blocks exactly as on screen, the tone pass and all.
+    /// `drawHierarchy(in:afterScreenUpdates:)` is what takes that rendering off the view — measured on
+    /// iOS: the tiles, the extruded buildings, the labels and the routes, in the camera's own
+    /// perspective, pixel for pixel the map on screen. (`layer.render(in:)`, the other candidate, comes
+    /// back an empty rectangle for a map, and worse, takes the process down with it.)
+    ///
+    /// `nil` when there is nothing to draw — the method's own `false`, which is what a view that has
+    /// never been on screen reports — so a caller can fall back to a snapshot.
+    static func liveImage(of view: UIView, scale: CGFloat) -> UIImage? {
+        guard view.bounds.width > 1, view.bounds.height > 1 else { return nil }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = scale
+        format.opaque = true
+        var drawn = false
+        let image = UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
+            drawn = view.drawHierarchy(in: view.bounds, afterScreenUpdates: true)
+        }
+        return drawn ? image : nil
+    }
+
+    /// One snapshot per map style, so a thumbnail shows the same map the list is of.
     private func snapshot(mapRect: MKMapRect,
                           size: CGSize,
                           scale: CGFloat,
@@ -77,9 +126,13 @@ final class MapImageRenderer {
         return try? await snapshotter.start()
     }
 
-    /// Map + routes rendered into one image. The tone curve is applied for the modes that
-    /// carry the app's grey (`MapMode.usesTone`) and skipped for the rest, which are the map
-    /// as MapKit draws it.
+    /// Map + routes rendered into one image — the **thumbnails** the workout list is drawn of. (A
+    /// share card's map is not made here: it is the map view the card was showing, drawn off the view
+    /// itself, which is the only way the routes and the 3D buildings come out with the depth between
+    /// them — see `liveImage(of:scale:)`.)
+    ///
+    /// The tone curve is applied for the modes that carry the app's grey (`MapMode.usesTone`) and skipped
+    /// for the rest, which are the map as MapKit draws it.
     func image(mapRect: MKMapRect,
                size: CGSize,
                scale: CGFloat,
@@ -89,13 +142,25 @@ final class MapImageRenderer {
                lineWidth: CGFloat = 7,
                toneChroma: CGFloat = 0,
                toneScale: CGFloat = 1,
-               toneOffset: CGFloat = 0) async -> UIImage? {
-        // MapKit draws its "Maps" attribution into the snapshot's bottom edge.
-        // The original app shows no attribution in the card thumbnails, so the
-        // snapshot is taken a little taller and that band is cropped off.
-        let attributionBand: CGFloat = 14
+               toneOffset: CGFloat = 0,
+               attributionBand: CGFloat = MapImageRenderer.attributionBand) async -> UIImage? {
+        // MapKit draws its "Maps" attribution into the snapshot's bottom edge. The original app
+        // shows no attribution in the card thumbnails, so the snapshot is taken a band taller and
+        // that band is cropped off — the canvas keeps the snapshot's **top**.
+        //
+        // The region is grown to the canvas' own ratio first and then extended **downwards** by the
+        // band, so that the canvas holds exactly the rect that was asked for: a snapshot taken
+        // taller and cropped would otherwise show a region of its own, shifted and zoomed by the
+        // band — 40 pt of a 90 pt thumbnail is nearly half of it.
+        let canvasAspect = size.width / max(1, size.height)
+        let snapshotAspect = size.width / max(1, size.height + attributionBand)
+        let visible = MapImageRenderer.fitted(mapRect, aspect: canvasAspect)
+        let snapshotRect = MKMapRect(x: visible.minX,
+                                     y: visible.minY,
+                                     width: visible.width,
+                                     height: visible.width / snapshotAspect)
         let snapshotSize = CGSize(width: size.width, height: size.height + attributionBand)
-        guard let snapshot = await snapshot(mapRect: mapRect, size: snapshotSize, scale: scale,
+        guard let snapshot = await snapshot(mapRect: snapshotRect, size: snapshotSize, scale: scale,
                                             mode: mode, interfaceStyle: interfaceStyle) else { return nil }
         let base = mode.usesTone
             ? toneMapped(snapshot.image, chroma: toneChroma, scale: toneScale, offset: toneOffset)
@@ -105,7 +170,12 @@ final class MapImageRenderer {
         format.opaque = true
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         return renderer.image { context in
-            base.draw(in: CGRect(x: 0, y: -attributionBand, width: size.width, height: snapshotSize.height))
+            // Drawn at the canvas' own origin, so the canvas — which is `attributionBand` shorter —
+            // keeps the snapshot's **top** and drops that band off its **bottom**, where MapKit put
+            // its attribution. Shifting it up by the band instead (which is what this did) kept the
+            // bottom and cut the top: the attribution stayed in every snapshot the app drew, and the
+            // *Maps* line a share card draws for itself was left sitting over it.
+            base.draw(in: CGRect(x: 0, y: 0, width: size.width, height: snapshotSize.height))
             let cg = context.cgContext
             cg.setLineJoin(.round)
             for route in routes where route.coordinates.count > 1 {
@@ -121,8 +191,9 @@ final class MapImageRenderer {
                 }
                 let path = CGMutablePath()
                 for (index, coordinate) in route.coordinates.enumerated() {
-                    let raw = snapshot.point(for: coordinate)
-                    let point = CGPoint(x: raw.x, y: raw.y - attributionBand)
+                    // The snapshot's own space, which is the canvas' now that it is drawn at the
+                    // origin — the routes move with the map they are drawn over.
+                    let point = snapshot.point(for: coordinate)
                     if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
                 }
                 cg.addPath(path)

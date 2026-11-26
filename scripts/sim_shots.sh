@@ -71,7 +71,10 @@ shot detail    SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1
 shot_after detail_land 20 SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL_CHILD_WM_ROTATE=landscapeRight
 shot_after detail_sheet 12 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_SKIP_LOCATION=1 SIMCTL_CHILD_WM_START_WORKOUT_SHEET=1
 shot_after detail_sheet_land 24 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=week SIMCTL_CHILD_WM_SKIP_LOCATION=1 SIMCTL_CHILD_WM_START_WORKOUT_SHEET=1 SIMCTL_CHILD_WM_ROTATE=landscapeRight
-shot export    SIMCTL_CHILD_WM_START_TAB=0 SIMCTL_CHILD_WM_START_DETAIL=1 SIMCTL_CHILD_WM_START_EXPORT=1
+# The share preview the map's own share button opens: the card that is about to be written, drawn as
+# one of that screen's cards, with a rail of Save and Back. It comes up on the screen's own timing —
+# `WM_START_EXPORT` waits for the map's routes, as `WM_OPEN_MENU` does — so it is shot with a wait.
+shot_after export 12 SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=all SIMCTL_CHILD_WM_START_EXPORT=1
 # The range bubble: a tap on a route (WM_TAP_AT) puts that route's own date in it, and the bubble
 # itself is the way into the workout — the second shot taps it.
 shot map_bubble      SIMCTL_CHILD_WM_START_TAB=1 SIMCTL_CHILD_WM_START_RANGE=month SIMCTL_CHILD_WM_JUMP_DISTANCE_M=25 SIMCTL_CHILD_WM_TAP_DELAY=2 "SIMCTL_CHILD_WM_TAP_AT=305,427"

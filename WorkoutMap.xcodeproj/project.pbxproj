@@ -10,6 +10,7 @@
 		00817EB7CA01A698DD46A7C8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5DAF003050049BA3E62B5DF2 /* Assets.xcassets */; };
 		06E25D7A2B2F874D3269A75F /* MapMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261EAD446B5AC5B4F86D01F0 /* MapMode.swift */; };
 		0732BA69F360061119BC962D /* AppBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E953720D2A0F7CE9EADF8FE /* AppBackground.swift */; };
+		0ACEAF2F43B455A57270D570 /* SharePreviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13FBD4DE9DD7894A69FC889C /* SharePreviewCard.swift */; };
 		0D50A24C560BCAE0514B02D7 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1580B103C393940147C727E8 /* RouteStore.swift */; };
 		0ED5B5F04DDAF1A7EA290036 /* JumpColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09E5FE3CB71EE6914E91AE6 /* JumpColors.swift */; };
 		104A41C92B5B8D40EC68BA5F /* RouteJumpStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19FF8DC6198EEE24F3EBFD57 /* RouteJumpStyle.swift */; };
@@ -25,7 +26,6 @@
 		3CF6CCD80F9883EAB6423C17 /* RoutePlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E2FFC8069B5A2B434293DAA /* RoutePlanner.swift */; };
 		3D197CBFCD46719C0AD9FE24 /* ExploreOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862641A6A5F977298C3A9AE6 /* ExploreOptions.swift */; };
 		40FC7C1B0E69ABA306759CD1 /* TimeRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0DC88292C68F483805EC0A /* TimeRange.swift */; };
-		5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E067599700C1579F86E5B45A /* ExportPreviewView.swift */; };
 		5FB46E23E7BE24A6EB05F868 /* WorkoutsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE6C11B7D46FCF2B7C9BC37 /* WorkoutsListView.swift */; };
 		636020DA50D5474720DFF24F /* HealthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C8374FFE8DA74D43CDF3D0 /* HealthStore.swift */; };
 		7131D644AACFAFACB6D34F08 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B10383FCD4C6961C1FC099A /* RootView.swift */; };
@@ -42,6 +42,7 @@
 		B17C8DBF93754E37F2752DEC /* RouteGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DAAE4EDD08EF1DF514808FE /* RouteGeometry.swift */; };
 		B3E528FDDC729D5068772EBA /* RouteEditsDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C09B3524D2C245226DD0E33 /* RouteEditsDocument.swift */; };
 		BFD98995650DAA108C639983 /* MapModePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD6B4A25ABEB5E42691317C /* MapModePanel.swift */; };
+		C97C89EC89600AAD5C77AC5D /* ShareCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAF0C46710BC38E876C8A18C /* ShareCard.swift */; };
 		CAB5B905D124764E36A6BB43 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCFFF76D1AD664F15B87FBBE /* SettingsView.swift */; };
 		CCC8E03F47C1CC9627965604 /* MapTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A231724BE3653A235B51A2F6 /* MapTabView.swift */; };
 		D8C904A29C9960D057A39248 /* RangePickerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B99557E5665B1E1491E0F9 /* RangePickerPanel.swift */; };
@@ -59,6 +60,7 @@
 
 /* Begin PBXFileReference section */
 		014DAD1BEC4D84B25685B667 /* WorkoutMap.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WorkoutMap.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		13FBD4DE9DD7894A69FC889C /* SharePreviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharePreviewCard.swift; sourceTree = "<group>"; };
 		1580B103C393940147C727E8 /* RouteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStore.swift; sourceTree = "<group>"; };
 		15C7F167A6E55EDF154ECDD6 /* Palette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Palette.swift; sourceTree = "<group>"; };
 		19FF8DC6198EEE24F3EBFD57 /* RouteJumpStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteJumpStyle.swift; sourceTree = "<group>"; };
@@ -104,9 +106,9 @@
 		D508E97CB901197853D63B57 /* ControlAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlAppearance.swift; sourceTree = "<group>"; };
 		D603CC3A9F9C2C651179854C /* DirectionsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectionsClient.swift; sourceTree = "<group>"; };
 		DB43AA47D31BF875793C2277 /* WorkoutCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCardView.swift; sourceTree = "<group>"; };
-		E067599700C1579F86E5B45A /* ExportPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPreviewView.swift; sourceTree = "<group>"; };
 		E4C1094D0563FB01C619897C /* WorkoutCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutCategory.swift; sourceTree = "<group>"; };
 		EB60BAE33F3DE31621B1FC3C /* EditedWorkoutsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditedWorkoutsView.swift; sourceTree = "<group>"; };
+		FAF0C46710BC38E876C8A18C /* ShareCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCard.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -154,7 +156,6 @@
 				6E953720D2A0F7CE9EADF8FE /* AppBackground.swift */,
 				44ADDDBD6D95EE6030B2887D /* Components.swift */,
 				EB60BAE33F3DE31621B1FC3C /* EditedWorkoutsView.swift */,
-				E067599700C1579F86E5B45A /* ExportPreviewView.swift */,
 				7BD6B4A25ABEB5E42691317C /* MapModePanel.swift */,
 				A231724BE3653A235B51A2F6 /* MapTabView.swift */,
 				BD8AAD1EB3A748454CE34A23 /* PlannedRouteBar.swift */,
@@ -164,6 +165,8 @@
 				3D9355199A652B873059B5A6 /* RouteMapView.swift */,
 				7BD84EFDB008F52F32BDA624 /* RoutePlannerPanel.swift */,
 				BCFFF76D1AD664F15B87FBBE /* SettingsView.swift */,
+				FAF0C46710BC38E876C8A18C /* ShareCard.swift */,
+				13FBD4DE9DD7894A69FC889C /* SharePreviewCard.swift */,
 				DB43AA47D31BF875793C2277 /* WorkoutCardView.swift */,
 				371F8FAB111E70EFAED48FDA /* WorkoutDetailView.swift */,
 				21C11E2460B50DE52EC53055 /* WorkoutEditView.swift */,
@@ -295,7 +298,6 @@
 				E5E14CFB5D3EF838CC314995 /* DirectionsClient.swift in Sources */,
 				13D74B2B08F623E53E3D53F6 /* EditedWorkoutsView.swift in Sources */,
 				3D197CBFCD46719C0AD9FE24 /* ExploreOptions.swift in Sources */,
-				5E6CEA710679235161E7B816 /* ExportPreviewView.swift in Sources */,
 				860DE2C06087E6D338E4F9FF /* Formatters.swift in Sources */,
 				636020DA50D5474720DFF24F /* HealthStore.swift in Sources */,
 				0ED5B5F04DDAF1A7EA290036 /* JumpColors.swift in Sources */,
@@ -321,6 +323,8 @@
 				3182D6C4D753395817ABBC55 /* RoutePlannerPanel.swift in Sources */,
 				0D50A24C560BCAE0514B02D7 /* RouteStore.swift in Sources */,
 				CAB5B905D124764E36A6BB43 /* SettingsView.swift in Sources */,
+				C97C89EC89600AAD5C77AC5D /* ShareCard.swift in Sources */,
+				0ACEAF2F43B455A57270D570 /* SharePreviewCard.swift in Sources */,
 				DB645A199F829A2763800D07 /* SystemAppearance.swift in Sources */,
 				40FC7C1B0E69ABA306759CD1 /* TimeRange.swift in Sources */,
 				EF048E31131A14D028921ADF /* Workout.swift in Sources */,

@@ -6,6 +6,13 @@ struct SettingsView: View {
     /// workout can be named and opened from here.
     @ObservedObject var health: HealthStore
 
+    /// The id `WM_SETTINGS_SCROLL` scrolls to — the *Explore* heading, which is the one section that
+    /// does not fit a phone's display at once, so its defaults cannot be shot without it.
+    static let exploreAnchor = "settingsExplore"
+    /// Where the scroll sits, as the id of the section heading at its top. Nothing moves it but the
+    /// debug hook above; the reader keeps it up to date as the screen is scrolled by hand.
+    @State private var scrollTarget: String?
+
     @State private var showAbout = false
     /// The route edits: the count on the row below, the file they travel in, and the two sheets that
     /// move it.
@@ -156,7 +163,7 @@ struct SettingsView: View {
                     }
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
 
-                    Text("A leg longer than the distance is drawn as that rule says, and so is a leg faster than the speed — as long as it covers more than \(Int(JumpRules.speedMinimumDistance)) m, since a shorter one is a rounding of the clock and not a jump. A leg that trips both is drawn as a fast leg, and a leg the combined detection catches is never drawn. Each rule draws in its own tone, dotted or solid — the grey and the red until another one is picked above.")
+                    Text("A leg longer than the distance is drawn as that rule says, and so is a leg faster than the speed — as long as it covers more than \(Int(JumpRules.speedMinimumDistance)) m, since a shorter one is a rounding of the clock and not a jump. A leg that trips both is drawn as a fast leg, and a leg the combined detection catches is never drawn. Each rule draws in its own tone, dotted or solid — the grey and the orange until another one is picked above.")
                         .font(.system(size: 13))
                         .foregroundStyle(Palette.textTertiary)
                         .padding(.horizontal, 2)
@@ -189,6 +196,7 @@ struct SettingsView: View {
                         .foregroundStyle(Palette.textSecondary)
                         .padding(.leading, 2)
                         .padding(.bottom, 8)
+                        .id(SettingsView.exploreAnchor)
 
                     VStack(spacing: 0) {
                         Menu {
@@ -234,8 +242,19 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, Metrics.contentInset)
                 .padding(.bottom, 40)
+                // The scroll targets are the sections' own headings: the *Explore* one is what
+                // `WM_SETTINGS_SCROLL` brings into view, since it sits below anything a phone's
+                // display can show at once (`DebugLaunch.settingsScroll`).
+                .scrollTargetLayout()
             }
             .scrollIndicators(.hidden)
+            .scrollPosition(id: $scrollTarget, anchor: .top)
+            .onAppear {
+#if DEBUG
+                guard let anchor = DebugLaunch.settingsScroll else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { scrollTarget = anchor }
+#endif
+            }
         }
         .alert("WorkoutMap", isPresented: $showAbout) {
             Button("OK", role: .cancel) {}
@@ -386,7 +405,7 @@ struct SettingsView: View {
                 set: { jumpColors.setColor($0, for: kind) })
     }
 
-    /// Puts both rules back to the grey and the red they shipped with. Dimmed while there is
+    /// Puts both rules back to the grey and the orange they shipped with. Dimmed while there is
     /// nothing to reset.
     private var resetTonesRow: some View {
         Button {

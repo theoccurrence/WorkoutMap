@@ -24,6 +24,20 @@ enum DebugLaunch {
     /// WM_MAP_HEADING=<degrees> turns the map once its camera has been placed, so a run can start on
     /// a turned map (the simulator cannot turn it with two fingers).
     static var mapHeading: Double? { env["WM_MAP_HEADING"].flatMap(Double.init) }
+    /// WM_MAP_PITCH=<degrees> tilts it the same way, so a run can start on the map's own 3D view —
+    /// which is what the exported image has to keep.
+    static var mapPitch: Double? { env["WM_MAP_PITCH"].flatMap(Double.init) }
+    /// WM_SAVE_CARD=1 writes the card a screen is showing — the share preview's, or the detail
+    /// screen's — to the photo library, through the very call the rail's *Save* makes. The simulator
+    /// cannot tap that button from the command line, and the file it writes is the only place the
+    /// 3D map an export kept can be looked at.
+    static var saveCard: Bool { env["WM_SAVE_CARD"] == "1" }
+    /// WM_SAVE_CARD_DELAY=<seconds> moves that save back, so it lands once the map has drawn.
+    static var saveCardDelay: Double { Double(env["WM_SAVE_CARD_DELAY"] ?? "") ?? 4 }
+    /// WM_SETTINGS_SCROLL=<anchor> scrolls the settings screen to the section with that anchor id —
+    /// `Explore`, which sits below anything a phone's display can show at once, so its defaults can
+    /// be looked at without a scroll the simulator offers no way to make.
+    static var settingsScroll: String? { env["WM_SETTINGS_SCROLL"] }
     /// WM_OPEN_MENU=range|modes|plan opens one of the map screen's own menus a few seconds after
     /// launch, so the dimming behind it and the way it rises can be looked at without a tap.
     static var openMenu: String? { env["WM_OPEN_MENU"] }
@@ -284,6 +298,10 @@ enum DebugLaunch {
     static var startEditedWorkouts: Bool { false }
     static var openEditsDetail: Bool { false }
     static var mapHeading: Double? { nil }
+    static var mapPitch: Double? { nil }
+    static var saveCard: Bool { false }
+    static var saveCardDelay: Double { 4 }
+    static var settingsScroll: String? { nil }
     static var openMenu: String? { nil }
     static var menuDuration: Double? { nil }
     static var closeMenuAfter: Double? { nil }

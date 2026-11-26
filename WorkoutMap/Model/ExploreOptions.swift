@@ -6,7 +6,7 @@ import Foundation
 enum ExploreOptions {
     /// How many routes are offered at once.
     static let routeCountKey = "exploreRouteCount"
-    static let routeCountDefault = 3
+    static let routeCountDefault = 5
     /// One is "just give me a route"; five is as many as the request budget sensibly pays for,
     /// since every route is three to five `MKDirections` legs of its own.
     static let routeCounts = [1, 2, 3, 4, 5]
@@ -32,7 +32,7 @@ enum ExploreOptions {
     /// what came back by how close it got. A park whose little paths were never walked is
     /// exactly the ground this finds.
     static let minimumNewKey = "exploreMinimumNew"
-    static let minimumNewDefault = 0.5
+    static let minimumNewDefault = 1.0
     static let minimumNewRange: ClosedRange<Double> = 0.1...1.0
 
     static func percentLabel(_ fraction: Double) -> String {

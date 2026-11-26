@@ -32,12 +32,12 @@ struct JumpRules: Equatable {
     /// The speed, in km/h, past which a leg counts as a jump.
     var speedThreshold: Double
 
-    /// What a fresh install starts with: the strict rule's own numbers, with the distance rule
-    /// showing what it finds and the speed rule leaving it out. The strict rule hides the big
-    /// jumps either way, so this is the shape of the app before the rules were split.
+    /// What a fresh install starts with: the distance rule dotted over the ground it found, and the
+    /// speed rule drawn solid — a fast leg is a leg that was really covered, so a fresh install
+    /// shows it in its own tone rather than hiding it. The tones themselves are `JumpTones.standard`.
     static let standard = JumpRules(distanceStyle: .dotted,
                                     distanceThreshold: JumpSettings.distanceThresholdDefault,
-                                    speedStyle: .hidden,
+                                    speedStyle: .solid,
                                     speedThreshold: JumpSettings.speedThresholdDefault)
 
     var speedThresholdMetersPerSecond: Double { speedThreshold / 3.6 }
@@ -62,10 +62,14 @@ enum JumpSettings {
     static let speedStyleKey = "jumpSpeedStyle"
     static let speedThresholdKey = "jumpSpeedThreshold"
 
-    /// The strict rule's own distance, in metres (25 m).
-    static let distanceThresholdDefault: Double = 25
-    /// The strict rule's own speed, in km/h (45 m/s = 162 km/h).
-    static let speedThresholdDefault: Double = 162
+    /// What the distance rule starts at, in metres. Twenty is a little under the strict rule's own
+    /// 25 m (`WorkoutRoute.jumpMinimumDistance`), so a fresh install flags a leg the strict rule
+    /// would already have let through as a distance one.
+    static let distanceThresholdDefault: Double = 20
+    /// What the speed rule starts at, in km/h. Thirty is a fast ride, and well under the strict
+    /// rule's own 162 km/h — the speed rule is the harshness the user asked for, not the strict
+    /// rule's impossible one.
+    static let speedThresholdDefault: Double = 30
 
     static let distanceRange: ClosedRange<Double> = 5...100
     static let speedRange: ClosedRange<Double> = 20...200

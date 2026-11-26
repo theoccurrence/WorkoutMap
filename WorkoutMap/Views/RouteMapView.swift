@@ -79,6 +79,65 @@ extension MapRouteLine {
     }
 }
 
+// MARK: - Camera pose
+
+/// Where a map's own camera is, as far as a **rectangle** cannot say: the tilt and the turn that make
+/// the map's 3D view, and the centre and distance those two have to be placed at.
+///
+/// A flat map's region travels as a rectangle (`onRegionChange`) — a card is opened framed to it —
+/// and a tilted map's cannot: `visibleMapRect` on a pitched map is the ground the *far* edge of the
+/// screen reaches to, which is not the view the user is looking at. So the camera travels beside the
+/// rect, and a card handed one opens *on that camera* rather than on the region — which is what makes
+/// the share preview come up on the tilted map the screen behind it was left in.
+struct MapPose: Equatable {
+    /// The point the camera looks at.
+    var center: CLLocationCoordinate2D
+    /// How far the camera sits from `center`, in metres.
+    var distance: CLLocationDistance
+    /// Degrees away from straight down: 0 is the flat map, and MapKit stops just under 75.
+    var pitch: CGFloat
+    /// The compass bearing the top of the screen points at. 0 is north up.
+    var heading: CLLocationDirection
+
+    init(center: CLLocationCoordinate2D,
+         distance: CLLocationDistance,
+         pitch: CGFloat,
+         heading: CLLocationDirection) {
+        self.center = center
+        self.distance = distance
+        self.pitch = pitch
+        self.heading = heading
+    }
+
+    /// The pose of a live map's own camera.
+    init(_ camera: MKMapCamera) {
+        self.init(center: camera.centerCoordinate,
+                  distance: camera.centerCoordinateDistance,
+                  pitch: camera.pitch,
+                  heading: camera.heading)
+    }
+
+    /// Whether the map is flat — nothing a rectangle could not already carry. Only a **tilted** map
+    /// needs the camera: a turned-but-flat one is left to the rect the screens frame maps with.
+    var isFlat: Bool { pitch < 0.5 }
+
+    /// This pose as the camera a map view is moved to.
+    var camera: MKMapCamera {
+        MKMapCamera(lookingAtCenter: center, fromDistance: distance, pitch: pitch, heading: heading)
+    }
+
+    /// `CLLocationCoordinate2D` is not `Equatable`, and the readout arrives on every frame of a
+    /// gesture — so the comparison is the four numbers the pose is.
+    static func == (lhs: MapPose, rhs: MapPose) -> Bool {
+        lhs.center.latitude == rhs.center.latitude
+            && lhs.center.longitude == rhs.center.longitude
+            && lhs.distance == rhs.distance
+            && lhs.pitch == rhs.pitch
+            && lhs.heading == rhs.heading
+    }
+
+}
+
 // MARK: - Map tone
 
 /// The flat grey the map is composited with to lose its colour, and the black that
@@ -562,6 +621,9 @@ struct RouteMapView: UIViewRepresentable {
         /// Centre on a coordinate — the locate button, or the newest route when the
         /// selected range holds no data at all.
         case center(CLLocationCoordinate2D, spanMeters: Double)
+        /// Take up a camera the caller already has — the tilted 3D view the map behind a card was
+        /// left in, so the card opens on the same map rather than on a flat one.
+        case pose(MapPose)
     }
 
     var routes: [MapRouteLine] = []
@@ -596,6 +658,14 @@ struct RouteMapView: UIViewRepresentable {
     var userCourse: CLLocationDirection?
     var userDotColor: UIColor = UIColor(red: 1, green: 199.0 / 255, blue: 3.0 / 255, alpha: 1)
     var onRegionChange: ((MKMapRect) -> Void)?
+    /// The map view itself, handed up once it exists. Only the export wants it: a **tilted** map is
+    /// written from the live view's own rendering, because that is the only place the routes and the
+    /// buildings are drawn together with the depth between them (`MapImageRenderer.liveImage`).
+    var onMapViewReady: ((MKMapView) -> Void)?
+    /// The map's camera — its tilt and turn, and the centre and distance — reported as it moves, so
+    /// a screen that exports the map can snapshot it in the 3D view it is in (`MapPose`). A rect
+    /// cannot carry the tilt, which is why this is beside `onRegionChange` rather than part of it.
+    var onCameraChange: ((MapPose) -> Void)?
     var onUserInteraction: (() -> Void)?
     /// A tap on the map: the id of the route the tap landed on, or `nil` when it landed on the
     /// map itself. The routes are MapKit overlays with no tap target of their own, so the tap is
@@ -682,6 +752,11 @@ struct RouteMapView: UIViewRepresentable {
             DispatchQueue.main.async { coordinator?.parent.onTabBarInsets?(bottom, top) }
         }
         context.coordinator.map = map
+        // Handed up a turn later: this runs inside a view update, and the receiver writes state.
+        DispatchQueue.main.async { [weak coordinator = context.coordinator] in
+            guard let coordinator else { return }
+            coordinator.parent.onMapViewReady?(map)
+        }
         context.coordinator.appliedInterfaceStyle = interfaceStyle
         context.coordinator.installToneOverlays()
         context.coordinator.installInteractionObservers()
@@ -739,6 +814,10 @@ struct RouteMapView: UIViewRepresentable {
         /// it is throttled: the visible region changes on every pan frame too.
         private var jumpRedrawWidth: Double?
         private var jumpRedrawTime: CFTimeInterval = 0
+        /// The tilt and turn last handed to the caller. The camera readout fires on every frame of a
+        /// gesture, and a pan or a zoom moves neither — so those two are what decides whether a pose
+        /// is worth reporting (`reportCameraPose`).
+        private var reportedPose: MapPose?
         /// Routes already turned into overlays, so a reload that adds routes one at a
         /// time costs one polyline per arrival instead of rebuilding the whole set — with the
         /// ground each was built from, so an id that comes back standing for a different stretch
@@ -1206,16 +1285,24 @@ struct RouteMapView: UIViewRepresentable {
                                                  latitudinalMeters: spanMeters,
                                                  longitudinalMeters: spanMeters),
                               animated: true)
+            case .pose(let pose):
+                // Not animated, and the whole camera at once: a card is drawn as it comes up, and a
+                // tilt that eased in would have it — and, on Save, the image — catch the flat map
+                // the fit left behind.
+                map.setCamera(pose.camera, animated: false)
             }
 #if DEBUG
-            // WM_MAP_HEADING=<degrees> turns the map once the camera has been placed, so a run can
-            // start on a turned map — the simulator cannot turn it with two fingers, and the pan's
-            // own arithmetic is what a turned map changes.
-            if let degrees = DebugLaunch.mapHeading {
+            // WM_MAP_HEADING=<degrees> / WM_MAP_PITCH=<degrees> turn and tilt the map once its camera
+            // has been placed, so a run can start on a turned, tilted map — the simulator cannot make
+            // either gesture with two fingers.
+            if DebugLaunch.mapHeading != nil || DebugLaunch.mapPitch != nil {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak map] in
-                    guard let map else { return }
+                    // One shot: a map that is already tilted — a card opened on the pose it was
+                    // handed — is left as it is rather than tilted a second time.
+                    guard let map, map.camera.pitch < 0.5 else { return }
                     let camera = map.camera
-                    camera.heading = degrees
+                    if let degrees = DebugLaunch.mapHeading { camera.heading = degrees }
+                    if let degrees = DebugLaunch.mapPitch { camera.pitch = degrees }
                     map.setCamera(camera, animated: false)
                 }
             }
@@ -1578,6 +1665,7 @@ struct RouteMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             parent.onRegionChange?(mapView.visibleMapRect)
+            reportCameraPose(mapView)
         }
 
         func mapViewDidFinishRenderingMap(_ mapView: MKMapView, fullyRendered: Bool) {
@@ -1588,7 +1676,23 @@ struct RouteMapView: UIViewRepresentable {
         /// so it has to follow the camera's heading or it would point at the wrong place.
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
             applyDotDirection()
+            reportCameraPose(mapView)
             redrawJumpDotsIfZoomChanged(mapView)
+        }
+
+        /// Hands the caller the map's camera — the tilt and the turn a rect cannot carry, and the
+        /// centre and distance they are placed with (`MapPose`).
+        ///
+        /// This fires on **every frame** of a gesture, and a pan and a zoom move neither the pitch
+        /// nor the heading: a pose is reported only once those two have actually changed, so a run
+        /// of pan frames costs nothing. What a pan does move — the region — arrives through
+        /// `onRegionChange` on its own, and a tilt that settles reports its final numbers through
+        /// `regionDidChangeAnimated`.
+        private func reportCameraPose(_ map: MKMapView) {
+            let pose = MapPose(map.camera)
+            if let last = reportedPose, last.pitch == pose.pitch, last.heading == pose.heading { return }
+            reportedPose = pose
+            parent.onCameraChange?(pose)
         }
 
         /// Keeps a jump's dots at the size this zoom calls for.

@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import CoreLocation
+import Photos
 
 struct WorkoutDetailView: View {
     let workout: Workout
@@ -32,11 +33,17 @@ struct WorkoutDetailView: View {
     var statusColumn: CGFloat? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.displayScale) private var displayScale
     @State private var route = WorkoutRoute(coordinates: [])
-    @State private var showExport = DebugLaunch.openExport
+    /// The two answers *Save* can give: the card is in the photo library, or it is not.
+    @State private var saved = false
+    @State private var failed = false
     /// The route-editing screen. Its edits are the app's own — the workout itself is untouched.
     @State private var showEdit = DebugLaunch.startEdit
-    @State private var visibleMapRect: MKMapRect?
+    /// The screen's own map view, handed up by it: *Save* writes the image from that view's own
+    /// rendering, which is the only place the routes and the 3D blocks are drawn with the depth
+    /// between them (`ShareImageRenderer.image`).
+    @State private var liveMapView: MKMapView?
     /// How tall the stats-and-source block under the map stands — measured, because the rail hangs on
     /// its top edge in every pose and on every display (see `body`).
     @State private var blockHeight: CGFloat = 0
@@ -109,36 +116,36 @@ struct WorkoutDetailView: View {
             let column = statusColumn ?? (folded ? Metrics.statusColumnInsetFolded : Metrics.screenInset)
             let railTrailing = presentation == .card ? column - Metrics.menuCardInset : column
             ZStack(alignment: .bottomTrailing) {
-                VStack(spacing: 0) {
-                    // The map takes what the stats and the source label leave rather than a fixed share of
-                    // the screen: the reference display gave it 59.96 % (measured), and it gets that
-                    // whenever the block below it is the size the reference had — but a smaller screen, or
-                    // a wider one that lays the same six cards out in fewer rows, can never leave a card
-                    // or the `*Data from …` label outside the card for want of the space.
-                    mapSection
-                    // The stats and the source label are **one block**, measured below: the rail hangs on
-                    // its top edge, so the gap between the rail and the info cards is the same one in
-                    // every pose and on every display — which is what the user asked for, and what the
-                    // folded panel held sideways needed (there the rail used to reach *into* the cards).
-                    VStack(spacing: 0) {
-                        stats(landscape: full.width > full.height)
-                            .padding(.horizontal, 23)
-                            .padding(.top, 18)
-                        footer
-                            .padding(.horizontal, 23)
-                            .padding(.top, 17)
-                    }
-                    .onGeometryChange(for: CGSize.self) { $0.size } action: { blockHeight = $0.height }
-                }
-                .frame(width: full.width, height: full.height, alignment: .top)
+                // The screen's content — the map with its overlays, the six numbers and the source
+                // label — as the app's own card (`ShareCard`), which is also what *Save* renders into
+                // the image it writes. The map takes what the numbers and the label leave rather than a
+                // fixed share of the screen: the reference display gave it 59.96 % (measured), and it
+                // gets that whenever the block below it is the size the reference had — but a smaller
+                // screen, or a wider one that lays the same six cards out in fewer rows, can never leave
+                // a card or the `*Data from …` label outside the card for want of the space. The block
+                // is **measured** there: the rail hangs on its top edge, so the gap between the rail and
+                // the info cards is the same one in every pose and on every display — which is what the
+                // user asked for, and what the folded panel held sideways needed (there the rail used to
+                // reach *into* the cards).
+                ShareCard(subject: .workout(workout),
+                          map: liveMap,
+                          size: full,
+                          // The screen carries where the numbers came from; the **image** carries the
+                          // app's own badge (`ShareFooter`).
+                          footerStyle: .source,
+                          onBlockHeight: { blockHeight = $0 })
 
-                // The screen's own rail — **Share**, **Edit** and **Back**, one round glass button each
-                // — anchored to the **bottom**, just above the info cards, at the same gap the buttons
+                // The screen's own rail — **Save**, **Edit** and **Back**, one round glass button
+                // each — anchored to the **bottom**, just above the info cards, at the same gap the buttons
                 // keep between themselves (`pillGap`, ~35 px at 3×), on the column the status cluster
                 // keeps. Hanging from the bottom is what keeps it out of the status band's way: that
                 // band's height is a number the folded panel does not report at all (measured: top 0),
                 // and every attempt to guess it put the buttons among the icons.
-                actionRail
+                // What *Save* writes is laid out at the **display's** size either way: as the map
+                // screen's own card this screen is inset by `Metrics.menuCardInset` on every side, so
+                // the box it fills plus those margins is the display — and the file comes out the same
+                // size from a card as from a pushed screen.
+                actionRail(size: presentation == .card ? ShareImageRenderer.displaySize(for: full) : full)
                     .padding(.trailing, railTrailing)
                     .padding(.bottom, blockHeight + Metrics.pillGap)
             }
@@ -151,6 +158,15 @@ struct WorkoutDetailView: View {
             // corner showing as a black wedge behind the card's round one.
             .background(Color.black)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            #if DEBUG
+            // WM_SAVE_CARD=1 — see `DebugLaunch.saveCard`. The simulator cannot tap *Save*, so the
+            // card is written through the very call that button makes.
+            .task {
+                guard DebugLaunch.saveCard else { return }
+                try? await Task.sleep(for: .seconds(DebugLaunch.saveCardDelay))
+                await save(size: presentation == .card ? ShareImageRenderer.displaySize(for: full) : full)
+            }
+            #endif
             // Edge to edge, the way the map screen draws. Laid out inside the safe area, this
             // screen left the strip the system reserves for its own rail (the Duo's vertical bar
             // on the screen's side, in every pose but the unfolded portrait) as a band of empty
@@ -186,132 +202,31 @@ struct WorkoutDetailView: View {
             let full = await RouteStore.shared.route(for: workout.hk)
             if !full.isEmpty { route = full }
         }
-        .fullScreenCover(isPresented: $showExport) {
-            ExportPreviewView(workout: workout,
-                              rangeLabel: workout.listDateText,
-                              mapRect: visibleMapRect ?? RouteGeometry.fittedRect(routes: [visibleCoordinates]),
-                              routes: lines,
-                              mode: MapMode.stored,
-                              interfaceStyle: mapInterfaceStyle)
-        }
+        .alert("Saved to Photos", isPresented: $saved) { Button("OK", role: .cancel) {} }
+        .alert("Could not save", isPresented: $failed) { Button("OK", role: .cancel) {} }
         .fullScreenCover(isPresented: $showEdit) {
             WorkoutEditView(workout: workout)
         }
     }
 
-    /// The map, as tall as the rest of the screen leaves it. Nothing is clipped off the stats or the
-    /// source label to make room for it: they are laid out at their own size and the map is what
-    /// gives.
-    private var mapSection: some View {
+    /// The map itself. Its frame and its overlays are the card's business (`ShareCard`), which is also
+    /// the card *Save* renders — so the screen and the file show the same map, at the same size, with
+    /// the same type, date and weather on it.
+    private var liveMap: some View {
         RouteMapView(routes: lines,
                      camera: RouteGeometry.fittedRect(routes: [visibleCoordinates]).map { .fit($0) },
                      cameraToken: route.count,
                      mode: MapMode.stored,
                      satelliteLabels: satelliteLabels,
                      interfaceStyle: mapInterfaceStyle,
-                     onRegionChange: { visibleMapRect = $0 })
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
-            .overlay(alignment: .bottomLeading) { mapOverlay }
-            .overlay(alignment: .bottomTrailing) { weatherOverlay }
+                     onMapViewReady: { liveMapView = $0 })
     }
 
-    private var mapOverlay: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 12) {
-                Image(systemName: workout.category.symbolName)
-                    .font(.system(size: 33, weight: .regular))
-                    .foregroundStyle(Palette.accent)
-                Text(workout.category.title)
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(Palette.accent)
-            }
-            Text(workout.detailDateText)
-                .font(.system(size: 17))
-                .foregroundStyle(.white)
-        }
-        .padding(.leading, 23)
-        .padding(.bottom, 40)
-    }
-
-    private var weatherOverlay: some View {
-        HStack(spacing: 14) {
-            if let temperature = workout.temperature {
-                HStack(spacing: 5) {
-                    Image(systemName: "thermometer.medium").font(.system(size: 15))
-                    Text(Fmt.temperature(temperature)).font(.system(size: 17))
-                }
-            }
-            if let humidity = workout.humidity {
-                HStack(spacing: 5) {
-                    Image(systemName: "humidity.fill").font(.system(size: 15))
-                    Text(Fmt.humidity(humidity)).font(.system(size: 17))
-                }
-            }
-        }
-        .foregroundStyle(.white)
-        .padding(.trailing, 22)
-        .padding(.bottom, 44)
-    }
-
-    /// One of the six numbers under the map, and the unit it is read in.
-    private struct Stat {
-        let label: String
-        let value: String
-        let unit: String?
-    }
-
-    private var statItems: [Stat] {
-        let distance = Fmt.distanceValue(workout.distance)
-        return [
-            Stat(label: "Time", value: Fmt.duration(workout.duration), unit: nil),
-            Stat(label: "Distance", value: distance.value, unit: distance.unit),
-            Stat(label: "Elevation",
-                 value: workout.elevationAscended.map { Fmt.elevation($0) } ?? "--",
-                 unit: "m"),
-            Stat(label: "Active Calories",
-                 value: workout.activeCalories.map { Fmt.caloriesValue($0) } ?? "--",
-                 unit: "kcal"),
-            Stat(label: "Avg. Pace",
-                 value: Fmt.pace(workout.duration, meters: workout.distance),
-                 unit: "/km"),
-            Stat(label: "Avg. Heart Rate",
-                 value: workout.avgHeartRate.map { Fmt.heartRate($0) } ?? "--",
-                 unit: "bpm")
-        ]
-    }
-
-    /// The six cards, in the grid the display asks for: **three rows of two standing up, two rows of
-    /// three lying down**, so the block is never taller than it has to be. The map above gives up the
-    /// room (`mapSection`), which is what puts all six of them and the `*Data from …` label inside the
-    /// card in every orientation — the folded Duo lost the third row and the label altogether when the
-    /// rows were fixed to the display's width and the map kept a fixed share of its height.
-    private func stats(landscape: Bool) -> some View {
-        let columns = landscape ? 3 : 2
-        let items = statItems
-        let rows = stride(from: 0, to: items.count, by: columns).map {
-            Array(items[$0..<min($0 + columns, items.count)])
-        }
-        return VStack(spacing: Metrics.statCardGap) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: Metrics.statCardGap) {
-                    ForEach(Array(row.enumerated()), id: \.offset) { _, item in
-                        StatCard(label: item.label, value: item.value, unit: item.unit)
-                    }
-                }
-            }
-        }
-    }
-
-    private var footer: some View {
-        Text("*Data from \(workout.sourceName)")
-            .font(.system(size: 15))
-            .foregroundStyle(Palette.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// The three actions this screen carries: **Share**, **Edit** and **Back**, one round glass button
-    /// each — the shape the map screen's own rail draws.
+    /// The three actions this screen carries: **Save**, **Edit** and **Back**, one round glass button
+    /// each — the shape the map screen's own rail draws. *Save* writes what the screen is showing —
+    /// the map with its overlays, the six numbers and the source label, and nothing of the rail or the
+    /// status bar — straight to the photo library: there is no preview of the image, the screen is the
+    /// preview.
     ///
     /// They are drawn **in** the screen rather than declared as toolbar items, which is a measured
     /// decision rather than a preference: the bar the rail's actions live in is the one the map screen
@@ -320,13 +235,41 @@ struct WorkoutDetailView: View {
     /// there would be invisible exactly when the card is on screen. What they *do* carry is the
     /// system's own glass button (`GlassCircleButton`), which is what makes them react to a tap the way
     /// the rail's do.
-    private var actionRail: some View {
+    private func actionRail(size: CGSize) -> some View {
         VStack(spacing: Metrics.pillGap) {
-            GlassCircleButton(symbol: "square.and.arrow.up", label: "Share") { showExport = true }
+            GlassCircleButton(symbol: "arrow.down.to.line", label: "Save") {
+                Task { await save(size: size) }
+            }
             GlassCircleButton(symbol: "eraser", label: "Edit route") { showEdit = true }
             GlassCircleButton(symbol: "chevron.left", label: "Back") {
                 if let onClose { onClose() } else { dismiss() }
             }
+        }
+    }
+
+    /// Writes what the screen shows to the photo library: the map is the screen's own map view, taken
+    /// off the view as it stands — the region it is framing, the camera it is in, and the routes inside
+    /// MapKit's own render pass, with the 3D blocks occluding them — and the same card view the screen
+    /// is made of is rendered over it, so the file is the screen without its buttons and without the
+    /// status bar. Its footer is the app's badge rather than the screen's source line: the file is the
+    /// app's, and the line belongs to the screen.
+    private func save(size: CGSize) async {
+        guard let image = ShareImageRenderer.image(subject: .workout(workout),
+                                                   mapView: liveMapView,
+                                                   size: size,
+                                                   scale: displayScale) else {
+            failed = true
+            return
+        }
+        do {
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard status == .authorized || status == .limited else { failed = true; return }
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            }
+            saved = true
+        } catch {
+            failed = true
         }
     }
 
@@ -353,11 +296,19 @@ struct StatCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 if let unit {
+                    // The unit shrinks with the value rather than **wrapping**: a card whose unit
+                    // went onto a second line stood taller than the same card one width up, and the
+                    // grid's own height with it — which is what a saved card, laid out at the
+                    // display's width while the screen it was drawn from is a card of the map
+                    // screen, turned into a footer pushed off its bottom edge (measured).
                     Text(unit)
                         .font(.system(size: 14))
                         .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
             }
+            .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)

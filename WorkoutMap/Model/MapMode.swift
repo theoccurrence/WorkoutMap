@@ -32,11 +32,14 @@ enum MapMode: String, CaseIterable, Identifiable {
         UserDefaults.standard.object(forKey: satelliteLabelsKey) as? Bool ?? true
     }
 
-    /// The style the map opens with unless the user picked another one: the app still opens
-    /// on the map it shipped with.
+    /// The style the map opens with unless the user picked another one.
+    ///
+    /// The shipped default is `explore` — Maps' own standard map, in the app's own layer of routes
+    /// over it. It used to be `legacy`, the grey map the app shipped with, which is still there as
+    /// the fifth style rather than the one a fresh install opens on.
     static var stored: MapMode {
-        guard let raw = UserDefaults.standard.string(forKey: storedKey) else { return .legacy }
-        return MapMode(rawValue: raw) ?? .legacy
+        guard let raw = UserDefaults.standard.string(forKey: storedKey) else { return .explore }
+        return MapMode(rawValue: raw) ?? .explore
     }
 
     /// The MapKit configuration behind each mode:

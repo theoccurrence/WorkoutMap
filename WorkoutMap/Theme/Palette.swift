@@ -79,10 +79,10 @@ enum RouteJump {
     /// The grey a leg the distance rule catches is drawn in *until the user picks another tone*
     /// (`JumpColorStore`).
     static let distanceTone = UIColor(red: 174.0 / 255, green: 174.0 / 255, blue: 178.0 / 255, alpha: 1)
-    /// The tone a leg the speed rule catches ships in — the system red, so a fast leg never reads
-    /// as the route's own colour, whatever the user has set that to. It is the default of
+    /// The tone a leg the speed rule catches ships in — `#FF6A00`, an orange that never reads as
+    /// the route's own colour, whatever the user has set that to. It is the default of
     /// `JumpColorStore` for that rule.
-    static let speedTone = UIColor(red: 1, green: 69.0 / 255, blue: 58.0 / 255, alpha: 1)
+    static let speedTone = UIColor(red: 1, green: 106.0 / 255, blue: 0, alpha: 1)
 
     /// A dot is this share of the route's own width — thinner than the route, so the ground
     /// that *was* walked reads as the solid line and the jump as a trail beside it.

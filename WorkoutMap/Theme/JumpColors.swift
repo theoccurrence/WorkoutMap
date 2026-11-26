@@ -3,7 +3,7 @@ import UIKit
 
 /// The tone each jump rule draws its legs in, and where the user's choice of it lives.
 ///
-/// A leg a rule catches is grey (distance) or red (speed) until the user picks another tone —
+/// A leg a rule catches is grey (distance) or orange (speed) until the user picks another tone —
 /// the way `CategoryColorStore` holds a mode's colour. The tone belongs to the **rule**, not to
 /// the way it is drawn, so a leg reads as that rule's whether the rule draws it dotted or solid.
 /// `@Published` so every screen that reads it redraws the moment a picker moves; the choice is
@@ -82,7 +82,8 @@ struct JumpTones: Equatable {
     /// What a leg the speed rule catches is drawn in.
     var speed: UIColor
 
-    /// What a fresh install draws with: the grey and the red measured from the original app.
+    /// What a fresh install draws with: the grey measured from the original app, and the orange the
+    /// speed rule now ships in.
     static let standard = JumpTones(distance: RouteJump.distanceTone, speed: RouteJump.speedTone)
 
     func uiColor(for kind: JumpKind) -> UIColor {
