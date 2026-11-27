@@ -83,7 +83,14 @@ enum MapMode: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Whether the map keeps the app's grey tone: the two blend-mode overlays over the live
+    /// Whether the map is drawn with a `realistic` elevation — the satellite imagery, which needs it for
+    /// its 3D. Read from the configuration itself, so the two cannot drift apart, and asked by
+    /// `RouteLineRenderer`, whose own stroke-width conversion MapKit gets wrong on exactly this style.
+    var usesRealisticElevation: Bool {
+        configuration().elevationStyle == .realistic
+    }
+
+    /// Whether the map keeps the app's grey: the two blend-mode overlays over the live
     /// map (`ToneOverlay`) and the same tone applied to the pixels of a snapshot. Only the
     /// legacy style has it — the other four are the map as MapKit draws it.
     var usesTone: Bool { self == .legacy }
