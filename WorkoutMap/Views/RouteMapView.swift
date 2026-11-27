@@ -177,40 +177,52 @@ final class ToneOverlay: NSObject, MKOverlay {
     var boundingMapRect: MKMapRect { MKMapRect.world }
 }
 
-/// Draws a jump as a row of dots, itself.
+/// Strokes a route's own polylines — the walked stretches as solid lines, the legs a jump rule caught
+/// as rows of dots — at a width the map's zoom cannot move.
 ///
-/// MapKit's own dashed stroke does not hold a size against the map's zoom. Measured with the
-/// camera pinned over the *same* routes (`WM_ZOOM_SPAN`) the dots came out ~4 px at a 1.5 km
-/// span and ~10 px at a 40 km one, while the route's solid line stayed the same width at every
-/// span — so the dots grow past the line they interrupt. This renderer strokes the dots at a
-/// size the zoom cannot move instead, and the coordinator asks it to redraw when the zoom
-/// actually changed.
+/// The app strokes its routes itself, and both halves of that were measured rather than chosen.
+/// MapKit's own **dashed** stroke does not hold a size against the map's zoom: with the camera pinned
+/// over the *same* routes (`WM_ZOOM_SPAN`) the dots came out ~4 px at a 1.5 km span and ~10 px at a
+/// 40 km one, while the route's solid line stayed the same width at every span — so the dots grew past
+/// the line they interrupt, and the jump legs have been drawn here since.
+///
+/// The **solid** lines turned out to have the same trouble from the other side. `MKOverlayPathRenderer`
+/// converts its `lineWidth` into the renderer's space with the map's own zoom scale, and the
+/// **`realistic` elevation style** — which the satellite map needs for its 3D
+/// (`MapMode.configuration`) — hands that conversion a different value: the same 7 pt routes came out
+/// three to four times as wide on a satellite map, and *wider the further out the map was zoomed*
+/// (measured, and exactly how the user saw it). So both are one stroke now — a width and a dash
+/// pattern, both given in the screen's own points, converted here.
 ///
 /// It strokes only the legs of the tile it is handed (`legs`), one leg at a time: a tile is
 /// asked for again every time a pan brings a new one in, and paying for every leg on the map each
 /// time is what made the map crawl. Gathered into a single path instead, Core Graphics works out
 /// the union of every dot in the tile, which at the wide strokes a world-level zoom asks for
 /// (a dot several kilometres across in map points) measured 200 ms a tile against 8 ms for the
-/// same dots stroked one leg at a time — so a tile costs its own dots, stroked as they were.
-final class JumpDotsRenderer: MKOverlayRenderer {
+/// same dots stroked one leg at a time — so a tile costs its own legs, stroked as they were.
+final class RouteLineRenderer: MKOverlayRenderer {
     private let color: UIColor
-    /// The dot's diameter, in points on the screen.
-    private let diameter: CGFloat
-    /// The distance between two dot centres, in the same points.
-    private let spacing: CGFloat
+    /// The stroke's width, in points on the screen.
+    private let width: CGFloat
+    /// Whether the line is a row of dots — `MapRouteLine.dash`'s own statement, and the only thing read
+    /// from it. The pattern itself is worked out from the stroke's width below, because a spacing is
+    /// only as good as the width it was measured against: a leg drawn as dots in the **route's own**
+    /// colour (`MapRouteLine.lines(showValidatedJumps:)`) is a whole route width across, not a jump's
+    /// thin dot, and its spacing has to follow that width.
+    private let isDotted: Bool
     /// Every leg of the overlay with the rectangle it covers. MapKit hands the renderer one
     /// *tile* at a time, so a tile that stroked the whole overlay again paid for every leg on
     /// the map — 8–11 ms measured at a few thousand legs, on each tile, on every frame a pan
-    /// brought a new tile in — no matter how little of the route set the tile held. The legs a
+    /// brought a new one in — no matter how little of the route set the tile held. The legs a
     /// tile can actually reach are picked out first instead.
     private let legs: [(polyline: MKPolyline, bounds: MKMapRect)]
 
     override init(overlay: MKOverlay) {
-        let jump = overlay as? RouteColorOverlay
-        color = jump?.color ?? RouteJump.distanceTone
-        diameter = jump?.width ?? RouteJump.dotDiameter(routeWidth: Metrics.routeWidth)
-        spacing = diameter * RouteJump.spacingScale
-        legs = (jump?.polylines ?? [])
+        let line = overlay as? RouteColorOverlay
+        color = line?.color ?? RouteJump.distanceTone
+        width = line?.width ?? Metrics.routeWidth
+        isDotted = line?.dash != nil
+        legs = (line?.polylines ?? [])
             .filter { $0.pointCount > 1 }
             .map { ($0, $0.boundingMapRect) }
         super.init(overlay: overlay)
@@ -219,32 +231,37 @@ final class JumpDotsRenderer: MKOverlayRenderer {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        guard !legs.isEmpty, diameter > 0, spacing > 0 else { return }
+        guard !legs.isEmpty, width > 0 else { return }
         // The renderer's own space is map points, and MapKit hands a *tile* over — measured, a
         // tile is drawn at twice the display's resolution (a dot asked for at 1.45 pt came out
-        // at ~1.3 px per point of it) — so a size that should be `diameter` points on the screen
-        // is twice the diameter divided by the zoom scale. The same goes for the gap between two
-        // dots: a zero-length dash with a round cap is one circle, and the second length keeps
-        // two of them apart.
+        // at ~1.3 px per point of it) — so a size that should be `width` points on the screen is
+        // twice the width divided by the zoom scale. The dash pattern is converted with it: a
+        // zero-length dash with a round cap is one circle, and its second length keeps two of them
+        // apart.
         let scale = 2 / CGFloat(zoomScale)
-        // A dot reaches half a diameter either side of the leg it sits on, so a leg is kept while
-        // that much of it can still land inside the tile.
-        let reach = Double(diameter * scale)
+        // A dot reaches half a diameter either side of the leg it sits on, and two of them sit
+        // `spacingScale` diameters apart, so a leg is kept while that much of it can still land inside
+        // the tile.
+        let reach = Double(width * RouteJump.spacingScale * scale)
         context.saveGState()
-        // Clipped to the tile, like every other tile drawing MapKit makes: a dot is carried by
-        // the tiles it touches and never drawn outside them.
+        // Clipped to the tile, like every other tile drawing MapKit makes: a leg is carried by the
+        // tiles it touches and never drawn outside them.
         context.clip(to: rect(for: mapRect))
         context.setStrokeColor(color.cgColor)
-        context.setLineWidth(diameter * scale)
+        context.setLineWidth(width * scale)
         context.setLineCap(.round)
         context.setLineJoin(.round)
-        context.setLineDash(phase: 0, lengths: [0.01 * scale, spacing * scale])
+        if isDotted {
+            // A zero-length dash with a round cap is one circle — the jump's dot — and the second
+            // length is what keeps two of them apart.
+            context.setLineDash(phase: 0, lengths: [0.01 * scale, width * RouteJump.spacingScale * scale])
+        }
         for leg in legs where leg.bounds.insetBy(dx: -reach, dy: -reach).intersects(mapRect) {
             let path = CGMutablePath()
             let points = leg.polyline.points()
             for index in 0..<leg.polyline.pointCount {
-                let dot = point(for: points[index])
-                if index == 0 { path.move(to: dot) } else { path.addLine(to: dot) }
+                let point = self.point(for: points[index])
+                if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
             }
             context.addPath(path)
             context.strokePath()
@@ -806,14 +823,14 @@ struct RouteMapView: UIViewRepresentable {
         private var appliedSatelliteLabels: Bool?
         var appliedInterfaceStyle: UIUserInterfaceStyle?
         private var routeOverlays: [RouteColorOverlay] = []
-        /// The renderers of the dotted jump overlays, so a zoom change can ask them to redraw.
-        /// Rebuilt with the overlays; see `updateRoutes`.
-        private var jumpRenderers: [JumpDotsRenderer] = []
-        /// The visible width the dots were last redrawn at, and when — the map's own zoom proxy,
+        /// The route renderers, so a zoom change can ask them to redraw. Rebuilt with the overlays;
+        /// see `updateRoutes`.
+        private var routeRenderers: [RouteLineRenderer] = []
+        /// The visible width the routes were last redrawn at, and when — the map's own zoom proxy,
         /// since `MKMapView` has no public zoom scale. A redraw re-strokes the whole overlay, so
         /// it is throttled: the visible region changes on every pan frame too.
-        private var jumpRedrawWidth: Double?
-        private var jumpRedrawTime: CFTimeInterval = 0
+        private var routeRedrawWidth: Double?
+        private var routeRedrawTime: CFTimeInterval = 0
         /// The tilt and turn last handed to the caller. The camera readout fires on every frame of a
         /// gesture, and a pan or a zoom moves neither — so those two are what decides whether a pose
         /// is worth reporting (`reportCameraPose`).
@@ -1379,7 +1396,7 @@ struct RouteMapView: UIViewRepresentable {
             }
 
             map.removeOverlays(routeOverlays)
-            jumpRenderers = []
+            routeRenderers = []
             routeOverlays = grouped.isEmpty
                 ? [Self.repaintCarrier(in: map.visibleMapRect)]
                 : grouped.map { RouteColorOverlay(color: $0.color, width: $0.width, dash: $0.dash,
@@ -1631,27 +1648,13 @@ struct RouteMapView: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let tone = overlay as? ToneOverlay { return ToneOverlayRenderer(tone: tone) }
             guard let group = overlay as? RouteColorOverlay else { return MKOverlayRenderer(overlay: overlay) }
-            if group.dash != nil {
-                // A jump: drawn as dots by hand — MapKit's dashed stroke does not hold its size
-                // against the map's zoom (see `JumpDotsRenderer`) — and kept in the list so a
-                // zoom change can ask for a redraw.
-                let renderer = JumpDotsRenderer(overlay: group)
-                jumpRenderers = jumpRenderers.filter { $0.overlay !== group }
-                jumpRenderers.append(renderer)
-                return renderer
-            }
-            let renderer = MKMultiPolylineRenderer(multiPolyline: group)
-            renderer.strokeColor = group.color
-            renderer.lineWidth = group.width
-            renderer.lineJoin = .round
-            if let dash = group.dash {
-                // A round cap on a zero-length dash is a circle — the jump's dot — and the
-                // pattern's second length is what keeps two of them apart.
-                renderer.lineCap = .round
-                renderer.lineDashPattern = dash.map { NSNumber(value: $0) }
-            } else {
-                renderer.lineCap = .round
-            }
+            // Every route — dotted or solid — is stroked by hand (`RouteLineRenderer`), and kept in
+            // the list so a zoom change can ask for a redraw: the width is converted from the screen's
+            // points at the zoom it is drawn at, and MapKit scales a tile it already drew between two
+            // levels rather than drawing it again.
+            let renderer = RouteLineRenderer(overlay: group)
+            routeRenderers = routeRenderers.filter { $0.overlay !== group }
+            routeRenderers.append(renderer)
             return renderer
         }
 
@@ -1677,7 +1680,7 @@ struct RouteMapView: UIViewRepresentable {
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
             applyDotDirection()
             reportCameraPose(mapView)
-            redrawJumpDotsIfZoomChanged(mapView)
+            redrawRoutesIfZoomChanged(mapView)
         }
 
         /// Hands the caller the map's camera — the tilt and the turn a rect cannot carry, and the
@@ -1695,30 +1698,30 @@ struct RouteMapView: UIViewRepresentable {
             parent.onCameraChange?(pose)
         }
 
-        /// Keeps a jump's dots at the size this zoom calls for.
+        /// Keeps every route — its line as much as a jump's dots — at the width this zoom calls for.
         ///
-        /// A dashed stroke is rasterised per tile level, so between two levels MapKit scales the
-        /// tile it already drew and the dots drift in size with the map. Asking the renderers to
-        /// redraw when the zoom has actually moved pulls them back — and both halves of that are
-        /// throttled, because a redraw re-strokes every dot on screen and the visible region
-        /// changes on every pan frame as well: only the tiles on screen are asked for again, and
-        /// only once the zoom has moved the dots by more than a fraction of a dot.
-        private func redrawJumpDotsIfZoomChanged(_ map: MKMapView) {
-            guard !jumpRenderers.isEmpty else { return }
+        /// A stroke is rasterised per tile level, so between two levels MapKit scales the tile it
+        /// already drew and the strokes drift in width with the map. Asking the renderers to redraw
+        /// when the zoom has actually moved pulls them back — and both halves of that are throttled,
+        /// because a redraw re-strokes every route on screen and the visible region changes on every
+        /// pan frame as well: only the tiles on screen are asked for again, and only once the zoom
+        /// has moved a stroke by more than a fraction of one.
+        private func redrawRoutesIfZoomChanged(_ map: MKMapView) {
+            guard !routeRenderers.isEmpty else { return }
             let rect = map.visibleMapRect
             let width = rect.width
             let now = CACurrentMediaTime()
-            if let previous = jumpRedrawWidth {
-                // What the zoom can have moved a dot by is the ratio of the two visible widths.
-                // The dots are a handful of points across, so a tenth of one is not worth the
+            if let previous = routeRedrawWidth {
+                // What the zoom can have moved a stroke by is the ratio of the two visible widths.
+                // A stroke is a handful of points across, so a tenth of one is not worth the
                 // strokes: the redraw is left for a real move, not for every pinch frame.
                 let moved = abs(width - previous) / max(width, previous)
                 guard moved > 0.15 else { return }
             }
-            guard now - jumpRedrawTime >= 0.15 else { return }
-            jumpRedrawWidth = width
-            jumpRedrawTime = now
-            for renderer in jumpRenderers { renderer.setNeedsDisplay(rect) }
+            guard now - routeRedrawTime >= 0.15 else { return }
+            routeRedrawWidth = width
+            routeRedrawTime = now
+            for renderer in routeRenderers { renderer.setNeedsDisplay(rect) }
         }
     }
 }

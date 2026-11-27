@@ -1053,12 +1053,18 @@ Notes on the map rendering, all measured from the original app:
   between them — so nothing in the route itself marks it; the cached route therefore keeps one
   interval per fix beside the coordinates (`WMR2`, the seconds the leg took, so a threshold can
   move without a fetch; a `WMR1` file, which held a jump flag instead, is fetched from Health
-  again). The dots are stroked by the app's own renderer (`JumpDotsRenderer`), because MapKit's
-  dashed stroke grows with the map's zoom: measured with the camera pinned over the same routes,
-  the dots came out ~4 px at a 1.5 km span and ~10 px at a 40 km one while the route line stayed
-  put, so they ended up wider than the line they interrupt. The renderer keeps the dot and its
-  gap fixed against the zoom, and the coordinator asks it to redraw when the zoom has actually
-  moved the dots by more than a fraction of one. MapKit hands a renderer **one tile at a time**,
+  again). **Every** route — the walked line as much as a dotted leg — is stroked by the app's own
+  renderer (`RouteLineRenderer`), and the dots came first: MapKit's dashed stroke grows with the
+  map's zoom — measured with the camera pinned over the same routes, the dots came out ~4 px at a
+  1.5 km span and ~10 px at a 40 km one while the route line stayed put, so they ended up wider
+  than the line they interrupt. The solid line followed it for a reason of MapKit's: an
+  `MKOverlayPathRenderer` converts its `lineWidth` with the map's own zoom scale, and the
+  **`realistic` elevation style** — which the satellite map needs for its 3D (`MapMode`) — hands
+  that conversion a different value, so the same 7 pt route came out **~2.8× as wide** there,
+  measured off two screenshots of the same view (median run across the line: 22 px on the imagery
+  against 8 px on the standard map; 14 against 14 once the line is stroked here). The renderer
+  keeps every stroke and its dashes fixed against the zoom, and the coordinator asks it to redraw
+  when the zoom has actually moved one by more than a fraction. MapKit hands a renderer **one tile at a time**,
   so the renderer keeps each leg with the rectangle it covers and strokes only the legs the tile
   can reach, all of them in one path: stroking the whole overlay per tile is what made the map
   crawl — measured at 8–11 ms a tile with a few thousand legs, every leg on the map stroked
