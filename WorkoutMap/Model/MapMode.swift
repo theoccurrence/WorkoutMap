@@ -49,7 +49,13 @@ enum MapMode: String, CaseIterable, Identifiable {
     /// * `transit` — the same, with the points of interest cut down to stations and stops.
     ///   MapKit draws the transit lines itself on the standard map; it has no switch for
     ///   them, so the stations are what is left to emphasise.
-    /// * `satellite` — imagery without labels, as Maps' own Satellite mode.
+    /// * `satellite` — imagery without labels, as Maps' own Satellite mode. The imagery is the one
+    ///   style whose **elevation** has to be `realistic` rather than `flat`: the standard map is drawn
+    ///   with its buildings whatever the elevation says, so a two-finger tilt lifts Explore, Driving,
+    ///   Transit and Legacy into 3D on its own, while a `flat` imagery map is held at 0° — it is the
+    ///   one mode that would not tilt at all (measured: the same camera, pitched 55°, leaves an imagery
+    ///   map flat and lifts a standard one to 3D). `realistic` is what lets MapKit draw its 3D imagery
+    ///   and terrain, where the region has any; from straight above the two look the same.
     /// * `legacy` — the style the app shipped with: the muted standard map with every point
     ///   of interest excluded, greyed out by the tone pass (see `usesTone`).
     func configuration(satelliteLabels: Bool = MapMode.satelliteLabels) -> MKMapConfiguration {
@@ -68,8 +74,8 @@ enum MapMode: String, CaseIterable, Identifiable {
             // Hybrid is the imagery *with* the labels layer — roads, places — which is what Maps'
             // Satellite mode shows by default; imagery alone is the bare photograph.
             return satelliteLabels
-                ? MKHybridMapConfiguration(elevationStyle: .flat)
-                : MKImageryMapConfiguration(elevationStyle: .flat)
+                ? MKHybridMapConfiguration(elevationStyle: .realistic)
+                : MKImageryMapConfiguration(elevationStyle: .realistic)
         case .legacy:
             let config = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
             config.pointOfInterestFilter = .excludingAll

@@ -236,7 +236,15 @@ Notes on the map rendering, all measured from the original app:
   with `showsTraffic` for Driving, the same with only `.publicTransport` points of
   interest for Transit (MapKit draws the transit lines itself on the standard map and
   has no switch for them), `MKImageryMapConfiguration` for Satellite, and the muted
-  standard map with every point of interest excluded for Legacy. The tone pass belongs
+  standard map with every point of interest excluded for Legacy. **Satellite is the one
+  style whose `elevationStyle` is `realistic`** rather than `flat`, and that is not a
+  detail: the standard map is drawn with its buildings whatever the elevation says, so a
+  two-finger tilt lifts Explore, Driving, Transit and Legacy into 3D on its own, while a
+  `flat` imagery map is held at 0° — the same camera, pitched 55°, left an imagery map
+  flat and lifted a standard one to 3D (measured), which is why Satellite was the one mode
+  that would not tilt at all. `realistic` is what lets MapKit draw its 3D imagery and the
+  extruded blocks in it, where the region has them; from straight above the two look the
+  same, and the imagery-only and hybrid (labels) variants both take it. The tone pass belongs
   to Legacy alone and is switched **inside the renderer** (`ToneOverlay.active`)
   instead of being removed and re-added: MapKit draws the overlays of one level in the
   order they were added, so a tone pass re-added after a mode change would land above
